@@ -7,6 +7,7 @@ import 'package:myspace/domain/models/album.dart';
 import 'package:myspace/domain/models/user_account.dart';
 
 enum GridDensity { compact, comfortable, large }
+enum SearchMode { askPhotos, classic }
 
 class PhotosViewModel extends ChangeNotifier {
   final MediaRepository _repository;
@@ -32,6 +33,24 @@ class PhotosViewModel extends ChangeNotifier {
 
   String? _selectedCategory;
   String? get selectedCategory => _selectedCategory;
+
+  SearchMode _searchMode = SearchMode.askPhotos;
+  SearchMode get searchMode => _searchMode;
+
+  String _currentScrollDate = 'October 2026';
+  String get currentScrollDate => _currentScrollDate;
+
+  void setSearchMode(SearchMode mode) {
+    _searchMode = mode;
+    notifyListeners();
+  }
+
+  void updateScrollDate(String date) {
+    if (_currentScrollDate != date) {
+      _currentScrollDate = date;
+      notifyListeners();
+    }
+  }
 
   final Set<String> _lockedFolderIds = {};
   Set<String> get lockedFolderIds => Set.unmodifiable(_lockedFolderIds);

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:myspace/data/repositories/media_repository.dart';
 import 'package:myspace/ui/core/widgets/google_photos_logo.dart';
@@ -80,11 +81,11 @@ void main() {
       await tester.pumpWidget(const MySpacePhotosApp(initialLoggedIn: true));
       await tester.pump();
 
-      // Verify Google Photos navigation destinations
+      // Verify Google Photos 7.97 floating navigation destinations
       expect(find.text('Photos'), findsOneWidget);
-      expect(find.text('Memories'), findsOneWidget);
       expect(find.text('Collections'), findsOneWidget);
-      expect(find.text('Search'), findsOneWidget);
+      expect(find.text('Create'), findsOneWidget);
+      expect(find.byIcon(Icons.search), findsOneWidget);
 
       // Verify Google Photos logo
       expect(find.byType(GooglePhotosLogo), findsOneWidget);
@@ -246,6 +247,30 @@ void main() {
       final usedBefore = vm.userAccount.storageUsedGB;
       vm.freeUpSpace(1.0);
       expect(vm.userAccount.storageUsedGB, usedBefore - 1.0);
+    });
+
+    testWidgets('Google Photos 7.97 navigation to Create and Search tabs', (WidgetTester tester) async {
+      await tester.pumpWidget(const MySpacePhotosApp(initialLoggedIn: true));
+      await tester.pump();
+
+      // Tap Create tab in floating pill
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+
+      // Verify Create studio tools
+      expect(find.text('Bring your memories to life with creative tools and AI'), findsOneWidget);
+      expect(find.text('Collage'), findsOneWidget);
+      expect(find.text('Highlight video'), findsOneWidget);
+      expect(find.text('Cinematic photo'), findsOneWidget);
+
+      // Tap Search FAB
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+
+      // Verify Ask Photos & Classic search options
+      expect(find.text('Ask Photos'), findsOneWidget);
+      expect(find.text('Classic search'), findsOneWidget);
+      expect(find.text('Ask Photos with Gemini'), findsOneWidget);
     });
   });
 }

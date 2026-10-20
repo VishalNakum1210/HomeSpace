@@ -7,6 +7,8 @@ import 'package:myspace/ui/features/collections/favorites_screen.dart';
 import 'package:myspace/ui/features/collections/archive_screen.dart';
 import 'package:myspace/ui/features/collections/locked_folder_screen.dart';
 import 'package:myspace/ui/features/collections/album_detail_screen.dart';
+import 'package:myspace/ui/features/memories/memories_view.dart';
+import 'package:myspace/ui/features/memories/story_viewer_screen.dart';
 
 class CollectionsView extends StatelessWidget {
   const CollectionsView({super.key});
@@ -17,6 +19,7 @@ class CollectionsView extends StatelessWidget {
     final vm = context.watch<PhotosViewModel>();
     final albums = vm.albums;
     final folders = vm.deviceFolders;
+    final memories = vm.memories;
 
     return Scaffold(
       appBar: AppBar(
@@ -28,7 +31,7 @@ class CollectionsView extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
         children: [
-          // 4 Main Utility Cards
+          // 4 Main Utility Cards (Favorites, Trash, Archive, Locked Folder)
           Row(
             children: [
               Expanded(
@@ -84,7 +87,115 @@ class CollectionsView extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 24),
+
+          // Google Photos 7.97 Integrated Memories Section
+          if (memories.isNotEmpty) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Memories & Highlights',
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const MemoriesView()));
+                  },
+                  child: const Text('View all'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 156,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: memories.length,
+                itemBuilder: (context, index) {
+                  final story = memories[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 12.0),
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => StoryViewerScreen(story: story)),
+                        );
+                      },
+                      child: Container(
+                        width: 116,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.15),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Image.network(
+                                story.coverUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Container(color: Colors.grey[800]),
+                              ),
+                              Container(
+                                decoration: const BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [Colors.transparent, Colors.black87],
+                                    stops: [0.4, 1.0],
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                bottom: 8,
+                                left: 8,
+                                right: 8,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      story.title,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    Text(
+                                      story.subtitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(alpha: 0.8),
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
 
           // Albums Section Header
           Row(
@@ -119,7 +230,7 @@ class CollectionsView extends StatelessWidget {
               return _AlbumGridItem(album: album);
             },
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 24),
 
           // Photos on this device Section
           Row(
@@ -206,7 +317,7 @@ class CollectionsView extends StatelessWidget {
               },
             ),
           ),
-          const SizedBox(height: 80),
+          const SizedBox(height: 96), // Clearance for floating navigation bar
         ],
       ),
     );
