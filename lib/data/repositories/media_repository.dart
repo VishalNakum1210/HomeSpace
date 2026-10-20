@@ -151,4 +151,12 @@ class MediaRepository {
     final newUsed = (_userAccount.storageUsedGB - freedGB).clamp(0.0, _userAccount.storageTotalGB);
     _userAccount = _userAccount.copyWith(storageUsedGB: newUsed);
   }
+
+  void updateUserAccount(UserAccount account) {
+    _userAccount = account;
+  }
+
+  void resetUserAccount() {
+    _userAccount = MockMediaDataSource.getInitialUserAccount();
+  }
 }

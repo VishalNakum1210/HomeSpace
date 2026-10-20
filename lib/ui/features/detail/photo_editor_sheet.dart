@@ -130,7 +130,16 @@ class _PhotoEditorSheetState extends State<PhotoEditorSheet> {
     Widget img = Image.network(
       widget.item.url,
       fit: BoxFit.contain,
-      errorBuilder: (_, _, _) => Image.network(widget.item.thumbnailUrl, fit: BoxFit.contain),
+      errorBuilder: (_, _, _) => Image.network(
+        widget.item.thumbnailUrl,
+        fit: BoxFit.contain,
+        errorBuilder: (_, _, _) => Container(
+          color: Colors.grey[900],
+          child: const Center(
+            child: Icon(Icons.broken_image_outlined, color: Colors.white54, size: 48),
+          ),
+        ),
+      ),
     );
 
     if (_currentFilter == 'Mono') {

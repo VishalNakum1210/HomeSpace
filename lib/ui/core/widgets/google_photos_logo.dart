@@ -12,12 +12,27 @@ class GooglePhotosLogo extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: CustomPaint(
-        painter: _GooglePhotosLogoPainter(),
+      child: Image.asset(
+        'assets/branding/homespace_logo.png',
+        width: size,
+        height: size,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        errorBuilder: (context, error, stackTrace) => Image.asset(
+          'assets/branding/app_icon_transparent.png',
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) => CustomPaint(
+            painter: _GooglePhotosLogoPainter(),
+          ),
+        ),
       ),
     );
   }
 }
+
+typedef HomeSpaceLogo = GooglePhotosLogo;
 
 class _GooglePhotosLogoPainter extends CustomPainter {
   @override

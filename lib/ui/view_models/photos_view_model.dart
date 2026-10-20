@@ -33,14 +33,22 @@ class PhotosViewModel extends ChangeNotifier {
   String? _selectedCategory;
   String? get selectedCategory => _selectedCategory;
 
-  // Locked folder state
   final Set<String> _lockedFolderIds = {};
   Set<String> get lockedFolderIds => Set.unmodifiable(_lockedFolderIds);
   bool _isLockedFolderUnlocked = false;
   bool get isLockedFolderUnlocked => _isLockedFolderUnlocked;
   final String _correctPin = '1234';
 
-  PhotosViewModel({required this._repository});
+  // Auth state
+  bool _isLoggedIn = false;
+  bool get isLoggedIn => _isLoggedIn;
+
+  // ignore: prefer_initializing_formals
+  PhotosViewModel({required MediaRepository repository, bool isLoggedIn = false})
+      // ignore: prefer_initializing_formals
+      : _repository = repository,
+        // ignore: prefer_initializing_formals
+        _isLoggedIn = isLoggedIn;
 
   void setTabIndex(int index) {
     if (_currentTabIndex != index) {
@@ -323,6 +331,12 @@ class PhotosViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void addItemsToAlbum(String albumId, List<String> itemIds) {
+    _repository.addItemsToAlbum(albumId, itemIds);
+    _selectedIds.clear();
+    notifyListeners();
+  }
+
   void toggleBackup() {
     _repository.toggleBackup();
     notifyListeners();
@@ -362,5 +376,107 @@ class PhotosViewModel extends ChangeNotifier {
   List<MediaItem> get lockedItems {
     final all = _repository.getActiveMediaItems();
     return all.where((item) => _lockedFolderIds.contains(item.id)).toList();
+  }
+
+  // --- AUTHENTICATION ACTIONS ---
+  void setLoggedIn(bool val) {
+    _isLoggedIn = val;
+    notifyListeners();
+  }
+
+  Future<bool> login({
+    required String email,
+    required String password,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 650));
+    final cleanEmail = email.trim();
+    final localPart = cleanEmail.split('@').first;
+    final name = localPart.isNotEmpty
+        ? localPart[0].toUpperCase() + localPart.substring(1)
+        : 'User';
+
+    _repository.updateUserAccount(
+      _repository.getUserAccount().copyWith(
+        displayName: name,
+        email: cleanEmail,
+        isGuest: false,
+        avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80',
+        backupStatusText: 'Backup complete',
+      ),
+    );
+    _isLoggedIn = true;
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> register({
+    required String name,
+    required String email,
+    required String password,
+    bool enableBackup = true,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 700));
+    _repository.updateUserAccount(
+      UserAccount(
+        displayName: name.trim(),
+        email: email.trim(),
+        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+        storageUsedGB: 0.2,
+        storageTotalGB: 15.0,
+        isBackupEnabled: enableBackup,
+        backupStatusText: enableBackup ? 'Backup active' : 'Backup paused',
+        isBackingUp: false,
+        isGuest: false,
+      ),
+    );
+    _isLoggedIn = true;
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> loginWithGoogle({String? name, String? email}) async {
+    await Future.delayed(const Duration(milliseconds: 600));
+    _repository.updateUserAccount(
+      UserAccount(
+        displayName: name ?? 'Vishal Nakum',
+        email: email ?? 'vishal7228918826@gmail.com',
+        avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80',
+        storageUsedGB: 11.4,
+        storageTotalGB: 15.0,
+        isBackupEnabled: true,
+        backupStatusText: 'Backup complete',
+        isBackingUp: false,
+        isGuest: false,
+      ),
+    );
+    _isLoggedIn = true;
+    notifyListeners();
+    return true;
+  }
+
+  void continueAsGuest() {
+    _repository.updateUserAccount(
+      const UserAccount(
+        displayName: 'Guest User',
+        email: 'guest@homespace.local',
+        avatarUrl: '',
+        storageUsedGB: 0.0,
+        storageTotalGB: 15.0,
+        isBackupEnabled: false,
+        backupStatusText: 'Cloud backup paused (Guest)',
+        isBackingUp: false,
+        isGuest: true,
+      ),
+    );
+    _isLoggedIn = true;
+    notifyListeners();
+  }
+
+  void logout() {
+    _isLoggedIn = false;
+    _repository.resetUserAccount();
+    _selectedIds.clear();
+    _currentTabIndex = 0;
+    notifyListeners();
   }
 }

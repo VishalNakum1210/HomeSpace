@@ -1,11 +1,11 @@
 {
-    "name": "myspace",
-    "short_name": "myspace",
+    "name": "Home Space",
+    "short_name": "Home Space",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Home Space - Photo & Video Gallery",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

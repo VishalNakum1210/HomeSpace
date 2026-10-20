@@ -143,7 +143,7 @@ class CollectionsView extends StatelessWidget {
 
           // Device Folders Horizontal List
           SizedBox(
-            height: 160,
+            height: 172,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: folders.length,
@@ -349,11 +349,15 @@ class _QuickActionCard extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
             const SizedBox(height: 2),
             Text(
               subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 11.5, color: Colors.grey[600]),
             ),
           ],

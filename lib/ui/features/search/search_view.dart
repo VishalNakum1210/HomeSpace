@@ -74,13 +74,15 @@ class _SearchViewState extends State<SearchView> {
         // Active Filter Banner
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
-          child: Row(
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text(
                 '${results.length} results',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              const Spacer(),
               if (vm.selectedPerson != null)
                 Chip(
                   label: Text('Person: ${vm.selectedPerson}'),
@@ -189,7 +191,7 @@ class _SearchViewState extends State<SearchView> {
 
         // People Avatars Row
         SizedBox(
-          height: 100,
+          height: 112,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             itemCount: people.length,
@@ -262,7 +264,14 @@ class _SearchViewState extends State<SearchView> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Image.network(pl['img']!, fit: BoxFit.cover),
+                    Image.network(
+                      pl['img']!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        color: Colors.grey[800],
+                        child: const Center(child: Icon(Icons.location_on, color: Colors.white54)),
+                      ),
+                    ),
                     Container(
                       decoration: const BoxDecoration(
                         gradient: LinearGradient(

@@ -170,7 +170,7 @@ class AlbumDetailScreen extends StatelessWidget {
                     FilledButton(
                       onPressed: () {
                         if (chosen.isNotEmpty) {
-                          vm.addSelectedToAlbum(album.id);
+                          vm.addItemsToAlbum(album.id, chosen.toList());
                         }
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -206,7 +206,11 @@ class AlbumDetailScreen extends StatelessWidget {
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            Image.network(item.thumbnailUrl, fit: BoxFit.cover),
+                            Image.network(
+                              item.thumbnailUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => Container(color: Colors.grey[800]),
+                            ),
                             if (isSelected)
                               Container(
                                 color: Colors.blue.withValues(alpha: 0.35),

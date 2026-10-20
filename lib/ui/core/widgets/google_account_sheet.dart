@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:myspace/ui/view_models/photos_view_model.dart';
 import 'package:myspace/ui/core/theme/photos_theme.dart';
+import 'package:myspace/ui/features/auth/login_screen.dart';
 
 class GoogleAccountSheet extends StatelessWidget {
   const GoogleAccountSheet({super.key});
@@ -63,6 +64,61 @@ class GoogleAccountSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
 
+                // Guest Mode banner if applicable
+                if (account.isGuest)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: PhotosColors.googleBlue.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: PhotosColors.googleBlue.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.info_outline, color: PhotosColors.googleBlue, size: 22),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Browsing as Guest',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: PhotosColors.googleBlue,
+                                ),
+                              ),
+                              Text(
+                                'Sign in to back up photos to Google Photos.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.8),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const LoginScreen()),
+                            );
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: PhotosColors.googleBlue,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          child: const Text('Sign in', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 // User details card
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -79,7 +135,9 @@ class GoogleAccountSheet extends StatelessWidget {
                         children: [
                           CircleAvatar(
                             radius: 24,
-                            backgroundImage: NetworkImage(account.avatarUrl),
+                            backgroundImage: account.avatarUrl.isNotEmpty
+                                ? NetworkImage(account.avatarUrl)
+                                : null,
                             child: account.avatarUrl.isEmpty
                                 ? const Icon(Icons.person)
                                 : null,
@@ -248,6 +306,20 @@ class GoogleAccountSheet extends StatelessWidget {
 
                 // Settings List
                 ListTile(
+                  leading: const Icon(Icons.person_add_alt_1_outlined),
+                  title: const Text('Add another account'),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const LoginScreen(isAddAccount: true),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
                   leading: const Icon(Icons.settings_outlined),
                   title: const Text('Photos settings'),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -267,6 +339,18 @@ class GoogleAccountSheet extends StatelessWidget {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Help & Feedback')),
                     );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.logout_rounded, color: PhotosColors.googleRed),
+                  title: const Text(
+                    'Sign out of Home Space',
+                    style: TextStyle(color: PhotosColors.googleRed, fontWeight: FontWeight.w500),
+                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  onTap: () {
+                    Navigator.of(context).popUntil((r) => r.isFirst);
+                    vm.logout();
                   },
                 ),
                 const SizedBox(height: 12),

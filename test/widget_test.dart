@@ -77,7 +77,7 @@ void main() {
 
   group('MySpace Google Photos Replica Tests', () {
     testWidgets('App smoke test loads HomeScaffold and navigation destinations', (WidgetTester tester) async {
-      await tester.pumpWidget(const MySpacePhotosApp());
+      await tester.pumpWidget(const MySpacePhotosApp(initialLoggedIn: true));
       await tester.pump();
 
       // Verify Google Photos navigation destinations
@@ -88,6 +88,67 @@ void main() {
 
       // Verify Google Photos logo
       expect(find.byType(GooglePhotosLogo), findsOneWidget);
+    });
+
+    testWidgets('App initial launch shows LoginScreen and transitions to RegisterScreen', (WidgetTester tester) async {
+      await tester.pumpWidget(const MySpacePhotosApp(initialLoggedIn: false));
+      await tester.pump();
+
+      // Verify Login screen elements
+      expect(find.text('Home Space'), findsOneWidget);
+      expect(find.text('Sign in to your account'), findsOneWidget);
+      expect(find.text('Sign in'), findsOneWidget);
+      expect(find.text('Sign in with Google'), findsOneWidget);
+      expect(find.text('Use without an account (Guest)'), findsOneWidget);
+
+      // Tap Create account to navigate to RegisterScreen
+      await tester.ensureVisible(find.text('Create account'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Create account'));
+      await tester.pumpAndSettle();
+
+      // Verify RegisterScreen elements
+      expect(find.text('Create Account'), findsOneWidget);
+      expect(find.text('Join Home Space'), findsOneWidget);
+      expect(find.text('Automatic Cloud Backup'), findsOneWidget);
+      expect(find.text('Sign up with Google'), findsOneWidget);
+    });
+
+    testWidgets('Login screen guest mode transitions into HomeScaffold', (WidgetTester tester) async {
+      await tester.pumpWidget(const MySpacePhotosApp(initialLoggedIn: false));
+      await tester.pump();
+
+      // Tap Guest mode
+      await tester.ensureVisible(find.text('Use without an account (Guest)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Use without an account (Guest)'));
+      await tester.pumpAndSettle();
+
+      // Should land in HomeScaffold
+      expect(find.text('Photos'), findsOneWidget);
+      expect(find.text('Collections'), findsOneWidget);
+    });
+
+    test('PhotosViewModel auth workflows: login, guest, and logout', () async {
+      final repository = MediaRepository();
+      final vm = PhotosViewModel(repository: repository, isLoggedIn: false);
+
+      expect(vm.isLoggedIn, false);
+
+      // Login
+      await vm.login(email: 'test@example.com', password: 'password123');
+      expect(vm.isLoggedIn, true);
+      expect(vm.userAccount.email, 'test@example.com');
+      expect(vm.userAccount.isGuest, false);
+
+      // Logout
+      vm.logout();
+      expect(vm.isLoggedIn, false);
+
+      // Guest mode
+      vm.continueAsGuest();
+      expect(vm.isLoggedIn, true);
+      expect(vm.userAccount.isGuest, true);
     });
 
     test('PhotosViewModel selection and favorite management', () {

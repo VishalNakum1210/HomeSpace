@@ -141,6 +141,8 @@ class _FeaturedMemoryCard extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       memory.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 22,
@@ -150,6 +152,8 @@ class _FeaturedMemoryCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       memory.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.85),
                         fontSize: 14,

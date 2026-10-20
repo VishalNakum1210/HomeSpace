@@ -85,6 +85,14 @@ class _GoogleLensSheetState extends State<GoogleLensSheet> with SingleTickerProv
                       height: 200,
                       width: MediaQuery.of(context).size.width - 32,
                       fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        height: 200,
+                        width: MediaQuery.of(context).size.width - 32,
+                        color: Colors.grey[900],
+                        child: const Center(
+                          child: Icon(Icons.document_scanner_outlined, color: Colors.white54, size: 48),
+                        ),
+                      ),
                     ),
                   ),
 
@@ -132,14 +140,14 @@ class _GoogleLensSheetState extends State<GoogleLensSheet> with SingleTickerProv
             ),
             const SizedBox(height: 12),
 
-            // Lens Mode Chips (Search, Text, Translate, Homework)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            // Lens Mode Chips (Search, Text, Translate)
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 6,
               children: [
                 _buildModeChip(0, 'Search', Icons.search),
-                const SizedBox(width: 8),
                 _buildModeChip(1, 'Text', Icons.text_fields),
-                const SizedBox(width: 8),
                 _buildModeChip(2, 'Translate', Icons.translate),
               ],
             ),

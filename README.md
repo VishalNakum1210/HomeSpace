@@ -1,6 +1,6 @@
-# MySpace — Google Photos Replica Frontend (Flutter)
+# Home Space — Google Photos Replica Frontend (Flutter)
 
-A high-fidelity, pixel-perfect **Google Photos** replica frontend built with **Flutter 3.47** & **Material 3**.
+A high-fidelity, pixel-perfect **Home Space** photo gallery application built with **Flutter 3.47** & **Material 3**.
 
 ---
 

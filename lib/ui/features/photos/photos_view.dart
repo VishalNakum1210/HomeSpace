@@ -76,8 +76,8 @@ class PhotosView extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const SizedBox(width: 12),
-            const GooglePhotosLogo(size: 26),
+            const SizedBox(width: 14),
+            const HomeSpaceLogo(size: 30),
             const SizedBox(width: 12),
             Expanded(
               child: GestureDetector(
@@ -115,7 +115,7 @@ class PhotosView extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 17,
-                      backgroundImage: NetworkImage(account.avatarUrl),
+                      backgroundImage: account.avatarUrl.isNotEmpty ? NetworkImage(account.avatarUrl) : null,
                       child: account.avatarUrl.isEmpty ? const Icon(Icons.person, size: 16) : null,
                     ),
                     Positioned(
@@ -124,14 +124,22 @@ class PhotosView extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.all(1.5),
                         decoration: BoxDecoration(
-                          color: account.isBackupEnabled ? PhotosColors.googleGreen : Colors.grey,
+                          color: account.isGuest
+                              ? Colors.grey
+                              : (account.isBackupEnabled ? PhotosColors.googleGreen : Colors.grey),
                           shape: BoxShape.circle,
                           border: Border.all(
                             color: isDark ? PhotosColors.darkSurfaceVariant : Colors.white,
                             width: 1.5,
                           ),
                         ),
-                        child: const Icon(Icons.check, size: 8, color: Colors.white),
+                        child: Icon(
+                          account.isGuest
+                              ? Icons.cloud_off
+                              : (account.isBackupEnabled ? Icons.check : Icons.pause),
+                          size: 8,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ],

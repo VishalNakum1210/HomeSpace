@@ -89,7 +89,16 @@ class _PhotoDetailScreenState extends State<PhotoDetailScreen> {
     Widget img = Image.network(
       item.url,
       fit: BoxFit.contain,
-      errorBuilder: (_, _, _) => Image.network(item.thumbnailUrl, fit: BoxFit.contain),
+      errorBuilder: (_, _, _) => Image.network(
+        item.thumbnailUrl,
+        fit: BoxFit.contain,
+        errorBuilder: (_, _, _) => Container(
+          color: Colors.black,
+          child: const Center(
+            child: Icon(Icons.broken_image, color: Colors.white54, size: 64),
+          ),
+        ),
+      ),
     );
 
     // Apply filter color matrix or color filter
