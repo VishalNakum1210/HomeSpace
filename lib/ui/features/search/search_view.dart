@@ -15,14 +15,6 @@ class SearchView extends StatefulWidget {
 class _SearchViewState extends State<SearchView> {
   final TextEditingController _searchController = TextEditingController();
 
-  final List<String> _geminiPrompts = [
-    'Show photos of me in Tokyo',
-    'Delicious meals and dining',
-    'Sunset over the mountains',
-    'Find documents and notes',
-    'Best scenic nature shots',
-  ];
-
   @override
   void dispose() {
     _searchController.dispose();
@@ -31,8 +23,6 @@ class _SearchViewState extends State<SearchView> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final vm = context.watch<PhotosViewModel>();
     final isSearching = vm.searchQuery.isNotEmpty ||
         vm.selectedTag != null ||
@@ -45,23 +35,17 @@ class _SearchViewState extends State<SearchView> {
         title: Container(
           height: 48,
           decoration: BoxDecoration(
-            color: isDark ? PhotosColors.darkSurfaceVariant : PhotosColors.lightSurfaceVariant,
+            color: Theme.of(context).brightness == Brightness.dark
+                ? PhotosColors.darkSurfaceVariant
+                : PhotosColors.lightSurfaceVariant,
             borderRadius: BorderRadius.circular(24),
           ),
           child: TextField(
             controller: _searchController,
             onChanged: (val) => vm.setSearchQuery(val),
             decoration: InputDecoration(
-              hintText: vm.searchMode == SearchMode.askPhotos
-                  ? 'Ask Photos anything...'
-                  : 'Search people, places, things...',
-              prefixIcon: Icon(
-                vm.searchMode == SearchMode.askPhotos
-                    ? Icons.auto_awesome
-                    : Icons.search,
-                color: vm.searchMode == SearchMode.askPhotos ? PhotosColors.googleBlue : null,
-                size: 22,
-              ),
+              hintText: 'Search people, places, things...',
+              prefixIcon: const Icon(Icons.search, size: 22),
               suffixIcon: _searchController.text.isNotEmpty
                   ? IconButton(
                       icon: const Icon(Icons.clear, size: 20),
@@ -76,297 +60,39 @@ class _SearchViewState extends State<SearchView> {
             ),
           ),
         ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(44),
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 8.0, left: 16.0, right: 16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildModeTab(
-                  label: 'Ask Photos',
-                  icon: Icons.auto_awesome,
-                  isSelected: vm.searchMode == SearchMode.askPhotos,
-                  onTap: () => vm.setSearchMode(SearchMode.askPhotos),
-                ),
-                const SizedBox(width: 8),
-                _buildModeTab(
-                  label: 'Classic search',
-                  icon: Icons.search,
-                  isSelected: vm.searchMode == SearchMode.classic,
-                  onTap: () => vm.setSearchMode(SearchMode.classic),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
       body: isSearching
           ? _buildSearchResults(context, vm, results)
-          : (vm.searchMode == SearchMode.askPhotos
-              ? _buildAskPhotosPrompts(context, vm)
-              : _buildExploreCategories(context, vm)),
-    );
-  }
-
-  Widget _buildModeTab({
-    required String label,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? (isDark ? const Color(0xFF004A77) : const Color(0xFFD3E3FD))
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? Colors.transparent : (isDark ? Colors.white24 : Colors.black12),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 15,
-              color: isSelected ? PhotosColors.googleBlue : null,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                color: isSelected
-                    ? (isDark ? const Color(0xFFC2E7FF) : const Color(0xFF041E49))
-                    : null,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAskPhotosPrompts(BuildContext context, PhotosViewModel vm) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-      children: [
-        // Gemini Banner
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isDark
-                  ? [const Color(0xFF132238), const Color(0xFF1C1C1C)]
-                  : [const Color(0xFFEBF2FD), const Color(0xFFF8F9FA)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: PhotosColors.googleBlue.withValues(alpha: 0.3)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: PhotosColors.googleBlue.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.auto_awesome, color: PhotosColors.googleBlue, size: 24),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Ask Photos with Gemini',
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      'Search naturally like you speak. Try asking for specific moments, themes, or details in your photos.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.8),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 24),
-        Text(
-          'Try asking...',
-          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-
-        ..._geminiPrompts.map((prompt) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8.0),
-            child: InkWell(
-              onTap: () {
-                _searchController.text = prompt;
-                // Parse key terms for smart filtering
-                if (prompt.contains('Tokyo')) {
-                  vm.setSearchQuery('Tokyo');
-                } else if (prompt.contains('meals') || prompt.contains('dining')) {
-                  vm.setSelectedTag('Food');
-                } else if (prompt.contains('Sunset') || prompt.contains('mountains')) {
-                  vm.setSelectedTag('Sunset');
-                } else if (prompt.contains('nature') || prompt.contains('scenic')) {
-                  vm.setSelectedTag('Nature');
-                } else {
-                  vm.setSearchQuery(prompt);
-                }
-              },
-              borderRadius: BorderRadius.circular(16),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: isDark ? PhotosColors.darkSurfaceVariant : Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: isDark ? PhotosColors.darkBorder : PhotosColors.lightBorder,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.auto_awesome, color: PhotosColors.googleBlue, size: 18),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        prompt,
-                        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13.5),
-                      ),
-                    ),
-                    Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey[500]),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }),
-
-        const SizedBox(height: 24),
-        Text(
-          'Recent People',
-          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 96,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              _personAvatar('Sophia', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80', vm),
-              _personAvatar('Alex', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80', vm),
-              _personAvatar('Liam', 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80', vm),
-              _personAvatar('Elena', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80', vm),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 96), // Clearance for floating navigation pill
-      ],
-    );
-  }
-
-  Widget _personAvatar(String name, String url, PhotosViewModel vm) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 14.0),
-      child: GestureDetector(
-        onTap: () => vm.setSelectedPerson(name),
-        child: Column(
-          children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundImage: NetworkImage(url),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              name,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-          ],
-        ),
-      ),
+          : _buildExploreCategories(context, vm),
     );
   }
 
   Widget _buildSearchResults(BuildContext context, PhotosViewModel vm, dynamic results) {
-    final isGemini = vm.searchMode == SearchMode.askPhotos;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Gemini Explanation or Active Filter Banner
+        // Active Filter Banner
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              if (isGemini)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: PhotosColors.googleBlue.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: PhotosColors.googleBlue.withValues(alpha: 0.25)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.auto_awesome, color: PhotosColors.googleBlue, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Gemini found ${results.length} photos matching your request',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    '${results.length} results',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  if (vm.selectedPerson != null)
-                    Chip(
-                      label: Text('Person: ${vm.selectedPerson}'),
-                      onDeleted: () => vm.setSelectedPerson(null),
-                    ),
-                  if (vm.selectedTag != null)
-                    Chip(
-                      label: Text('Tag: ${vm.selectedTag}'),
-                      onDeleted: () => vm.setSelectedTag(null),
-                    ),
-                ],
+              Text(
+                '${results.length} results',
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
+              if (vm.selectedPerson != null)
+                Chip(
+                  label: Text('Person: ${vm.selectedPerson}'),
+                  onDeleted: () => vm.setSelectedPerson(null),
+                ),
+              if (vm.selectedTag != null)
+                Chip(
+                  label: Text('Tag: ${vm.selectedTag}'),
+                  onDeleted: () => vm.setSelectedTag(null),
+                ),
             ],
           ),
         ),
@@ -596,7 +322,7 @@ class _SearchViewState extends State<SearchView> {
             );
           }).toList(),
         ),
-        const SizedBox(height: 96), // Clearance for floating navigation pill
+        const SizedBox(height: 80),
       ],
     );
   }

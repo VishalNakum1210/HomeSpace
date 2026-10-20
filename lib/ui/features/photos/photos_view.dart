@@ -44,7 +44,6 @@ class _PhotosViewState extends State<PhotosView> {
             NotificationListener<ScrollNotification>(
               onNotification: (scrollInfo) {
                 if (scrollInfo is ScrollUpdateNotification) {
-                  // Determine rough active date from scroll offset
                   final grouped = vm.groupedTimelineItems;
                   if (grouped.isNotEmpty) {
                     final keys = grouped.keys.toList();
@@ -69,10 +68,10 @@ class _PhotosViewState extends State<PhotosView> {
               },
               child: CustomScrollView(
                 slivers: [
-                  // Google Photos 7.97 Clean Top App Header
+                  // Google Photos Search & Account Top Bar
                   if (!isSelectionMode)
                     SliverToBoxAdapter(
-                      child: _buildTopHeader(context, vm),
+                      child: _buildSearchBar(context, vm),
                     ),
 
                   // Top Highlights / Stories Reel
@@ -90,15 +89,15 @@ class _PhotosViewState extends State<PhotosView> {
                   // Grouped Timeline Grid
                   ..._buildTimelineSlivers(context, vm),
 
-                  // Bottom spacer for floating pill navigation bar clearance
+                  // Bottom spacer for navigation bar clearance
                   const SliverToBoxAdapter(
-                    child: SizedBox(height: 96),
+                    child: SizedBox(height: 80),
                   ),
                 ],
               ),
             ),
 
-            // Google Photos 7.97 Signature Dynamic Floating Date Capsule during Scroll
+            // Dynamic Floating Date Indicator Capsule during Scroll
             if (!isSelectionMode)
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 220),
@@ -149,91 +148,100 @@ class _PhotosViewState extends State<PhotosView> {
     );
   }
 
-  Widget _buildTopHeader(BuildContext context, PhotosViewModel vm) {
+  Widget _buildSearchBar(BuildContext context, PhotosViewModel vm) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final account = vm.userAccount;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Row(
-        children: [
-          const HomeSpaceLogo(size: 32),
-          const SizedBox(width: 12),
-          Text(
-            'Home Space',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.5,
+      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
+      child: Container(
+        height: 52,
+        decoration: BoxDecoration(
+          color: isDark ? PhotosColors.darkSurfaceVariant : PhotosColors.lightSurfaceVariant,
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
-          ),
-          const Spacer(),
-
-          // Grid density toggle (Compact, Comfortable, Day View)
-          IconButton(
-            icon: Icon(
-              vm.gridDensity == GridDensity.compact
-                  ? Icons.grid_view_outlined
-                  : (vm.gridDensity == GridDensity.comfortable
-                      ? Icons.view_comfy_outlined
-                      : Icons.calendar_view_day_outlined),
-              size: 22,
-            ),
-            tooltip: 'Toggle Grid View',
-            onPressed: () => vm.cycleGridDensity(),
-          ),
-
-          // Cast Button
-          IconButton(
-            icon: const Icon(Icons.cast_outlined, size: 22),
-            tooltip: 'Cast',
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Searching for Cast devices...')),
-              );
-            },
-          ),
-
-          const SizedBox(width: 4),
-
-          // User Avatar with Google Photos Cloud Sync Badge
-          GestureDetector(
-            onTap: () => GoogleAccountSheet.show(context),
-            child: Stack(
-              children: [
-                CircleAvatar(
-                  radius: 17,
-                  backgroundImage: account.avatarUrl.isNotEmpty ? NetworkImage(account.avatarUrl) : null,
-                  child: account.avatarUrl.isEmpty ? const Icon(Icons.person, size: 16) : null,
-                ),
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(1.5),
-                    decoration: BoxDecoration(
-                      color: account.isGuest
-                          ? Colors.grey
-                          : (account.isBackupEnabled ? PhotosColors.googleGreen : Colors.grey),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: isDark ? PhotosColors.darkSurfaceVariant : Colors.white,
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Icon(
-                      account.isGuest
-                          ? Icons.cloud_off
-                          : (account.isBackupEnabled ? Icons.check : Icons.pause),
-                      size: 8,
-                      color: Colors.white,
-                    ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 14),
+            const HomeSpaceLogo(size: 30),
+            const SizedBox(width: 12),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => vm.setTabIndex(3), // Navigate to Search tab
+                child: Text(
+                  'Search photos & memories...',
+                  style: TextStyle(
+                    color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.6),
+                    fontSize: 14,
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
+
+            // Grid density toggle
+            IconButton(
+              icon: Icon(
+                vm.gridDensity == GridDensity.compact
+                    ? Icons.grid_view_outlined
+                    : (vm.gridDensity == GridDensity.comfortable
+                        ? Icons.view_comfy_outlined
+                        : Icons.calendar_view_day_outlined),
+                size: 20,
+              ),
+              tooltip: 'Toggle Grid View',
+              onPressed: () => vm.cycleGridDensity(),
+            ),
+
+            // User Avatar with Sync Badge
+            Padding(
+              padding: const EdgeInsets.only(right: 6.0),
+              child: GestureDetector(
+                onTap: () => GoogleAccountSheet.show(context),
+                child: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 17,
+                      backgroundImage: account.avatarUrl.isNotEmpty ? NetworkImage(account.avatarUrl) : null,
+                      child: account.avatarUrl.isEmpty ? const Icon(Icons.person, size: 16) : null,
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(1.5),
+                        decoration: BoxDecoration(
+                          color: account.isGuest
+                              ? Colors.grey
+                              : (account.isBackupEnabled ? PhotosColors.googleGreen : Colors.grey),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isDark ? PhotosColors.darkSurfaceVariant : Colors.white,
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Icon(
+                          account.isGuest
+                              ? Icons.cloud_off
+                              : (account.isBackupEnabled ? Icons.check : Icons.pause),
+                          size: 8,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
