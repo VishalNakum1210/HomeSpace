@@ -7,7 +7,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:homespace/app.dart';
 import 'package:homespace/design/space_navigation.dart';
 import 'package:homespace/design/space_theme.dart';
-import 'package:homespace/sample/sample_library.dart';
+import 'package:homespace/data/local_home_repository.dart';
+import 'package:homespace/data/snapshot_store.dart';
+import 'package:homespace/data/seed_library.dart';
+import 'package:homespace/domain/models.dart';
 
 Future<void> startApp(
   WidgetTester tester, {
@@ -17,9 +20,12 @@ Future<void> startApp(
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(
-    const HomeSpaceApp(initialThemeMode: ThemeMode.light),
+  final repository = LocalHomeRepository(
+    store: MemorySnapshotStore(),
+    initialAppearance: Appearance.light,
   );
+  addTearDown(repository.dispose);
+  await tester.pumpWidget(HomeSpaceApp(repository: repository));
   await tester.pumpAndSettle();
 }
 
@@ -36,7 +42,7 @@ void main() {
   });
 
   test('Bundled preview media and local font are available offline', () {
-    for (final photo in samplePhotos) {
+    for (final photo in seedLibrary(DateTime.now()).media) {
       expect(File(photo.asset).lengthSync(), greaterThan(20000));
     }
     expect(

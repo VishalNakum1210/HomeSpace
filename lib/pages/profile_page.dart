@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../application/home_scope.dart';
 import '../design/space_symbols.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
+import '../domain/models.dart';
+import 'local_edit_sheets.dart';
 
 String themeLabel(ThemeMode mode) => switch (mode) {
   ThemeMode.light => 'Light',
@@ -11,16 +14,12 @@ String themeLabel(ThemeMode mode) => switch (mode) {
 };
 
 class ProfilePage extends StatelessWidget {
-  final ThemeMode mode;
-  final ValueChanged<ThemeMode> onThemeChanged;
-  const ProfilePage({
-    super.key,
-    required this.mode,
-    required this.onThemeChanged,
-  });
-
+  const ProfilePage({super.key});
   @override
   Widget build(BuildContext context) {
+    final repository = HomeScope.of(context);
+    final profile = repository.profile;
+    final mode = ThemeMode.values.byName(profile.appearance.name);
     final text = Theme.of(context).textTheme;
     final style = SpaceStyle.of(context);
     return SafeArea(
@@ -48,27 +47,13 @@ class ProfilePage extends StatelessWidget {
                     borderColor: style.accent.withValues(alpha: .35),
                     child: Column(
                       children: [
-                        Container(
-                          width: 78,
-                          height: 78,
-                          decoration: BoxDecoration(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .surfaceContainer,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: style.accent, width: 3),
-                          ),
-                          child: Center(
-                            child: Text(
-                              'M',
-                              style: text.headlineLarge!.copyWith(
-                                color: style.accentInk,
-                              ),
-                            ),
-                          ),
-                        ),
+                        ProfileAvatar(profile: profile, size: 78),
                         const SizedBox(height: 12),
-                        Text('Hi, Maya!', style: text.headlineMedium),
+                        Text(
+                          'Hi, ${profile.name}!',
+                          textAlign: TextAlign.center,
+                          style: text.headlineMedium,
+                        ),
                         const SizedBox(height: 4),
                         Text(
                           'Your family. Your memories. Your space.',
@@ -76,7 +61,20 @@ class ProfilePage extends StatelessWidget {
                           style: text.bodyMedium,
                         ),
                         const SizedBox(height: 14),
-                        const SpaceBadge('DEMO PROFILE'),
+                        const SpaceBadge('LOCAL PROFILE'),
+                        const SizedBox(height: 6),
+                        TextButton.icon(
+                          key: const ValueKey('edit-profile'),
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          label: const Text('Edit profile'),
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(48, 48),
+                          ),
+                          onPressed: () => showSpaceSheet<void>(
+                            context,
+                            const EditProfileSheet(),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -119,12 +117,17 @@ class ProfilePage extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Built around your family',
+                                'A little space of your own',
                                 style: text.titleMedium,
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                'This is the HomeSpace design preview. Your laptop connection and family sharing will arrive in the next stages.',
+                                '${repository.media.length} memories · ${repository.albums.length} albums\nYour profile, appearance, favorites, and albums are saved on this device.',
+                                style: text.bodyMedium,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Sharing and server connections are still demo previews.',
                                 style: text.bodyMedium,
                               ),
                             ],
@@ -142,7 +145,7 @@ class ProfilePage extends StatelessWidget {
                   const SizedBox(height: 28),
                   Center(
                     child: Text(
-                      'HomeSpace · Design foundation\nAndroid preview 0.1.0',
+                      'HomeSpace · Local data foundation\nAndroid preview 0.2.0',
                       textAlign: TextAlign.center,
                       style: text.bodyMedium!.copyWith(fontSize: 12),
                     ),
@@ -156,71 +159,78 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
-  Future<void> chooseTheme(BuildContext context) => showSpaceSheet<void>(
-    context,
-    Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'A little change of scenery',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Choose the look that feels like home.',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 20),
-        for (final option in ThemeMode.values)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Semantics(
-              selected: option == mode,
-              button: true,
-              child: Material(
-                color: option == mode
-                    ? SpaceStyle.of(context).accentSoft
-                    : Theme.of(context).colorScheme.surfaceContainerLow,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  side: BorderSide(
-                    color: option == mode
-                        ? SpaceStyle.of(context).accent
-                        : SpaceStyle.of(context).border,
-                    width: 1.5,
+  Future<void> chooseTheme(BuildContext context) {
+    final repository = HomeScope.of(context);
+    final mode = repository.profile.appearance;
+    return showSpaceSheet<void>(
+      context,
+      Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'A little change of scenery',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Choose the look that feels like home.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 20),
+          for (final option in Appearance.values)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Semantics(
+                selected: option == mode,
+                button: true,
+                child: Material(
+                  color: option == mode
+                      ? SpaceStyle.of(context).accentSoft
+                      : Theme.of(context).colorScheme.surfaceContainerLow,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                    side: BorderSide(
+                      color: option == mode
+                          ? SpaceStyle.of(context).accent
+                          : SpaceStyle.of(context).border,
+                      width: 1.5,
+                    ),
                   ),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: ListTile(
-                  key: ValueKey('theme-${option.name}'),
-                  minVerticalPadding: 14,
-                  leading: Icon(switch (option) {
-                    ThemeMode.system => Icons.brightness_auto_rounded,
-                    ThemeMode.light => Icons.wb_sunny_rounded,
-                    ThemeMode.dark => Icons.nightlight_round,
-                  }, color: SpaceStyle.of(context).accentInk),
-                  title: Text(
-                    themeLabel(option),
-                    style: Theme.of(context).textTheme.titleMedium,
+                  clipBehavior: Clip.antiAlias,
+                  child: ListTile(
+                    key: ValueKey('theme-${option.name}'),
+                    minVerticalPadding: 14,
+                    leading: Icon(switch (option) {
+                      Appearance.system => Icons.brightness_auto_rounded,
+                      Appearance.light => Icons.wb_sunny_rounded,
+                      Appearance.dark => Icons.nightlight_round,
+                    }, color: SpaceStyle.of(context).accentInk),
+                    title: Text(
+                      themeLabel(ThemeMode.values.byName(option.name)),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    trailing: Icon(
+                      option == mode
+                          ? Icons.check_circle_rounded
+                          : Icons.circle_outlined,
+                      color: SpaceStyle.of(context).accentInk,
+                    ),
+                    onTap: () async {
+                      final success = await saveLocalChange(
+                        context,
+                        () => repository.setAppearance(option),
+                      );
+                      if (success && context.mounted) Navigator.pop(context);
+                    },
                   ),
-                  trailing: Icon(
-                    option == mode
-                        ? Icons.check_circle_rounded
-                        : Icons.circle_outlined,
-                    color: SpaceStyle.of(context).accentInk,
-                  ),
-                  onTap: () {
-                    onThemeChanged(option);
-                    Navigator.pop(context);
-                  },
                 ),
               ),
             ),
-          ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 
   Future<void> showMotionInfo(BuildContext context) => showSpaceSheet<void>(
     context,
@@ -267,7 +277,7 @@ class ProfilePage extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'Phase 1 includes the Android design system and three primary page previews. Sample content and appearance changes stay in this session. Server, upload, and sharing services are not connected.',
+          'Your local profile, theme, favorites, and albums survive an app restart. Connection and upload states are simulations; no files are sent to a server.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 22),
@@ -277,7 +287,7 @@ class ProfilePage extends StatelessWidget {
           onPressed: () => showLicensePage(
             context: context,
             applicationName: 'HomeSpace',
-            applicationVersion: '0.1.0',
+            applicationVersion: '0.2.0',
           ),
         ),
         const SizedBox(height: 10),
@@ -299,7 +309,6 @@ class _SettingRow extends StatelessWidget {
     required this.onTap,
     this.settingKey,
   });
-
   @override
   Widget build(BuildContext context) {
     final style = SpaceStyle.of(context);

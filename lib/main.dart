@@ -3,6 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'app.dart';
+import 'data/local_home_repository.dart';
+import 'data/snapshot_store.dart';
+import 'domain/models.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,5 +15,17 @@ Future<void> main() async {
       'Nunito',
     ], await rootBundle.loadString('assets/fonts/OFL.txt'));
   });
-  runApp(const HomeSpaceApp());
+  runApp(
+    HomeSpaceApp(
+      repository: LocalHomeRepository(
+        store: FileSnapshotStore.android(),
+        scenario: DemoScenario.parse(
+          const String.fromEnvironment(
+            'HOMESPACE_SCENARIO',
+            defaultValue: 'populated',
+          ),
+        ),
+      ),
+    ),
+  );
 }

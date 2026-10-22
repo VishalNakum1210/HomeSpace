@@ -1,7 +1,7 @@
 name: homespace
 description: "HomeSpace — a playful family photo library. Android frontend."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: ^3.13.5
@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

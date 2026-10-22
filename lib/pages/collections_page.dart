@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../application/home_scope.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
-import '../sample/sample_library.dart';
+import '../domain/models.dart';
+import '../domain/repositories.dart';
+import 'local_edit_sheets.dart';
 
 class CollectionsPage extends StatefulWidget {
   const CollectionsPage({super.key});
@@ -12,12 +15,12 @@ class CollectionsPage extends StatefulWidget {
 
 class _CollectionsPageState extends State<CollectionsPage> {
   String filter = 'All';
-
   @override
   Widget build(BuildContext context) {
+    final repository = HomeScope.of(context);
     final text = Theme.of(context).textTheme;
     final style = SpaceStyle.of(context);
-    final albums = sampleAlbums
+    final albums = repository.albums
         .where(
           (album) =>
               filter == 'All' ||
@@ -25,137 +28,195 @@ class _CollectionsPageState extends State<CollectionsPage> {
         )
         .toList();
     final columns = MediaQuery.sizeOf(context).width >= 700 ? 3 : 2;
-    return SafeArea(
-      bottom: false,
-      child: CustomScrollView(
-        key: const PageStorageKey('collections-scroll'),
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            sliver: SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SpacePageHeading(
-                    SpacePage.collections,
-                    subtitle: 'Good times belong together.',
-                  ),
-                  SpaceCard(
-                    color: style.accentSoft,
-                    borderColor: style.accent.withValues(alpha: .35),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .surfaceContainer,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const Icon(
-                            Icons.people_alt_rounded,
-                            color: Color(0xFF9451D8),
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'One family. Many stories.',
-                                style: text.titleMedium!.copyWith(
-                                  color: style.accentInk,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'A little space for every adventure.',
-                                style: text.bodyMedium,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        for (final label in ['All', 'Shared', 'Mine'])
-                          Padding(
-                            padding: const EdgeInsets.only(right: 10),
-                            child: SpaceFilter(
-                              label: label,
-                              selected: filter == label,
-                              onTap: () => setState(() => filter = label),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  SpaceSection(
-                    'Your collections',
-                    detail: '${albums.length} albums',
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            sliver: SliverList.builder(
-              itemCount: (albums.length / columns).ceil(),
-              itemBuilder: (context, row) => Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Row(
+    return ScenarioContent(
+      repository: repository,
+      child: SafeArea(
+        bottom: false,
+        child: CustomScrollView(
+          key: const PageStorageKey('collections-scroll'),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              sliver: SliverToBoxAdapter(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (var column = 0; column < columns; column++) ...[
-                      if (column > 0) const SizedBox(width: 14),
-                      Expanded(
-                        child: row * columns + column < albums.length
-                            ? _AlbumCard(
-                                album: albums[row * columns + column],
-                                onTap: () =>
-                                    openAlbum(albums[row * columns + column]),
-                              )
-                            : const SizedBox.shrink(),
+                    const SpacePageHeading(
+                      SpacePage.collections,
+                      subtitle: 'Good times belong together.',
+                    ),
+                    SpaceCard(
+                      color: style.accentSoft,
+                      borderColor: style.accent.withValues(alpha: .35),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainer,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Icon(
+                              Icons.people_alt_rounded,
+                              color: style.accentInk,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'One family. Many stories.',
+                                  style: text.titleMedium!.copyWith(
+                                    color: style.accentInk,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Local albums. A little space for every adventure.',
+                                  style: text.bodyMedium,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
+                    const SizedBox(height: 22),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final label in ['All', 'Shared', 'Mine'])
+                            Padding(
+                              padding: const EdgeInsets.only(right: 10),
+                              child: SpaceFilter(
+                                label: label,
+                                selected: filter == label,
+                                onTap: () => setState(() => filter = label),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SpaceSection(
+                            'Your collections',
+                            detail: '${albums.length} albums',
+                          ),
+                        ),
+                        IconButton(
+                          key: const ValueKey('new-album'),
+                          tooltip: 'Create album',
+                          icon: Icon(
+                            Icons.add_circle_outline_rounded,
+                            color: style.accentInk,
+                          ),
+                          onPressed: repository.scenario == DemoScenario.empty
+                              ? null
+                              : () => showSpaceSheet<void>(
+                                  context,
+                                  const AlbumNameSheet(),
+                                ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
             ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                6,
-                20,
-                spaceBottomPadding(context),
+            if (albums.isEmpty)
+              const SliverToBoxAdapter(
+                child: SpaceEmpty(
+                  icon: Icons.collections_bookmark_outlined,
+                  title: 'Stories start here',
+                  message: 'Create an album to give your memories a place of their own.',
+                ),
               ),
-              child: Text(
-                'Sample albums · Sharing comes in a later phase',
-                textAlign: TextAlign.center,
-                style: text.bodyMedium,
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              sliver: SliverList.builder(
+                itemCount: (albums.length / columns).ceil(),
+                itemBuilder: (context, row) => Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var column = 0; column < columns; column++) ...[
+                        if (column > 0) const SizedBox(width: 14),
+                        Expanded(
+                          child: row * columns + column < albums.length
+                              ? _AlbumCard(
+                                  album: albums[row * columns + column],
+                                  repository: repository,
+                                  onTap: () => showSpaceSheet<void>(
+                                    context,
+                                    AlbumPreviewSheet(
+                                      albumId:
+                                          albums[row * columns + column].id,
+                                    ),
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
-        ],
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  6,
+                  20,
+                  spaceBottomPadding(context),
+                ),
+                child: Text(
+                  'Albums saved on this device · Sharing is a demo',
+                  textAlign: TextAlign.center,
+                  style: text.bodyMedium,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
 
-  Future<void> openAlbum(SampleAlbum album) => showSpaceSheet<void>(
-    context,
-    Column(
+class AlbumPreviewSheet extends StatelessWidget {
+  final String albumId;
+  const AlbumPreviewSheet({super.key, required this.albumId});
+  @override
+  Widget build(BuildContext context) {
+    final repository = HomeScope.of(context);
+    Album? album;
+    for (final candidate in repository.albums) {
+      if (candidate.id == albumId) album = candidate;
+    }
+    if (album == null) {
+      return const SpaceEmpty(
+        icon: Icons.photo_album_outlined,
+        title: 'This album is unavailable',
+        message: 'Return to Collections and try again.',
+      );
+    }
+    final photos = repository.photosFor(album);
+    final members = [
+      for (final member in album.memberships)
+        repository.memberById(member.userId).initial,
+    ];
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -164,30 +225,60 @@ class _CollectionsPageState extends State<CollectionsPage> {
           runSpacing: 8,
           children: [
             SpaceBadge(album.shared ? 'SHARED ALBUM' : 'MY ALBUM'),
-            const SpaceBadge('PREVIEW'),
+            const SpaceBadge('LOCAL DEMO'),
           ],
         ),
         const SizedBox(height: 16),
-        Text(album.title, style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 6),
-        Text(album.subtitle, style: Theme.of(context).textTheme.bodyLarge),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                album.title,
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+            ),
+            if (album.roleFor(repository.profile.userId) == AlbumRole.owner)
+              IconButton(
+                key: const ValueKey('rename-album'),
+                tooltip: 'Rename album',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () =>
+                    showSpaceSheet<void>(context, AlbumNameSheet(album: album)),
+              ),
+          ],
+        ),
+        if (album.description.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(album.description, style: Theme.of(context).textTheme.bodyLarge),
+        ],
         const SizedBox(height: 20),
         Row(
           children: [
-            _Members(members: album.members),
+            _Members(members: members),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 album.shared
-                    ? 'A space for ${album.members.length} family members'
+                    ? 'A space for ${members.length} family members'
                     : 'A little collection of your own',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
           ],
         ),
+        const SizedBox(height: 8),
+        Text(
+          'Your role: ${album.roleFor(repository.profile.userId)!.name}',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
         const SizedBox(height: 20),
-        for (var row = 0; row < (album.photos.length / 2).ceil(); row++)
+        if (photos.isEmpty)
+          const SpaceEmpty(
+            icon: Icons.photo_album_outlined,
+            title: 'Room for new memories',
+            message: 'Open a photo and add it to this album.',
+          ),
+        for (var row = 0; row < (photos.length / 2).ceil(); row++)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
@@ -195,14 +286,13 @@ class _CollectionsPageState extends State<CollectionsPage> {
                 for (var column = 0; column < 2; column++) ...[
                   if (column > 0) const SizedBox(width: 8),
                   Expanded(
-                    child: row * 2 + column < album.photos.length
+                    child: row * 2 + column < photos.length
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(14),
                             child: AspectRatio(
                               aspectRatio: 1.2,
                               child: Image.asset(
-                                samplePhotos[album.photos[row * 2 + column] - 1]
-                                    .asset,
+                                photos[row * 2 + column].asset,
                                 fit: BoxFit.cover,
                                 cacheWidth: 600,
                               ),
@@ -215,23 +305,29 @@ class _CollectionsPageState extends State<CollectionsPage> {
             ),
           ),
       ],
-    ),
-  );
+    );
+  }
 }
 
 class _AlbumCard extends StatelessWidget {
-  final SampleAlbum album;
+  final Album album;
+  final HomeRepository repository;
   final VoidCallback onTap;
-  const _AlbumCard({required this.album, required this.onTap});
-
+  const _AlbumCard({
+    required this.album,
+    required this.repository,
+    required this.onTap,
+  });
   @override
   Widget build(BuildContext context) {
     final style = SpaceStyle.of(context);
     final text = Theme.of(context).textTheme;
+    final cover = repository.coverFor(album);
+    final photos = repository.photosFor(album);
     return Semantics(
       button: true,
       label:
-          '${album.title}, ${album.photos.length} photos, ${album.shared ? 'shared' : 'personal'} album',
+          '${album.title}, ${photos.length} photos, ${album.shared ? 'shared' : 'personal'} album',
       child: Material(
         color: Theme.of(context).colorScheme.surfaceContainer,
         shape: RoundedRectangleBorder(
@@ -240,6 +336,7 @@ class _AlbumCard extends StatelessWidget {
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
+          key: ValueKey('album-${album.id}'),
           onTap: onTap,
           child: ExcludeSemantics(
             child: Column(
@@ -250,16 +347,32 @@ class _AlbumCard extends StatelessWidget {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.asset(
-                        album.cover.asset,
-                        fit: BoxFit.cover,
-                        cacheWidth: 600,
-                      ),
+                      if (cover == null)
+                        ColoredBox(
+                          color: style.accentSoft,
+                          child: Icon(
+                            Icons.photo_album_outlined,
+                            size: 42,
+                            color: style.accentInk,
+                          ),
+                        )
+                      else
+                        Image.asset(
+                          cover.asset,
+                          fit: BoxFit.cover,
+                          cacheWidth: 600,
+                        ),
                       if (album.shared)
                         Positioned(
                           left: 10,
                           bottom: 10,
-                          child: _Members(members: album.members, small: true),
+                          child: _Members(
+                            members: [
+                              for (final member in album.memberships)
+                                repository.memberById(member.userId).initial,
+                            ],
+                            small: true,
+                          ),
                         ),
                     ],
                   ),
@@ -275,7 +388,7 @@ class _AlbumCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        '${album.photos.length} photos · ${album.shared ? 'Shared' : 'Just you'}',
+                        '${photos.length} photos · ${album.shared ? 'Shared' : 'Just you'}',
                         style: text.bodyMedium!.copyWith(fontSize: 12),
                       ),
                     ],
@@ -294,7 +407,6 @@ class _Members extends StatelessWidget {
   final List<String> members;
   final bool small;
   const _Members({required this.members, this.small = false});
-
   @override
   Widget build(BuildContext context) {
     final diameter = small ? 25.0 : 34.0;
