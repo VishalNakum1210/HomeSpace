@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../application/home_scope.dart';
-import '../design/space_symbols.dart';
+import '../design/cartoon_artwork.dart';
+import '../design/cartoon_header.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
+import '../domain/models.dart';
 import 'library_widgets.dart';
 import 'local_edit_sheets.dart';
 import 'media_viewer.dart';
@@ -46,6 +48,8 @@ class _PhotosPageState extends State<PhotosPage> {
               (filter == 'All' ||
                   (filter == 'Favorites'
                       ? repository.favorites.contains(photo.id)
+                      : filter == 'Videos'
+                      ? photo.kind == MediaKind.video
                       : photo.category == filter)) &&
               (query.isEmpty ||
                   photo.title.toLowerCase().contains(query) ||
@@ -142,73 +146,36 @@ class _PhotosPageState extends State<PhotosPage> {
                 ),
               if (!selecting)
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
                   sliver: SliverToBoxAdapter(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            const SpaceHouse(size: 43),
-                            const SizedBox(width: 9),
-                            Expanded(
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  'HomeSpace',
-                                  maxLines: 1,
-                                  style: text.headlineMedium!.copyWith(
-                                    color: style.accentInk,
-                                    fontSize: 27,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            IconButton(
-                              tooltip: 'Select photos',
-                              onPressed: () => setState(() => selecting = true),
-                              icon: const Icon(Icons.checklist_rounded),
-                            ),
-                            IconButton(
-                              tooltip: 'Open profile',
-                              onPressed: widget.onProfile,
-                              icon: ProfileAvatar(profile: repository.profile),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        SpaceCard(
-                          color: style.accentSoft,
-                          borderColor: style.accent.withValues(alpha: .4),
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              const SpaceHouse(size: 45),
-                              const SizedBox(width: 13),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'A happy place for memories',
-                                      style: text.titleMedium!.copyWith(
-                                        color: style.accentInk,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      libraryStatus(repository),
-                                      style: text.bodyMedium,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                        CartoonHeader(
+                          profile: repository.profile,
+                          onProfile: widget.onProfile,
+                          action: IconButton(
+                            tooltip: 'Select photos',
+                            onPressed: () => setState(() => selecting = true),
+                            icon: const Icon(Icons.checklist_rounded),
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        Text('Your happy place', style: text.headlineMedium),
+                        const SizedBox(height: 5),
+                        Text(
+                          'Photos, people and places that matter most.',
+                          style: text.bodyMedium,
+                        ),
+                        const MemoryGarden(),
+                        if (repository.scenario == DemoScenario.offline)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              libraryStatus(repository),
+                              style: text.bodyMedium,
+                            ),
+                          ),
+                        const SizedBox(height: 10),
                         TextField(
                           key: const ValueKey('photo-search'),
                           controller: search,
@@ -237,9 +204,8 @@ class _PhotosPageState extends State<PhotosPage> {
                             children: [
                               for (final label in [
                                 'All',
-                                'People',
-                                'Places',
                                 'Favorites',
+                                'Videos',
                               ])
                                 Padding(
                                   padding: const EdgeInsets.only(right: 8),
@@ -280,7 +246,7 @@ class _PhotosPageState extends State<PhotosPage> {
                   ),
                 ),
                 SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   sliver: SliverGrid.builder(
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: columns,

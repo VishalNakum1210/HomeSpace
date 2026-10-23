@@ -1,7 +1,7 @@
 name: homespace
 description: "HomeSpace — a playful family photo library. Android frontend."
 publish_to: 'none'
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
   sdk: ^3.13.5
@@ -20,6 +20,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/photos/
+    - assets/illustrations/
     - assets/fonts/OFL.txt
   fonts:
     - family: Nunito

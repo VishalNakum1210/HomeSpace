@@ -2,6 +2,15 @@
 
 The playful HomeSpace family photo library, built with Flutter for Android only. Phase 3 adds the photo viewer, selection actions, album management, and Trash on top of persistent local repositories.
 
+The cartoon redesign is now in phase 1: Photos, Collections and Profile follow the
+approved illustrated direction, with the existing house logo, Nunito, tactile
+buttons and Smooth Clay dock. See [the four-phase redesign plan](docs/cartoon-redesign.md).
+The new garden banner is bundled offline; secondary flows keep their existing
+working UI until their redesign phases.
+See [redesign phase-one validation](docs/cartoon-redesign-phase-1-validation.md)
+for checks and previews. Its APK is
+`output/releases/homespace-cartoon-phase-1-android.apk` (version 0.4.0+4).
+
 ## Included
 
 - Locally bundled Nunito typography, an original house mascot, and colorful code-drawn page symbols.

@@ -55,7 +55,7 @@ class _SpaceButtonState extends State<SpaceButton> {
   Widget build(BuildContext context) {
     final style = SpaceStyle.of(context);
     final enabled = widget.onPressed != null;
-    final foreground = enabled ? const Color(0xFF233009) : style.muted;
+    final foreground = enabled ? const Color(0xFF171B32) : style.muted;
     return Semantics(
       button: true,
       enabled: enabled,

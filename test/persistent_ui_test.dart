@@ -60,14 +60,14 @@ void main() {
       await tab(tester, 'collections');
       await tester.tap(find.byKey(const ValueKey('new-album')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Create album'));
+      await tester.tap(find.text('Create album').last);
       await tester.pumpAndSettle();
       expect(find.text('Give your album a name.'), findsOneWidget);
       await tester.enterText(
         find.byKey(const ValueKey('album-name')),
         'Beach days',
       );
-      await tester.tap(find.text('Create album'));
+      await tester.tap(find.text('Create album').last);
       await tester.pumpAndSettle();
       final albumId = repository.albums.last.id;
 

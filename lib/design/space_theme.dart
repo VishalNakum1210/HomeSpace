@@ -86,7 +86,7 @@ class SpaceStyle extends ThemeExtension<SpaceStyle> {
 ThemeData spaceTheme(Brightness brightness, SpacePage page) {
   final dark = brightness == Brightness.dark;
   final accent = dark ? page.darkColor : page.color;
-  final ink = dark ? const Color(0xFFF2F3F5) : const Color(0xFF30343B);
+  final ink = dark ? const Color(0xFFF2F3F5) : const Color(0xFF171B32);
   final surface = dark ? const Color(0xFF13191F) : const Color(0xFFFFFEFC);
   final card = dark ? const Color(0xFF1D252D) : Colors.white;
   final accentInk = switch (page) {

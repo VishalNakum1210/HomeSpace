@@ -98,7 +98,10 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
                                     onProfile: () =>
                                         selectPage(SpacePage.profile),
                                   ),
-                                  const CollectionsPage(),
+                                  CollectionsPage(
+                                    onProfile: () =>
+                                        selectPage(SpacePage.profile),
+                                  ),
                                   const ProfilePage(),
                                 ],
                               ),

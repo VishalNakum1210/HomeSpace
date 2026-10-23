@@ -2,6 +2,125 @@ import 'package:flutter/material.dart';
 
 import 'space_theme.dart';
 
+/// Small, softly shaded symbols for the floating clay navigation dock.
+class ClayNavigationSymbol extends StatelessWidget {
+  final SpacePage page;
+  const ClayNavigationSymbol(this.page, {super.key});
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: CustomPaint(
+      size: const Size.square(31),
+      painter: _ClayNavigationPainter(page),
+    ),
+  );
+}
+
+class _ClayNavigationPainter extends CustomPainter {
+  final SpacePage page;
+  const _ClayNavigationPainter(this.page);
+
+  void _surface(Canvas canvas, Path path, Color light, Color shade) {
+    canvas.drawShadow(path, shade.withValues(alpha: .35), 2, false);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [light, shade],
+        ).createShader(path.getBounds()),
+    );
+    canvas.save();
+    canvas.clipPath(path);
+    canvas.drawOval(
+      path.getBounds().translate(-4, -path.getBounds().height * .65),
+      Paint()
+        ..color = Colors.white.withValues(alpha: .18)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+    canvas.restore();
+  }
+
+  Path _tile(Rect rect, double radius) =>
+      Path()..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(radius)));
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.scale(size.width / 32, size.height / 32);
+    switch (page) {
+      case SpacePage.photos:
+        _surface(
+          canvas,
+          _tile(const Rect.fromLTWH(3, 3, 26, 26), 7),
+          const Color(0xFF8FF2A4),
+          const Color(0xFF31C65A),
+        );
+        final hills = Path()
+          ..moveTo(6, 23)
+          ..lineTo(12, 14)
+          ..quadraticBezierTo(13, 12.5, 14, 14)
+          ..lineTo(18, 19)
+          ..lineTo(21, 16)
+          ..quadraticBezierTo(22, 15, 23, 17)
+          ..lineTo(26, 23)
+          ..quadraticBezierTo(27, 26, 24, 26)
+          ..lineTo(8, 26)
+          ..quadraticBezierTo(5, 26, 6, 23)
+          ..close();
+        _surface(
+          canvas,
+          hills,
+          const Color(0xFF28BC4D),
+          const Color(0xFF119A39),
+        );
+        _surface(
+          canvas,
+          Path()..addOval(const Rect.fromLTWH(19, 7, 7, 7)),
+          const Color(0xFF35CD52),
+          const Color(0xFF139C36),
+        );
+      case SpacePage.collections:
+        _surface(
+          canvas,
+          _tile(const Rect.fromLTWH(2, 3, 23, 24), 6),
+          const Color(0xFFD7A1FF),
+          const Color(0xFF9951E8),
+        );
+        _surface(
+          canvas,
+          _tile(const Rect.fromLTWH(8, 8, 23, 23), 6),
+          const Color(0xFFBE83FF),
+          const Color(0xFF803CE1),
+        );
+      case SpacePage.profile:
+        _surface(
+          canvas,
+          Path()..addOval(const Rect.fromLTWH(9, 2, 14, 14)),
+          const Color(0xFFFFC36A),
+          const Color(0xFFFF8B19),
+        );
+        final body = Path()
+          ..moveTo(3, 27)
+          ..cubicTo(3, 14, 29, 14, 29, 27)
+          ..quadraticBezierTo(29, 30, 25, 30)
+          ..lineTo(7, 30)
+          ..quadraticBezierTo(3, 30, 3, 27)
+          ..close();
+        _surface(
+          canvas,
+          body,
+          const Color(0xFFFFBD61),
+          const Color(0xFFFF8616),
+        );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ClayNavigationPainter oldDelegate) =>
+      oldDelegate.page != page;
+}
+
 class SpaceSymbol extends StatelessWidget {
   final SpacePage page;
   final double size;

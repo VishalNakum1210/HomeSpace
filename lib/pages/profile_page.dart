@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../application/home_scope.dart';
 import '../design/space_symbols.dart';
+import '../design/cartoon_artwork.dart';
+import '../design/cartoon_header.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
 import '../domain/models.dart';
@@ -40,17 +42,35 @@ class ProfilePage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SpacePageHeading(
-                    SpacePage.profile,
-                    subtitle: 'Make yourself at home.',
+                  CartoonHeader(
+                    profile: profile,
+                    onProfile: () =>
+                        showSpaceSheet<void>(context, const EditProfileSheet()),
                   ),
+                  Text('Your space', style: text.headlineMedium),
+                  const SizedBox(height: 5),
+                  Text('Make yourself at home.', style: text.bodyMedium),
+                  const SizedBox(height: 18),
                   SpaceCard(
                     color: style.accentSoft,
                     borderColor: style.accent.withValues(alpha: .35),
+                    padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        ProfileAvatar(profile: profile, size: 78),
-                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const SizedBox(width: 60),
+                            ProfileAvatar(profile: profile, size: 70),
+                            const SizedBox(width: 4),
+                            const SizedBox(
+                              width: 56,
+                              height: 70,
+                              child: FittedBox(child: HouseGreeting()),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
                         Text(
                           'Hi, ${profile.name}!',
                           textAlign: TextAlign.center,
@@ -63,15 +83,9 @@ class ProfilePage extends StatelessWidget {
                           style: text.bodyMedium,
                         ),
                         const SizedBox(height: 14),
-                        const SpaceBadge('LOCAL PROFILE'),
-                        const SizedBox(height: 6),
-                        TextButton.icon(
+                        SpaceButton(
                           key: const ValueKey('edit-profile'),
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          label: const Text('Edit profile'),
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size(48, 48),
-                          ),
+                          label: 'Edit profile',
                           onPressed: () => showSpaceSheet<void>(
                             context,
                             const EditProfileSheet(),
@@ -80,93 +94,39 @@ class ProfilePage extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SpaceSection('A space that feels like you'),
-                  SpaceCard(
-                    padding: EdgeInsets.zero,
-                    child: Column(
-                      children: [
-                        _SettingRow(
-                          icon: Icons.palette_outlined,
-                          title: 'Appearance',
-                          subtitle: themeLabel(mode),
-                          onTap: () => chooseTheme(context),
-                          settingKey: const ValueKey('appearance-setting'),
-                        ),
-                        Divider(
-                          height: 1,
-                          indent: 18,
-                          endIndent: 18,
-                          color: style.border,
-                        ),
-                        _SettingRow(
-                          icon: Icons.accessibility_new_rounded,
-                          title: 'Motion & accessibility',
-                          subtitle: 'Follows your device preferences',
-                          onTap: () => showMotionInfo(context),
-                        ),
-                        Divider(
-                          height: 1,
-                          indent: 18,
-                          endIndent: 18,
-                          color: style.border,
-                        ),
-                        _SettingRow(
-                          settingKey: const ValueKey('trash-setting'),
-                          icon: Icons.delete_outline_rounded,
-                          title: 'Trash',
-                          subtitle: repository.trash.isEmpty
-                              ? 'Nothing left behind'
-                              : '${repository.trash.length} memories to restore',
-                          onTap: () =>
-                              openSpacePage<void>(context, const TrashPage()),
-                        ),
-                      ],
-                    ),
+                  const SizedBox(height: 14),
+                  _SettingRow(
+                    settingKey: const ValueKey('appearance-setting'),
+                    icon: Icons.palette_outlined,
+                    title: 'Appearance',
+                    subtitle: themeLabel(mode),
+                    tone: const Color(0xFFFF9600),
+                    onTap: () => chooseTheme(context),
                   ),
-                  const SizedBox(height: 24),
-                  SpaceCard(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SpaceHouse(size: 45),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'A little space of your own',
-                                style: text.titleMedium,
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '${repository.media.length} memories · ${repository.albums.length} albums\nYour profile, appearance, favorites, and albums are saved on this device.',
-                                style: text.bodyMedium,
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Sharing and server connections are still demo previews.',
-                                style: text.bodyMedium,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                  _SettingRow(
+                    icon: Icons.accessibility_new_rounded,
+                    title: 'Motion & accessibility',
+                    subtitle: 'Follows your device preferences',
+                    tone: const Color(0xFFA560F5),
+                    onTap: () => showMotionInfo(context),
                   ),
-                  const SizedBox(height: 22),
-                  SpaceButton(
-                    label: 'About HomeSpace',
-                    icon: Icons.favorite_outline_rounded,
-                    onPressed: () => showAbout(context),
+                  _SettingRow(
+                    settingKey: const ValueKey('trash-setting'),
+                    icon: Icons.delete_outline_rounded,
+                    title: 'Trash',
+                    subtitle: repository.trash.isEmpty
+                        ? 'Nothing left behind'
+                        : '${repository.trash.length} memories to restore',
+                    tone: const Color(0xFFE74742),
+                    onTap: () =>
+                        openSpacePage<void>(context, const TrashPage()),
                   ),
-                  const SizedBox(height: 28),
-                  Center(
-                    child: Text(
-                      'HomeSpace · Memories together\nAndroid preview 0.3.0',
-                      textAlign: TextAlign.center,
-                      style: text.bodyMedium!.copyWith(fontSize: 12),
-                    ),
+                  _SettingRow(
+                    icon: Icons.home_rounded,
+                    title: 'About HomeSpace',
+                    subtitle: 'App info and next steps',
+                    tone: const Color(0xFF58A800),
+                    onTap: () => showAbout(context),
                   ),
                 ],
               ),
@@ -305,7 +265,7 @@ class ProfilePage extends StatelessWidget {
           onPressed: () => showLicensePage(
             context: context,
             applicationName: 'HomeSpace',
-            applicationVersion: '0.3.0',
+            applicationVersion: '0.4.0',
           ),
         ),
         const SizedBox(height: 10),
@@ -320,35 +280,56 @@ class _SettingRow extends StatelessWidget {
   final String subtitle;
   final VoidCallback onTap;
   final Key? settingKey;
+  final Color tone;
   const _SettingRow({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
     this.settingKey,
+    required this.tone,
   });
   @override
   Widget build(BuildContext context) {
     final style = SpaceStyle.of(context);
-    return ListTile(
-      key: settingKey,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-      leading: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          color: style.accentSoft,
-          borderRadius: BorderRadius.circular(14),
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: SpaceCard(
+        padding: EdgeInsets.zero,
+        child: ListTile(
+          key: settingKey,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 5,
+          ),
+          leading: Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: tone.withValues(alpha: dark ? .2 : .1),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              icon,
+              color: dark
+                  ? Color.lerp(tone, Colors.white, .4)
+                  : Color.lerp(tone, Colors.black, .3),
+              size: 24,
+            ),
+          ),
+          title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              subtitle,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
+          trailing: Icon(Icons.chevron_right_rounded, color: style.muted),
+          onTap: onTap,
         ),
-        child: Icon(icon, color: style.accentInk, size: 24),
       ),
-      title: Text(title, style: Theme.of(context).textTheme.titleMedium),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
-      ),
-      trailing: Icon(Icons.chevron_right_rounded, color: style.muted),
-      onTap: onTap,
     );
   }
 }

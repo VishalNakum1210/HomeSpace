@@ -21,14 +21,28 @@ class SpaceNavigation extends StatelessWidget {
       height: 64,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainer,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: dark
+                ? [const Color(0xFF303C4D), const Color(0xFF202938)]
+                : [Colors.white, const Color(0xFFF5F2F0)],
+          ),
           borderRadius: BorderRadius.circular(40),
-          border: Border.all(color: SpaceStyle.of(context).border, width: 1.5),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: dark ? .12 : .9),
+            width: 1,
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: dark ? .25 : .10),
-              blurRadius: 22,
-              offset: const Offset(0, 6),
+              color: const Color(0xFF263348).withValues(alpha: dark ? .3 : .13),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+            BoxShadow(
+              color: Colors.white.withValues(alpha: dark ? .04 : .8),
+              blurRadius: 8,
+              offset: const Offset(-2, -3),
             ),
           ],
         ),
@@ -51,6 +65,20 @@ class SpaceNavigation extends StatelessWidget {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: SpaceStyle.of(context).navigationBlue,
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF9EDFFF), Color(0xFF3898FF)],
+                        ),
+                        border: Border.all(color: const Color(0xFFB5E6FF)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF2589ED)
+                                .withValues(alpha: .22),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -78,7 +106,7 @@ class SpaceNavigation extends StatelessWidget {
                                         scale: page == selected ? 1.06 : 1,
                                         duration: spaceMotion(context, 180),
                                         curve: Curves.easeOutCubic,
-                                        child: SpaceSymbol(page, size: 29),
+                                        child: ClayNavigationSymbol(page),
                                       ),
                                     ),
                                   ),
