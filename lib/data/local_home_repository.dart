@@ -218,6 +218,28 @@ class LocalHomeRepository extends HomeRepository {
     return state.copyWith(favorites: next);
   });
 
+  List<String> _activeIds(LibrarySnapshot state, Iterable<String> ids) {
+    final unique = ids.toSet().toList();
+    for (final id in unique) {
+      _requireMedia(state, id);
+      if (state.trash.any((entry) => entry.mediaId == id)) {
+        throw const LocalActionException('Restore this memory first.');
+      }
+    }
+    return unique;
+  }
+
+  @override
+  Future<void> setFavorites(List<String> ids, bool favorite) {
+    final requested = List<String>.of(ids);
+    return _commit((state) {
+      final active = _activeIds(state, requested);
+      final next = {...state.favorites};
+      favorite ? next.addAll(active) : next.removeAll(active);
+      return state.copyWith(favorites: next);
+    });
+  }
+
   @override
   Future<void> setAppearance(Appearance appearance) => _commit(
     (state) =>
@@ -279,51 +301,113 @@ class LocalHomeRepository extends HomeRepository {
   });
 
   @override
-  Future<void> addToAlbum(String albumId, String mediaId) => _commit((state) {
-    final album = _album(state, albumId);
-    _requireMedia(state, mediaId);
-    if (state.trash.any((entry) => entry.mediaId == mediaId)) {
-      throw const LocalActionException('Restore this memory first.');
-    }
-    final role = album.roleFor(state.profile.userId);
-    if (role != AlbumRole.owner && role != AlbumRole.contributor) {
-      throw const LocalActionException('This album is view-only.');
-    }
-    if (album.mediaIds.contains(mediaId)) return state;
-    return _replace(
-      state,
-      album.copyWith(
-        mediaIds: [...album.mediaIds, mediaId],
-        coverId: album.coverId ?? mediaId,
-        addedBy: {...album.addedBy, mediaId: state.profile.userId},
-      ),
+  Future<void> updateAlbum(String id, String title, String description) =>
+      _commit((state) {
+        final album = _album(state, id);
+        _owner(state, album);
+        if (description.length > 4096) {
+          throw const LocalActionException(
+            'Keep descriptions under 4096 characters.',
+          );
+        }
+        return _replace(
+          state,
+          album.copyWith(
+            title: _name(title, 80),
+            description: description.trim(),
+          ),
+        );
+      });
+
+  @override
+  Future<void> deleteAlbum(String id) => _commit((state) {
+    _owner(state, _album(state, id));
+    return state.copyWith(
+      albums: state.albums.where((album) => album.id != id).toList(),
     );
   });
 
   @override
+  Future<void> setAlbumCover(String albumId, String mediaId) => _commit((
+    state,
+  ) {
+    final album = _album(state, albumId);
+    _owner(state, album);
+    _activeIds(state, [mediaId]);
+    if (!album.mediaIds.contains(mediaId)) {
+      throw const LocalActionException('Add this memory to the album first.');
+    }
+    return _replace(state, album.copyWith(coverId: mediaId));
+  });
+
+  @override
+  Future<void> addToAlbum(String albumId, String mediaId) =>
+      addManyToAlbum(albumId, [mediaId]);
+
+  @override
+  Future<void> addManyToAlbum(String albumId, List<String> mediaIds) {
+    final requested = List<String>.of(mediaIds);
+    return _commit((state) {
+      final album = _album(state, albumId);
+      final ids = _activeIds(state, requested);
+      final role = album.roleFor(state.profile.userId);
+      if (role != AlbumRole.owner && role != AlbumRole.contributor) {
+        throw const LocalActionException('This album is view-only.');
+      }
+      final additions = ids
+          .where((id) => !album.mediaIds.contains(id))
+          .toList();
+      return _replace(
+        state,
+        album.copyWith(
+          mediaIds: [...album.mediaIds, ...additions],
+          coverId: album.coverId ?? additions.firstOrNull,
+          addedBy: {
+            ...album.addedBy,
+            for (final id in additions) id: state.profile.userId,
+          },
+        ),
+      );
+    });
+  }
+
+  @override
   Future<void> removeFromAlbum(String albumId, String mediaId) =>
-      _commit((state) {
-        final album = _album(state, albumId);
-        final role = album.roleFor(state.profile.userId);
-        if (role != AlbumRole.owner &&
-            !(role == AlbumRole.contributor &&
-                album.addedBy[mediaId] == state.profile.userId)) {
-          throw const LocalActionException(
-            'You can only remove your own additions.',
-          );
-        }
-        final ids = album.mediaIds.where((id) => id != mediaId).toList();
-        final additions = {...album.addedBy}..remove(mediaId);
-        return _replace(
-          state,
-          album.copyWith(
-            mediaIds: ids,
-            addedBy: additions,
-            coverId: album.coverId == mediaId ? ids.firstOrNull : album.coverId,
-            clearCover: ids.isEmpty,
-          ),
+      removeManyFromAlbum(albumId, [mediaId]);
+
+  @override
+  Future<void> removeManyFromAlbum(String albumId, List<String> mediaIds) {
+    final requested = mediaIds.toSet();
+    return _commit((state) {
+      final album = _album(state, albumId);
+      final role = album.roleFor(state.profile.userId);
+      if (role != AlbumRole.owner &&
+          !(role == AlbumRole.contributor &&
+              requested.every(
+                (id) => album.addedBy[id] == state.profile.userId,
+              ))) {
+        throw const LocalActionException(
+          'You can only remove your own additions.',
         );
-      });
+      }
+      final ids = album.mediaIds
+          .where((id) => !requested.contains(id))
+          .toList();
+      final additions = {...album.addedBy}
+        ..removeWhere((id, _) => requested.contains(id));
+      return _replace(
+        state,
+        album.copyWith(
+          mediaIds: ids,
+          addedBy: additions,
+          coverId: requested.contains(album.coverId)
+              ? ids.firstOrNull
+              : album.coverId,
+          clearCover: ids.isEmpty,
+        ),
+      );
+    });
+  }
 
   @override
   Future<void> setMemberRole(
@@ -363,44 +447,84 @@ class LocalHomeRepository extends HomeRepository {
   });
 
   @override
-  Future<void> moveToTrash(String id) => _commit((state) {
-    _requireMedia(state, id);
-    if (state.trash.any((entry) => entry.mediaId == id)) return state;
-    return state.copyWith(
-      trash: [...state.trash, TrashEntry(id, clock().toUtc())],
-    );
-  });
+  Future<void> moveToTrash(String id) => moveManyToTrash([id]);
 
   @override
-  Future<void> restore(String id) => _commit(
-    (state) => state.copyWith(
-      trash: state.trash.where((entry) => entry.mediaId != id).toList(),
-    ),
-  );
+  Future<void> moveManyToTrash(List<String> ids) {
+    final requested = ids.toSet();
+    return _commit((state) {
+      for (final id in requested) {
+        _requireMedia(state, id);
+      }
+      final existing = state.trash.map((entry) => entry.mediaId).toSet();
+      final deletedAt = clock().toUtc();
+      return state.copyWith(
+        trash: [
+          ...state.trash,
+          for (final id in requested.difference(existing))
+            TrashEntry(id, deletedAt),
+        ],
+      );
+    });
+  }
 
   @override
-  Future<void> deletePermanently(String id) => _commit((state) {
-    if (!state.trash.any((entry) => entry.mediaId == id)) {
-      throw const LocalActionException('Move this memory to Trash first.');
-    }
-    return state.copyWith(
-      media: state.media.where((item) => item.id != id).toList(),
-      favorites: {...state.favorites}..remove(id),
-      trash: state.trash.where((entry) => entry.mediaId != id).toList(),
-      albums: [
-        for (final album in state.albums)
-          () {
-            final ids = album.mediaIds.where((value) => value != id).toList();
-            return album.copyWith(
-              mediaIds: ids,
-              addedBy: {...album.addedBy}..remove(id),
-              coverId: album.coverId == id ? ids.firstOrNull : album.coverId,
-              clearCover: ids.isEmpty,
-            );
-          }(),
-      ],
-    );
-  });
+  Future<void> restore(String id) => restoreMany([id]);
+
+  @override
+  Future<void> restoreMany(List<String> ids) {
+    final requested = ids.toSet();
+    return _commit((state) {
+      for (final id in requested) {
+        _requireMedia(state, id);
+      }
+      return state.copyWith(
+        trash: state.trash
+            .where((entry) => !requested.contains(entry.mediaId))
+            .toList(),
+      );
+    });
+  }
+
+  @override
+  Future<void> deletePermanently(String id) => deleteManyPermanently([id]);
+
+  @override
+  Future<void> deleteManyPermanently(List<String> ids) {
+    final requested = ids.toSet();
+    return _commit((state) {
+      final trashed = state.trash.map((entry) => entry.mediaId).toSet();
+      if (!trashed.containsAll(requested)) {
+        throw const LocalActionException('Move this memory to Trash first.');
+      }
+      return state.copyWith(
+        media: state.media
+            .where((item) => !requested.contains(item.id))
+            .toList(),
+        favorites: {...state.favorites}..removeAll(requested),
+        trash: state.trash
+            .where((entry) => !requested.contains(entry.mediaId))
+            .toList(),
+        albums: [
+          for (final album in state.albums)
+            () {
+              final ids = album.mediaIds
+                  .where((value) => !requested.contains(value))
+                  .toList();
+              return album.copyWith(
+                mediaIds: ids,
+                addedBy: {...album.addedBy}
+                  ..removeWhere((id, _) => requested.contains(id)),
+                coverId: requested.contains(album.coverId)
+                    ? ids.firstOrNull
+                    : album.coverId,
+                clearCover: ids.isEmpty,
+              );
+            }(),
+        ],
+      );
+    });
+  }
 
   void _notify() {
     if (!_disposed) notifyListeners();

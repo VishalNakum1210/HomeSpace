@@ -1,6 +1,6 @@
 # HomeSpace — Android frontend
 
-The playful HomeSpace family photo library, built with Flutter for Android only. Phase 2 adds real local persistence and repository interfaces for the future home server.
+The playful HomeSpace family photo library, built with Flutter for Android only. Phase 3 adds the photo viewer, selection actions, album management, and Trash on top of persistent local repositories.
 
 ## Included
 
@@ -9,12 +9,17 @@ The playful HomeSpace family photo library, built with Flutter for Android only.
 - Compact icon-only floating navigation with a **blue circle** behind the active icon.
 - Light, dark, and device appearance modes; a working appearance chooser in Profile.
 - Shared tactile buttons, cards, filters, inputs, badges, empty states, and modal sheets.
-- Offline sample photo/album previews, local search and favorites, preserved tab scroll state, and Android Back handling.
+- Offline sample library, local search and favorites, preserved tab scroll state, and Android Back handling.
+- Full-screen photo viewing with swipe, pinch/double-tap zoom, accessible paging/zoom controls, and photo details.
+- Photo selection, batch favorites, multi-album assignment, Trash, and Undo.
+- Album pages with photo picking/removal, editable name/description, cover selection, and deletion that keeps library photos.
+- Local shared-album member controls with owner, contributor, and viewer roles.
+- Trash page with single/batch restore, explicit permanent-delete confirmation, and empty states.
 - Accessible control names, 48px touch targets, larger text layouts, and reduced-motion support.
 
-This is a frontend preview with bundled sample media. Profile, appearance, favorites, albums, roles, and trash metadata persist locally across app restarts. You can create/rename local albums, add photos to multiple albums, and edit your local profile. Complete media viewing/video playback and the full sharing, connection, upload, and Trash screens belong to later phases. Server features are simulated; no files are uploaded. The APK uses development signing until the release-packaging phase.
+This is a frontend preview with bundled sample photos. Profile, appearance, favorites, albums, roles, and trash metadata persist locally across app restarts. Sharing controls change the local demo only; they send no invitations. Video playback, device-media import, connection/authentication, upload screens, and real server integration remain in later phases. No files are uploaded. The APK uses development signing until the release-packaging phase.
 
-Local saves use versioned JSON with a previous valid backup, serialized writes, and recovery without silently resetting damaged/newer data. See [phase-two implementation](docs/phase-2.md) for the architecture, role rules, and demo-state flags.
+Local saves use versioned JSON with a previous valid backup, serialized writes, and recovery without silently resetting damaged/newer data. Selection actions commit the whole batch together. Phase 3 keeps the existing schema and saved libraries. See [phase-three implementation](docs/phase-3.md) for current flows and [phase-two implementation](docs/phase-2.md) for the data architecture and demo-state flags.
 
 ## Run and verify
 
@@ -30,13 +35,13 @@ flutter build apk --release --no-pub
 
 APK output: `build/app/outputs/flutter-apk/app-release.apk`.
 
-The current preview is saved as `output/releases/homespace-phase-2-android.apk` (49.6 MiB). It is installed on the connected Redmi Note 11; the selected dark theme survived a full process restart and an APK update. See [phase-two validation](docs/phase-2-validation.md) for tests, checksum, actual phone screenshots, and limits. Generated APKs and screenshots remain local ignored artifacts. [Phase-one validation](docs/phase-1-validation.md) records the earlier design checks.
+The current preview is saved as `output/releases/homespace-phase-3-android.apk` (50.7 MiB). See [phase-three validation](docs/phase-3-validation.md) for tests, checksum, actual Android screenshots, and limits. Generated APKs and screenshots remain local ignored artifacts. Earlier checks are recorded in [phase-one validation](docs/phase-1-validation.md) and [phase-two validation](docs/phase-2-validation.md).
 
 ## Source
 
 - `lib/app.dart`: app shell, persisted theme, boot states, primary navigation, and Back behavior.
 - `lib/design/`: color/typography tokens, navigation, symbols, and shared controls.
-- `lib/pages/`: Photos, Collections, and Profile page previews.
+- `lib/pages/`: primary pages, photo viewer, album/member flows, photo picker, Trash, and shared presentation helpers.
 - `lib/domain/`: typed models and repository contracts.
 - `lib/data/`: sample seed, persistence/validation, local operations, and remote-state simulations.
 - `lib/application/`: repository binding and save-error handling.

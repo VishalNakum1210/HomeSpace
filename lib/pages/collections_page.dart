@@ -5,6 +5,8 @@ import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
 import '../domain/models.dart';
 import '../domain/repositories.dart';
+import 'album_page.dart';
+import 'library_widgets.dart';
 import 'local_edit_sheets.dart';
 
 class CollectionsPage extends StatefulWidget {
@@ -156,9 +158,9 @@ class _CollectionsPageState extends State<CollectionsPage> {
                               ? _AlbumCard(
                                   album: albums[row * columns + column],
                                   repository: repository,
-                                  onTap: () => showSpaceSheet<void>(
+                                  onTap: () => openSpacePage<void>(
                                     context,
-                                    AlbumPreviewSheet(
+                                    AlbumPage(
                                       albumId:
                                           albums[row * columns + column].id,
                                     ),
@@ -190,121 +192,6 @@ class _CollectionsPageState extends State<CollectionsPage> {
           ],
         ),
       ),
-    );
-  }
-}
-
-class AlbumPreviewSheet extends StatelessWidget {
-  final String albumId;
-  const AlbumPreviewSheet({super.key, required this.albumId});
-  @override
-  Widget build(BuildContext context) {
-    final repository = HomeScope.of(context);
-    Album? album;
-    for (final candidate in repository.albums) {
-      if (candidate.id == albumId) album = candidate;
-    }
-    if (album == null) {
-      return const SpaceEmpty(
-        icon: Icons.photo_album_outlined,
-        title: 'This album is unavailable',
-        message: 'Return to Collections and try again.',
-      );
-    }
-    final photos = repository.photosFor(album);
-    final members = [
-      for (final member in album.memberships)
-        repository.memberById(member.userId).initial,
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            SpaceBadge(album.shared ? 'SHARED ALBUM' : 'MY ALBUM'),
-            const SpaceBadge('LOCAL DEMO'),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                album.title,
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-            ),
-            if (album.roleFor(repository.profile.userId) == AlbumRole.owner)
-              IconButton(
-                key: const ValueKey('rename-album'),
-                tooltip: 'Rename album',
-                icon: const Icon(Icons.edit_outlined),
-                onPressed: () =>
-                    showSpaceSheet<void>(context, AlbumNameSheet(album: album)),
-              ),
-          ],
-        ),
-        if (album.description.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Text(album.description, style: Theme.of(context).textTheme.bodyLarge),
-        ],
-        const SizedBox(height: 20),
-        Row(
-          children: [
-            _Members(members: members),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                album.shared
-                    ? 'A space for ${members.length} family members'
-                    : 'A little collection of your own',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Your role: ${album.roleFor(repository.profile.userId)!.name}',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 20),
-        if (photos.isEmpty)
-          const SpaceEmpty(
-            icon: Icons.photo_album_outlined,
-            title: 'Room for new memories',
-            message: 'Open a photo and add it to this album.',
-          ),
-        for (var row = 0; row < (photos.length / 2).ceil(); row++)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                for (var column = 0; column < 2; column++) ...[
-                  if (column > 0) const SizedBox(width: 8),
-                  Expanded(
-                    child: row * 2 + column < photos.length
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: AspectRatio(
-                              aspectRatio: 1.2,
-                              child: Image.asset(
-                                photos[row * 2 + column].asset,
-                                fit: BoxFit.cover,
-                                cacheWidth: 600,
-                              ),
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                ],
-              ],
-            ),
-          ),
-      ],
     );
   }
 }

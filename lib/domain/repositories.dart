@@ -15,9 +15,13 @@ abstract interface class LibraryRepository {
   List<TrashEntry> get trash;
   MediaItem? mediaById(String id);
   Future<void> toggleFavorite(String id);
+  Future<void> setFavorites(List<String> ids, bool favorite);
   Future<void> moveToTrash(String id);
+  Future<void> moveManyToTrash(List<String> ids);
   Future<void> restore(String id);
+  Future<void> restoreMany(List<String> ids);
   Future<void> deletePermanently(String id);
+  Future<void> deleteManyPermanently(List<String> ids);
 }
 
 abstract interface class AlbumRepository {
@@ -31,8 +35,13 @@ abstract interface class AlbumRepository {
     List<String> mediaIds = const [],
   });
   Future<void> renameAlbum(String id, String title);
+  Future<void> updateAlbum(String id, String title, String description);
+  Future<void> deleteAlbum(String id);
+  Future<void> setAlbumCover(String albumId, String mediaId);
   Future<void> addToAlbum(String albumId, String mediaId);
+  Future<void> addManyToAlbum(String albumId, List<String> mediaIds);
   Future<void> removeFromAlbum(String albumId, String mediaId);
+  Future<void> removeManyFromAlbum(String albumId, List<String> mediaIds);
   Future<void> setMemberRole(String albumId, String userId, AlbumRole role);
   Future<void> removeMember(String albumId, String userId);
 }

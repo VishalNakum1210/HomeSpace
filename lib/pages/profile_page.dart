@@ -6,6 +6,8 @@ import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
 import '../domain/models.dart';
 import 'local_edit_sheets.dart';
+import 'library_widgets.dart';
+import 'trash_page.dart';
 
 String themeLabel(ThemeMode mode) => switch (mode) {
   ThemeMode.light => 'Light',
@@ -102,6 +104,22 @@ class ProfilePage extends StatelessWidget {
                           subtitle: 'Follows your device preferences',
                           onTap: () => showMotionInfo(context),
                         ),
+                        Divider(
+                          height: 1,
+                          indent: 18,
+                          endIndent: 18,
+                          color: style.border,
+                        ),
+                        _SettingRow(
+                          settingKey: const ValueKey('trash-setting'),
+                          icon: Icons.delete_outline_rounded,
+                          title: 'Trash',
+                          subtitle: repository.trash.isEmpty
+                              ? 'Nothing left behind'
+                              : '${repository.trash.length} memories to restore',
+                          onTap: () =>
+                              openSpacePage<void>(context, const TrashPage()),
+                        ),
                       ],
                     ),
                   ),
@@ -145,7 +163,7 @@ class ProfilePage extends StatelessWidget {
                   const SizedBox(height: 28),
                   Center(
                     child: Text(
-                      'HomeSpace · Local data foundation\nAndroid preview 0.2.0',
+                      'HomeSpace · Memories together\nAndroid preview 0.3.0',
                       textAlign: TextAlign.center,
                       style: text.bodyMedium!.copyWith(fontSize: 12),
                     ),
@@ -287,7 +305,7 @@ class ProfilePage extends StatelessWidget {
           onPressed: () => showLicensePage(
             context: context,
             applicationName: 'HomeSpace',
-            applicationVersion: '0.2.0',
+            applicationVersion: '0.3.0',
           ),
         ),
         const SizedBox(height: 10),

@@ -16,10 +16,14 @@ class AlbumNameSheet extends StatefulWidget {
 class _AlbumNameSheetState extends State<AlbumNameSheet> {
   final form = GlobalKey<FormState>();
   late final name = TextEditingController(text: widget.album?.title ?? '');
+  late final description = TextEditingController(
+    text: widget.album?.description ?? '',
+  );
   bool busy = false;
   @override
   void dispose() {
     name.dispose();
+    description.dispose();
     super.dispose();
   }
 
@@ -58,35 +62,51 @@ class _AlbumNameSheetState extends State<AlbumNameSheet> {
                 ? 'Give your album a name.'
                 : null,
           ),
+          const SizedBox(height: 12),
+          TextFormField(
+            key: const ValueKey('album-description'),
+            controller: description,
+            maxLength: 4096,
+            minLines: 1,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Description (optional)',
+            ),
+            textCapitalization: TextCapitalization.sentences,
+          ),
           const SizedBox(height: 14),
           SpaceButton(
             label: busy
                 ? 'Saving…'
                 : widget.album == null
                 ? 'Create album'
-                : 'Save name',
+                : 'Save album',
             icon: Icons.photo_album_outlined,
             onPressed: busy
                 ? null
                 : () async {
                     if (!form.currentState!.validate()) return;
                     setState(() => busy = true);
+                    String? savedId;
                     final success = await saveLocalChange(context, () async {
                       if (widget.album == null) {
-                        await repository.createAlbum(
+                        savedId = await repository.createAlbum(
                           name.text,
+                          description: description.text,
                           mediaIds: widget.mediaIds,
                         );
                       } else {
-                        await repository.renameAlbum(
+                        await repository.updateAlbum(
                           widget.album!.id,
                           name.text,
+                          description.text,
                         );
+                        savedId = widget.album!.id;
                       }
                     });
                     if (!context.mounted) return;
                     setState(() => busy = false);
-                    if (success) Navigator.pop(context);
+                    if (success) Navigator.pop(context, savedId);
                   },
           ),
           const SizedBox(height: 12),
@@ -202,8 +222,8 @@ class _EditProfileSheetState extends State<EditProfileSheet> {
 }
 
 class AlbumPickerSheet extends StatelessWidget {
-  final String mediaId;
-  const AlbumPickerSheet({super.key, required this.mediaId});
+  final List<String> mediaIds;
+  const AlbumPickerSheet({super.key, required this.mediaIds});
   @override
   Widget build(BuildContext context) {
     final repository = HomeScope.of(context);
@@ -225,7 +245,7 @@ class AlbumPickerSheet extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'One memory can belong to more than one album.',
+          '${mediaIds.length == 1 ? 'One memory' : '${mediaIds.length} memories'} can belong to more than one album.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 16),
@@ -239,32 +259,42 @@ class AlbumPickerSheet extends StatelessWidget {
             ),
             title: Text(album.title),
             subtitle: Text(
-              album.mediaIds.contains(mediaId)
+              album.mediaIds.toSet().containsAll(mediaIds)
                   ? 'Already in this album'
                   : '${repository.photosFor(album).length} photos',
             ),
-            trailing: album.mediaIds.contains(mediaId)
+            trailing: album.mediaIds.toSet().containsAll(mediaIds)
                 ? const Icon(Icons.check_rounded)
                 : const Icon(Icons.add_rounded),
             onTap:
-                album.mediaIds.contains(mediaId) || repository.pendingWrites > 0
+                album.mediaIds.toSet().containsAll(mediaIds) ||
+                    repository.pendingWrites > 0
                 ? null
                 : () async {
                     final success = await saveLocalChange(
                       context,
-                      () => repository.addToAlbum(album.id, mediaId),
+                      () => repository.addManyToAlbum(album.id, mediaIds),
                     );
-                    if (success && context.mounted) Navigator.pop(context);
+                    if (success && context.mounted) {
+                      Navigator.pop(context, true);
+                    }
                   },
           ),
         const SizedBox(height: 16),
         SpaceButton(
           label: 'Create a new album',
           icon: Icons.add_rounded,
-          onPressed: () => showSpaceSheet<void>(
-            context,
-            AlbumNameSheet(mediaIds: [mediaId]),
-          ),
+          onPressed: repository.pendingWrites > 0
+              ? null
+              : () async {
+                  final created = await showSpaceSheet<String>(
+                    context,
+                    AlbumNameSheet(mediaIds: mediaIds),
+                  );
+                  if (created != null && context.mounted) {
+                    Navigator.pop(context, true);
+                  }
+                },
         ),
         const SizedBox(height: 12),
       ],
