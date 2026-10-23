@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../application/home_scope.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
+import '../design/photo_action.dart';
 import '../domain/models.dart';
 import 'library_widgets.dart';
 import 'local_edit_sheets.dart';
@@ -71,6 +72,25 @@ class _MediaViewerState extends State<MediaViewer> {
     }
   }
 
+  String _dateLabel(DateTime value) {
+    final date = value.toLocal();
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final repository = HomeScope.of(context);
@@ -96,6 +116,12 @@ class _MediaViewerState extends State<MediaViewer> {
               body: LayoutBuilder(
                 builder: (context, constraints) {
                   final compact = constraints.maxHeight < 450;
+                  final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+                  final top = compact
+                      ? 80.0
+                      : 88 + 48 * (scale.clamp(1.0, 2.0).toDouble() - 1);
+                  final bottom =
+                      88 + 32 * (scale.clamp(1.0, 2.0).toDouble() - 1);
                   return Stack(
                     children: [
                       Positioned.fill(
@@ -103,11 +129,10 @@ class _MediaViewerState extends State<MediaViewer> {
                           duration: spaceMotion(context, 160),
                           padding: EdgeInsets.only(
                             top: chrome
-                                ? 72 + MediaQuery.paddingOf(context).top
+                                ? top + MediaQuery.paddingOf(context).top
                                 : 0,
                             bottom: chrome
-                                ? (compact ? 70 : 196) +
-                                      MediaQuery.paddingOf(context).bottom
+                                ? bottom + MediaQuery.paddingOf(context).bottom
                                 : 0,
                           ),
                           child: widget.mediaIds.isEmpty
@@ -174,47 +199,93 @@ class _MediaViewerState extends State<MediaViewer> {
                           context,
                           SafeArea(
                             bottom: false,
-                            child: Row(
-                              children: [
-                                IconButton(
-                                  tooltip: 'Close viewer',
-                                  onPressed: () => Navigator.pop(context),
-                                  icon: const Icon(Icons.arrow_back_rounded),
-                                ),
-                                const Spacer(),
-                                IconButton(
-                                  tooltip: 'Previous photo',
-                                  onPressed: index > 0 ? () => step(-1) : null,
-                                  icon: const Icon(Icons.chevron_left_rounded),
-                                ),
-                                Semantics(
-                                  liveRegion: true,
-                                  label:
-                                      '${index + 1} of ${widget.mediaIds.length} memories',
-                                  child: ExcludeSemantics(
-                                    child: Text(
-                                      '${widget.mediaIds.isEmpty ? 0 : index + 1} / ${widget.mediaIds.length}',
-                                      key: const ValueKey('viewer-position'),
-                                      style: text.labelLarge,
+                            child: SizedBox(
+                              height: top,
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Close viewer',
+                                    onPressed: () => Navigator.pop(context),
+                                    icon: const Icon(Icons.arrow_back_rounded),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Previous photo',
+                                    onPressed: index > 0
+                                        ? () => step(-1)
+                                        : null,
+                                    icon: const Icon(
+                                      Icons.chevron_left_rounded,
                                     ),
                                   ),
-                                ),
-                                IconButton(
-                                  tooltip: 'Next photo',
-                                  onPressed: index < widget.mediaIds.length - 1
-                                      ? () => step(1)
-                                      : null,
-                                  icon: const Icon(Icons.chevron_right_rounded),
-                                ),
-                                const Spacer(),
-                                IconButton(
-                                  tooltip: 'Photo details',
-                                  onPressed: photo == null
-                                      ? null
-                                      : () => _showDetails(context, photo),
-                                  icon: const Icon(Icons.info_outline_rounded),
-                                ),
-                              ],
+                                  Expanded(
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        if (photo != null)
+                                          Text(
+                                            _dateLabel(photo.takenAt),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: text.labelLarge,
+                                          ),
+                                        if (photo != null && !compact)
+                                          Text(
+                                            photo.title,
+                                            key: const ValueKey('viewer-title'),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: text.bodyMedium!.copyWith(
+                                              fontSize: 12,
+                                              color: const Color(0xFFDCE3ED),
+                                            ),
+                                          ),
+                                        Semantics(
+                                          liveRegion: true,
+                                          label:
+                                              '${widget.mediaIds.isEmpty ? 0 : index + 1} of ${widget.mediaIds.length} memories',
+                                          child: ExcludeSemantics(
+                                            child: Text(
+                                              '${widget.mediaIds.isEmpty ? 0 : index + 1} / ${widget.mediaIds.length}',
+                                              key: const ValueKey(
+                                                'viewer-position',
+                                              ),
+                                              style: text.bodyMedium!.copyWith(
+                                                fontSize: 11,
+                                                color: const Color(0xFFDCE3ED),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Next photo',
+                                    onPressed:
+                                        index < widget.mediaIds.length - 1
+                                        ? () => step(1)
+                                        : null,
+                                    icon: const Icon(
+                                      Icons.chevron_right_rounded,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: zoomed ? 'Reset zoom' : 'Zoom in',
+                                    onPressed:
+                                        !available ||
+                                            photo.kind != MediaKind.photo
+                                        ? null
+                                        : () => zoomKeys[photo.id]?.currentState
+                                              ?.toggle(),
+                                    icon: Icon(
+                                      zoomed
+                                          ? Icons.zoom_out_rounded
+                                          : Icons.zoom_in_rounded,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -229,171 +300,144 @@ class _MediaViewerState extends State<MediaViewer> {
                             SafeArea(
                               top: false,
                               child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  8,
-                                  16,
-                                  8,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
                                 ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    if (!compact) ...[
-                                      Text(
-                                        photo.title,
-                                        key: const ValueKey('viewer-title'),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.center,
-                                        style: text.titleMedium,
+                                    if (widget.inTrash) ...[
+                                      Expanded(
+                                        child: PhotoAction(
+                                          key: const ValueKey('restore-memory'),
+                                          label: 'Restore',
+                                          tooltip: 'Restore memory',
+                                          icon: Icons.restore_rounded,
+                                          onPressed: busy
+                                              ? null
+                                              : () async {
+                                                  final saved =
+                                                      await saveLocalChange(
+                                                        context,
+                                                        () => repository
+                                                            .restore(photo.id),
+                                                      );
+                                                  if (saved &&
+                                                      context.mounted) {
+                                                    Navigator.pop(context);
+                                                  }
+                                                },
+                                        ),
                                       ),
-                                      const SizedBox(height: 5),
-                                      Text(
-                                        '${repository.groupFor(photo)} · ${widget.inTrash ? 'In Trash' : 'Sample photo'}',
-                                        style: text.bodyMedium,
+                                      Expanded(
+                                        child: PhotoAction(
+                                          key: const ValueKey('delete-memory'),
+                                          label: 'Delete',
+                                          tooltip: 'Delete memory permanently',
+                                          icon: Icons.delete_forever_outlined,
+                                          onPressed: busy
+                                              ? null
+                                              : () async {
+                                                  final saved =
+                                                      await deleteTrashedMemories(
+                                                        context,
+                                                        [photo.id],
+                                                      );
+                                                  if (saved &&
+                                                      context.mounted) {
+                                                    Navigator.pop(context);
+                                                  }
+                                                },
+                                        ),
                                       ),
-                                      const SizedBox(height: 10),
+                                      Expanded(
+                                        child: PhotoAction(
+                                          label: 'Info',
+                                          tooltip: 'Photo details',
+                                          icon: Icons.info_outline_rounded,
+                                          onPressed: () =>
+                                              _showDetails(context, photo),
+                                        ),
+                                      ),
+                                    ] else ...[
+                                      Expanded(
+                                        child: PhotoAction(
+                                          key: const ValueKey(
+                                            'toggle-favorite',
+                                          ),
+                                          label: 'Favorite',
+                                          tooltip:
+                                              repository.favorites.contains(
+                                                photo.id,
+                                              )
+                                              ? 'Remove from favorites'
+                                              : 'Add to favorites',
+                                          selected: repository.favorites
+                                              .contains(photo.id),
+                                          icon:
+                                              repository.favorites.contains(
+                                                photo.id,
+                                              )
+                                              ? Icons.favorite_rounded
+                                              : Icons.favorite_border_rounded,
+                                          onPressed: busy
+                                              ? null
+                                              : () => saveLocalChange(
+                                                  context,
+                                                  () => repository
+                                                      .toggleFavorite(photo.id),
+                                                ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: PhotoAction(
+                                          key: const ValueKey('choose-album'),
+                                          label: 'Add to album',
+                                          tooltip: 'Add to albums',
+                                          icon: Icons
+                                              .add_photo_alternate_outlined,
+                                          onPressed: busy
+                                              ? null
+                                              : () => showSpaceSheet<bool>(
+                                                  context,
+                                                  AlbumPickerSheet(
+                                                    mediaIds: [photo.id],
+                                                  ),
+                                                ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: PhotoAction(
+                                          label: 'Info',
+                                          tooltip: 'Photo details',
+                                          icon: Icons.info_outline_rounded,
+                                          onPressed: () =>
+                                              _showDetails(context, photo),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: PhotoAction(
+                                          key: const ValueKey('trash-memory'),
+                                          label: 'Trash',
+                                          tooltip: 'Move to Trash',
+                                          icon: Icons.delete_outline_rounded,
+                                          onPressed: busy
+                                              ? null
+                                              : () async {
+                                                  final saved =
+                                                      await trashMemories(
+                                                        context,
+                                                        [photo.id],
+                                                      );
+                                                  if (saved &&
+                                                      context.mounted) {
+                                                    Navigator.pop(context);
+                                                  }
+                                                },
+                                        ),
+                                      ),
                                     ],
-                                    if (widget.inTrash)
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceEvenly,
-                                        children: [
-                                          TextButton.icon(
-                                            key: const ValueKey(
-                                              'restore-memory',
-                                            ),
-                                            icon: const Icon(
-                                              Icons.restore_rounded,
-                                            ),
-                                            label: const Text('Restore'),
-                                            onPressed: busy
-                                                ? null
-                                                : () async {
-                                                    final saved =
-                                                        await saveLocalChange(
-                                                          context,
-                                                          () => repository
-                                                              .restore(
-                                                                photo.id,
-                                                              ),
-                                                        );
-                                                    if (saved &&
-                                                        context.mounted) {
-                                                      Navigator.pop(context);
-                                                    }
-                                                  },
-                                          ),
-                                          TextButton.icon(
-                                            key: const ValueKey(
-                                              'delete-memory',
-                                            ),
-                                            icon: const Icon(
-                                              Icons.delete_forever_outlined,
-                                            ),
-                                            label: const Text('Delete'),
-                                            onPressed: busy
-                                                ? null
-                                                : () async {
-                                                    final saved =
-                                                        await deleteTrashedMemories(
-                                                          context,
-                                                          [photo.id],
-                                                        );
-                                                    if (saved &&
-                                                        context.mounted) {
-                                                      Navigator.pop(context);
-                                                    }
-                                                  },
-                                          ),
-                                        ],
-                                      )
-                                    else
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceEvenly,
-                                        children: [
-                                          IconButton(
-                                            key: const ValueKey(
-                                              'toggle-favorite',
-                                            ),
-                                            tooltip:
-                                                repository.favorites.contains(
-                                                  photo.id,
-                                                )
-                                                ? 'Remove from favorites'
-                                                : 'Add to favorites',
-                                            isSelected: repository.favorites
-                                                .contains(photo.id),
-                                            selectedIcon: Icon(
-                                              Icons.favorite_rounded,
-                                              color: SpaceStyle.of(context)
-                                                  .accent,
-                                            ),
-                                            icon: const Icon(
-                                              Icons.favorite_border_rounded,
-                                            ),
-                                            onPressed: busy
-                                                ? null
-                                                : () => saveLocalChange(
-                                                    context,
-                                                    () => repository
-                                                        .toggleFavorite(
-                                                          photo.id,
-                                                        ),
-                                                  ),
-                                          ),
-                                          IconButton(
-                                            key: const ValueKey('choose-album'),
-                                            tooltip: 'Add to albums',
-                                            icon: const Icon(
-                                              Icons
-                                                  .collections_bookmark_outlined,
-                                            ),
-                                            onPressed: busy
-                                                ? null
-                                                : () => showSpaceSheet<bool>(
-                                                    context,
-                                                    AlbumPickerSheet(
-                                                      mediaIds: [photo.id],
-                                                    ),
-                                                  ),
-                                          ),
-                                          IconButton(
-                                            tooltip: zoomed
-                                                ? 'Reset zoom'
-                                                : 'Zoom in',
-                                            icon: Icon(
-                                              zoomed
-                                                  ? Icons.zoom_out_rounded
-                                                  : Icons.zoom_in_rounded,
-                                            ),
-                                            onPressed: () => zoomKeys[photo.id]
-                                                ?.currentState
-                                                ?.toggle(),
-                                          ),
-                                          IconButton(
-                                            key: const ValueKey('trash-memory'),
-                                            tooltip: 'Move to Trash',
-                                            icon: const Icon(
-                                              Icons.delete_outline_rounded,
-                                            ),
-                                            onPressed: busy
-                                                ? null
-                                                : () async {
-                                                    final saved =
-                                                        await trashMemories(
-                                                          context,
-                                                          [photo.id],
-                                                        );
-                                                    if (saved &&
-                                                        context.mounted) {
-                                                      Navigator.pop(context);
-                                                    }
-                                                  },
-                                          ),
-                                        ],
-                                      ),
                                   ],
                                 ),
                               ),
@@ -438,36 +482,135 @@ class _MediaViewerState extends State<MediaViewer> {
     final albums = repository.albums.where(
       (album) => album.mediaIds.contains(photo.id),
     );
-    showSpaceSheet<void>(
-      context,
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(photo.title, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 20),
-          Text(
-            'Taken ${date.day}/${date.month}/${date.year} at ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            '${photo.category} · Bundled sample · Available offline',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SpaceSection('In your collections'),
-          if (albums.isEmpty)
-            const Text('This memory has a home in your library.')
-          else
-            for (final album in albums)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.photo_album_outlined),
-                title: Text(album.title),
-                subtitle: Text(
-                  'Added by ${repository.memberById(album.addedBy[photo.id]!).name}',
-                ),
+    final appearance = repository.profile.appearance;
+    final brightness = switch (appearance) {
+      Appearance.light => Brightness.light,
+      Appearance.dark => Brightness.dark,
+      Appearance.system => MediaQuery.platformBrightnessOf(context),
+    };
+    final theme = spaceTheme(brightness, SpacePage.collections);
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Theme(
+        data: theme,
+        child: Material(
+          color: theme.colorScheme.surfaceContainer,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          clipBehavior: Clip.antiAlias,
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Photo details',
+                          style: theme.textTheme.titleLarge,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close photo details',
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                  Text(photo.title, style: theme.textTheme.bodyMedium),
+                  const SizedBox(height: 16),
+                  _DetailRow(
+                    icon: Icons.calendar_today_outlined,
+                    label: 'Date & time',
+                    value:
+                        '${_dateLabel(date)} · ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
+                  ),
+                  _DetailRow(
+                    icon: Icons.insert_drive_file_outlined,
+                    label: 'Filename',
+                    value: photo.asset.split('/').last,
+                    note:
+                        '${photo.category} · Bundled sample · Available offline',
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Albums', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  if (albums.isEmpty)
+                    const _DetailRow(
+                      icon: Icons.photo_album_outlined,
+                      label: 'In your library',
+                      value: 'This memory has a home in your library.',
+                    )
+                  else
+                    for (final album in albums)
+                      _DetailRow(
+                        icon: Icons.photo_album_outlined,
+                        label: album.title,
+                        value:
+                            'Added by ${repository.memberById(album.addedBy[photo.id]!).name}',
+                      ),
+                ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? note;
+  const _DetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.note,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = SpaceStyle.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: style.accentSoft,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: style.accentInk, size: 21),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: theme.textTheme.labelLarge),
+                const SizedBox(height: 3),
+                Text(value, style: theme.textTheme.bodyMedium),
+                if (note != null)
+                  Text(
+                    note!,
+                    style: theme.textTheme.bodyMedium!.copyWith(fontSize: 12),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );

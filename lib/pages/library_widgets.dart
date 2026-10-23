@@ -96,7 +96,9 @@ class MemoryTile extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
           side: BorderSide(
-            color: selected == true ? style.accentInk : Colors.transparent,
+            color: selected == true
+                ? const Color(0xFF1677E8)
+                : Colors.transparent,
             width: 3,
           ),
         ),
@@ -116,7 +118,7 @@ class MemoryTile extends StatelessWidget {
                     child: DecoratedBox(
                       decoration: BoxDecoration(
                         color: selected == true
-                            ? style.accentInk
+                            ? const Color(0xFF1677E8)
                             : const Color(0xAA101519),
                         shape: BoxShape.circle,
                       ),

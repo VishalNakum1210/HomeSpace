@@ -6,10 +6,10 @@ green/purple/orange page accents, and icon-only floating dock with a blue circle
 
 ## Phases
 
-1. **Main pages and visual foundation.** Photos, Collections and Profile; reusable
+1. **Main pages and visual foundation — complete.** Photos, Collections and Profile; reusable
    branded header; illustrated photo banner; pastel album cards; shared spacing;
    light/dark and larger-text layouts. Keep current repositories and stored data.
-2. **Photo flows.** Search/selection, full-screen viewer, details and action bars
+2. **Photo flows — complete.** Search/selection, full-screen viewer, details and action bars
    (reference screens 02–04). Preserve zoom, paging and selection behavior.
 3. **Album flows.** Album detail, create/edit, media picker, members and permissions
    (06–10). Apply existing owner/contributor/viewer rules.

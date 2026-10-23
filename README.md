@@ -2,11 +2,12 @@
 
 The playful HomeSpace family photo library, built with Flutter for Android only. Phase 3 adds the photo viewer, selection actions, album management, and Trash on top of persistent local repositories.
 
-The cartoon redesign is now in phase 1: Photos, Collections and Profile follow the
+The cartoon redesign has completed phases 1 and 2: Photos, Collections and Profile follow the
 approved illustrated direction, with the existing house logo, Nunito, tactile
 buttons and Smooth Clay dock. See [the four-phase redesign plan](docs/cartoon-redesign.md).
 The new garden banner is bundled offline; secondary flows keep their existing
-working UI until their redesign phases.
+working UI until their redesign phases. Search/selection, the photo viewer and
+photo details now use the updated layout; see [redesign phase two](docs/cartoon-redesign-phase-2.md).
 See [redesign phase-one validation](docs/cartoon-redesign-phase-1-validation.md)
 for checks and previews. Its APK is
 `output/releases/homespace-cartoon-phase-1-android.apk` (version 0.4.0+4).
@@ -44,7 +45,14 @@ flutter build apk --release --no-pub
 
 APK output: `build/app/outputs/flutter-apk/app-release.apk`.
 
-The current preview is saved as `output/releases/homespace-phase-3-android.apk` (50.7 MiB). See [phase-three validation](docs/phase-3-validation.md) for tests, checksum, actual Android screenshots, and limits. Generated APKs and screenshots remain local ignored artifacts. Earlier checks are recorded in [phase-one validation](docs/phase-1-validation.md) and [phase-two validation](docs/phase-2-validation.md).
+The current redesigned preview is saved as
+`output/releases/homespace-cartoon-phase-2-android.apk` (version 0.4.1+5).
+See [cartoon phase-two validation](docs/cartoon-redesign-phase-2.md) for checks
+and preview locations. The earlier functional phase-3 build and its Android
+screenshots remain documented in [phase-three validation](docs/phase-3-validation.md).
+Generated APKs and screenshots remain local ignored artifacts. Earlier checks
+are recorded in [phase-one validation](docs/phase-1-validation.md) and
+[phase-two validation](docs/phase-2-validation.md).
 
 ## Source
 

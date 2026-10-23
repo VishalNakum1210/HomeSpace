@@ -265,7 +265,7 @@ class ProfilePage extends StatelessWidget {
           onPressed: () => showLicensePage(
             context: context,
             applicationName: 'HomeSpace',
-            applicationVersion: '0.4.0',
+            applicationVersion: '0.4.1',
           ),
         ),
         const SizedBox(height: 10),
