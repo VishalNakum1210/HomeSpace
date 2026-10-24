@@ -258,7 +258,9 @@ class LocalHomeRepository extends HomeRepository {
     String title, {
     String description = '',
     List<String> mediaIds = const [],
+    String? coverId,
   }) async {
+    final requested = List<String>.of(mediaIds);
     String? createdId;
     await _commit((state) {
       final name = _name(title, 80);
@@ -267,7 +269,7 @@ class LocalHomeRepository extends HomeRepository {
           'Keep album descriptions under 4096 characters.',
         );
       }
-      final photos = mediaIds.toSet().toList();
+      final photos = requested.toSet().toList();
       for (final id in photos) {
         _requireMedia(state, id);
         if (state.trash.any((entry) => entry.mediaId == id)) {
@@ -275,6 +277,11 @@ class LocalHomeRepository extends HomeRepository {
             'Restore trashed memories before adding them.',
           );
         }
+      }
+      if (coverId != null && !photos.contains(coverId)) {
+        throw const LocalActionException(
+          'Add the cover photo to this album first.',
+        );
       }
       do {
         createdId = 'album-${clock().microsecondsSinceEpoch}-${_idCounter++}';
@@ -284,7 +291,7 @@ class LocalHomeRepository extends HomeRepository {
         title: name,
         description: description.trim(),
         mediaIds: photos,
-        coverId: photos.firstOrNull,
+        coverId: coverId ?? photos.firstOrNull,
         memberships: [AlbumMembership(state.profile.userId, AlbumRole.owner)],
         addedBy: {for (final id in photos) id: state.profile.userId},
       );
@@ -301,23 +308,36 @@ class LocalHomeRepository extends HomeRepository {
   });
 
   @override
-  Future<void> updateAlbum(String id, String title, String description) =>
-      _commit((state) {
-        final album = _album(state, id);
-        _owner(state, album);
-        if (description.length > 4096) {
-          throw const LocalActionException(
-            'Keep descriptions under 4096 characters.',
-          );
-        }
-        return _replace(
-          state,
-          album.copyWith(
-            title: _name(title, 80),
-            description: description.trim(),
-          ),
+  Future<void> updateAlbum(
+    String id,
+    String title,
+    String description, {
+    String? coverId,
+  }) => _commit((state) {
+    final album = _album(state, id);
+    _owner(state, album);
+    if (coverId != null) {
+      _activeIds(state, [coverId]);
+      if (!album.mediaIds.contains(coverId)) {
+        throw const LocalActionException(
+          'Add the cover photo to this album first.',
         );
-      });
+      }
+    }
+    if (description.length > 4096) {
+      throw const LocalActionException(
+        'Keep descriptions under 4096 characters.',
+      );
+    }
+    return _replace(
+      state,
+      album.copyWith(
+        title: _name(title, 80),
+        description: description.trim(),
+        coverId: coverId,
+      ),
+    );
+  });
 
   @override
   Future<void> deleteAlbum(String id) => _commit((state) {

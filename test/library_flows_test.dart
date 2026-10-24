@@ -281,7 +281,8 @@ void main() {
       await tap(tester, key('album-album-family'));
       await tap(tester, key('album-members'));
       await tap(tester, key('member-options-member-sam'));
-      await tap(tester, find.text('Make contributor'));
+      await tap(tester, key('permission-contributor'));
+      await tap(tester, key('save-member-permissions'));
       expect(
         repository.albums
             .singleWhere((album) => album.id == 'album-family')

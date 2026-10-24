@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../application/home_scope.dart';
 import '../design/space_theme.dart';
+import '../design/album_widgets.dart';
+import '../design/cartoon_artwork.dart';
 import '../design/space_widgets.dart';
 import '../domain/models.dart';
 import 'library_widgets.dart';
-import 'local_edit_sheets.dart';
+import 'album_editor_page.dart';
+import 'album_members_page.dart';
 import 'media_viewer.dart';
 
 class AlbumPage extends StatefulWidget {
@@ -27,7 +30,10 @@ class _AlbumPageState extends State<AlbumPage> {
     selected.contains(id) ? selected.remove(id) : selected.add(id);
   });
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      AlbumTheme(child: Builder(builder: _page));
+
+  Widget _page(BuildContext context) {
     final repository = HomeScope.of(context);
     final album = repository.albums
         .where((item) => item.id == widget.albumId)
@@ -44,7 +50,11 @@ class _AlbumPageState extends State<AlbumPage> {
         ),
       );
     }
-    final photos = repository.photosFor(album);
+    final photos = repository.photosFor(album).toList()
+      ..sort((a, b) {
+        final result = b.takenAt.compareTo(a.takenAt);
+        return result == 0 ? a.id.compareTo(b.id) : result;
+      });
     final ids = selected
         .where((id) => photos.any((item) => item.id == id))
         .toList();
@@ -70,7 +80,7 @@ class _AlbumPageState extends State<AlbumPage> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(selecting ? '${ids.length} selected' : 'Collection'),
+          title: selecting ? Text('${ids.length} selected') : null,
           leading: selecting
               ? IconButton(
                   tooltip: 'Cancel selection',
@@ -108,10 +118,7 @@ class _AlbumPageState extends State<AlbumPage> {
                       ],
                       onSelected: (action) async {
                         if (action == 'edit') {
-                          await showSpaceSheet<String>(
-                            context,
-                            AlbumNameSheet(album: album),
-                          );
+                          await openAlbumEditor(context, album: album);
                         } else {
                           final confirmed = await confirmLibraryAction(
                             context,
@@ -191,94 +198,83 @@ class _AlbumPageState extends State<AlbumPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(22),
                         child: SizedBox(
-                          height: 200,
+                          height: 152,
                           width: double.infinity,
                           child: cover == null
                               ? ColoredBox(
                                   color: style.accentSoft,
-                                  child: Icon(
-                                    Icons.photo_album_outlined,
-                                    color: style.accentInk,
-                                    size: 60,
-                                  ),
+                                  child: const Center(child: AlbumSticker()),
                                 )
                               : MediaThumbnail(media: cover),
                         ),
                       ),
-                      const SizedBox(height: 20),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          SpaceBadge(
-                            album.shared ? 'SHARED ALBUM' : 'MY ALBUM',
-                          ),
-                          const SpaceBadge('LOCAL DEMO'),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 16),
                       Text(album.title, style: text.headlineMedium),
+                      const SizedBox(height: 5),
+                      Text(
+                        '${photos.length} ${photos.length == 1 ? 'memory' : 'memories'} · ${album.shared ? 'Shared album' : 'Personal album'}',
+                        key: const ValueKey('album-summary'),
+                        style: text.bodyMedium,
+                      ),
                       if (album.description.isNotEmpty) ...[
                         const SizedBox(height: 8),
-                        Text(album.description, style: text.bodyLarge),
+                        Text(album.description, style: text.bodyMedium),
                       ],
-                      const SizedBox(height: 16),
-                      Text(
-                        album.shared
-                            ? 'A space for ${album.memberships.length} family members'
-                            : 'A little collection of your own',
-                        style: text.bodyMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Your role: ${role?.name ?? 'viewer'}',
-                        style: text.bodyMedium,
-                      ),
                       const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
+                      Row(
                         children: [
-                          if (canAdd)
-                            OutlinedButton.icon(
-                              key: const ValueKey('add-album-photos'),
-                              icon: const Icon(
-                                Icons.add_photo_alternate_outlined,
-                              ),
-                              label: const Text('Add memories'),
-                              onPressed: busy
-                                  ? null
-                                  : () => openSpacePage<void>(
-                                      context,
-                                      AlbumMediaPicker(albumId: album.id),
-                                    ),
+                          Expanded(
+                            child: AlbumPeople(
+                              members: [
+                                for (final member in album.memberships)
+                                  repository.memberById(member.userId),
+                              ],
                             ),
+                          ),
+                          const SizedBox(width: 8),
                           OutlinedButton.icon(
                             key: const ValueKey('album-members'),
-                            icon: const Icon(Icons.people_outline_rounded),
-                            label: Text(
-                              '${album.memberships.length} ${album.memberships.length == 1 ? 'member' : 'members'}',
+                            icon: const Icon(
+                              Icons.people_outline_rounded,
+                              size: 18,
                             ),
-                            onPressed: () => showSpaceSheet<void>(
+                            label: const Text('Members'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(48, 48),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              side: BorderSide(color: style.border),
+                            ),
+                            onPressed: () => openSpacePage<void>(
                               context,
-                              AlbumMembersSheet(albumId: album.id),
+                              AlbumMembersPage(albumId: album.id),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 14),
+                      if (canAdd) ...[
+                        SpaceButton(
+                          key: const ValueKey('add-album-photos'),
+                          label: 'Add photos',
+                          icon: Icons.add_photo_alternate_outlined,
+                          onPressed: busy
+                              ? null
+                              : () => openSpacePage<void>(
+                                  context,
+                                  AlbumMediaPicker(albumId: album.id),
+                                ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       Text(switch (role) {
-                        AlbumRole.owner => 'You choose this album’s cover, memories, and members.',
-                        AlbumRole.contributor =>
-                          'Add memories and remove your own additions.',
-                        _ => 'You can enjoy this collection. An owner can change your role.',
-                      }, style: text.bodyMedium),
-                      SpaceSection(
-                        'The good times',
-                        detail: '${photos.length} memories',
-                      ),
+                        AlbumRole.owner => 'Owner · You manage this album.',
+                        AlbumRole.contributor => 'Contributor · Add memories and remove your own additions.',
+                        _ => 'Viewer · Enjoy the memories in this album.',
+                      }, style: text.bodyMedium!.copyWith(fontSize: 12)),
                     ],
                   ),
                 ),
@@ -291,36 +287,58 @@ class _AlbumPageState extends State<AlbumPage> {
                   message: 'Add a few favorites from your library.',
                 ),
               ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
-              sliver: SliverGrid.builder(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: libraryColumns(context),
-                  mainAxisSpacing: 6,
-                  crossAxisSpacing: 6,
+            for (final group in photos.map(repository.groupFor).toSet()) ...[
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                sliver: SliverToBoxAdapter(
+                  child: SpaceSection(
+                    group,
+                    detail: albumMemoryCount(
+                      photos
+                          .where((photo) => repository.groupFor(photo) == group)
+                          .length,
+                    ),
+                  ),
                 ),
-                itemCount: photos.length,
-                itemBuilder: (context, index) {
-                  final photo = photos[index];
-                  return MemoryTile(
-                    key: ValueKey('album-memory-${photo.id}'),
-                    media: photo,
-                    selected: selecting ? selected.contains(photo.id) : null,
-                    subtitle: album.shared
-                        ? repository.memberById(album.addedBy[photo.id]!).name
-                        : null,
-                    onLongPress: canAdd ? () => toggle(photo.id) : null,
-                    onTap: selecting
-                        ? () => toggle(photo.id)
-                        : () => openMediaViewer(
-                            context,
-                            mediaIds: photos.map((item) => item.id).toList(),
-                            initialId: photo.id,
-                          ),
-                  );
-                },
               ),
-            ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                sliver: SliverGrid.builder(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: libraryColumns(context),
+                    mainAxisSpacing: 6,
+                    crossAxisSpacing: 6,
+                  ),
+                  itemCount: photos
+                      .where((photo) => repository.groupFor(photo) == group)
+                      .length,
+                  itemBuilder: (context, index) {
+                    final photo = photos
+                        .where((photo) => repository.groupFor(photo) == group)
+                        .elementAt(index);
+                    return MemoryTile(
+                      key: ValueKey('album-memory-${photo.id}'),
+                      media: photo,
+                      selected: selecting ? selected.contains(photo.id) : null,
+                      subtitle: album.shared
+                          ? repository.memberById(album.addedBy[photo.id]!).name
+                          : null,
+                      avatarAttribution: true,
+                      onLongPress: canAdd ? () => toggle(photo.id) : null,
+                      onTap: selecting
+                          ? () => toggle(photo.id)
+                          : () => openMediaViewer(
+                              context,
+                              mediaIds: photos
+                                  .map((photo) => photo.id)
+                                  .toList(),
+                              initialId: photo.id,
+                            ),
+                    );
+                  },
+                ),
+              ),
+            ],
             const SliverToBoxAdapter(
               child: SafeArea(top: false, child: SizedBox(height: 8)),
             ),
@@ -341,6 +359,7 @@ class AlbumMediaPicker extends StatefulWidget {
 class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
   final selected = <String>{};
   final search = TextEditingController();
+  String filter = 'All';
   @override
   void dispose() {
     search.dispose();
@@ -348,7 +367,10 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      AlbumTheme(child: Builder(builder: _page));
+
+  Widget _page(BuildContext context) {
     final repository = HomeScope.of(context);
     final album = repository.albums
         .where((item) => item.id == widget.albumId)
@@ -358,16 +380,51 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
         .toList();
     final photos = available
         .where(
-          (item) => item.title.toLowerCase().contains(
-            search.text.trim().toLowerCase(),
-          ),
+          (item) =>
+              (filter == 'All' ||
+                  (filter == 'Favorites'
+                      ? repository.favorites.contains(item.id)
+                      : item.kind == MediaKind.video)) &&
+              (item.title.toLowerCase().contains(
+                    search.text.trim().toLowerCase(),
+                  ) ||
+                  item.category.toLowerCase().contains(
+                    search.text.trim().toLowerCase(),
+                  )),
         )
         .toList();
+    final canAdd =
+        album != null &&
+        [
+          AlbumRole.owner,
+          AlbumRole.contributor,
+        ].contains(album.roleFor(repository.profile.userId));
     final ids = selected
         .where((id) => available.any((item) => item.id == id))
         .toList();
     return Scaffold(
-      appBar: AppBar(title: const Text('Add memories')),
+      appBar: AppBar(
+        title: const Text(
+          'Add photos',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        centerTitle: true,
+        actions: MediaQuery.textScalerOf(context).scale(14) > 19
+            ? null
+            : [
+                Padding(
+                  padding: const EdgeInsets.only(right: 20),
+                  child: Center(
+                    child: Text(
+                      '${ids.length} selected',
+                      style: Theme.of(context).textTheme.labelMedium!
+                          .copyWith(color: SpaceStyle.of(context).accentInk),
+                    ),
+                  ),
+                ),
+              ],
+      ),
       body: CustomScrollView(
         key: const ValueKey('album-picker-scroll'),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -375,14 +432,48 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
           SliverPadding(
             padding: const EdgeInsets.all(20),
             sliver: SliverToBoxAdapter(
-              child: TextField(
-                key: const ValueKey('album-photo-search'),
-                controller: search,
-                onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(
-                  hintText: 'Find a memory',
-                  prefixIcon: Icon(Icons.search_rounded),
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    key: const ValueKey('album-photo-search'),
+                    controller: search,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      hintText: 'Search photos',
+                      prefixIcon: Icon(Icons.search_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final option in ['All', 'Favorites', 'Videos'])
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: SpaceFilter(
+                              label: option,
+                              selected: filter == option,
+                              onTap: () => setState(() => filter = option),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '${ids.length} selected · ${photos.length} available',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  if (!canAdd) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      album == null ? 'This album is unavailable.' : 'You can view this album. An owner can change your role.',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
@@ -399,7 +490,7 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
               ),
             ),
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
             sliver: SliverGrid.builder(
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: libraryColumns(context),
@@ -428,13 +519,17 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            12,
+            20,
+            16 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
           child: SpaceButton(
             key: const ValueKey('save-album-photos'),
-            label:
-                'Add ${ids.length} ${ids.length == 1 ? 'memory' : 'memories'}',
+            label: 'Add ${ids.length} ${ids.length == 1 ? 'photo' : 'photos'}',
             icon: Icons.add_rounded,
-            onPressed: ids.isEmpty || repository.pendingWrites > 0
+            onPressed: !canAdd || ids.isEmpty || repository.pendingWrites > 0
                 ? null
                 : () async {
                     final saved = await saveLocalChange(
@@ -446,205 +541,6 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class AlbumMembersSheet extends StatelessWidget {
-  final String albumId;
-  const AlbumMembersSheet({super.key, required this.albumId});
-  @override
-  Widget build(BuildContext context) {
-    final repository = HomeScope.of(context);
-    final album = repository.albums
-        .where((item) => item.id == albumId)
-        .firstOrNull;
-    if (album == null) return const Text('This album is unavailable.');
-    final owner = album.roleFor(repository.profile.userId) == AlbumRole.owner;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'The people in this story',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 10),
-        Text(
-          'Local sharing preview. Changes stay on this device; no invitations are sent.',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 16),
-        for (final membership in album.memberships)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: CircleAvatar(
-              backgroundColor: SpaceStyle.of(context).accentSoft,
-              foregroundColor: SpaceStyle.of(context).accentInk,
-              child: Text(repository.memberById(membership.userId).initial),
-            ),
-            title: Text(
-              '${repository.memberById(membership.userId).name}${membership.userId == repository.profile.userId ? ' (you)' : ''}',
-            ),
-            subtitle: Text(switch (membership.role) {
-              AlbumRole.owner => 'Owner · Manages this album',
-              AlbumRole.contributor => 'Contributor · Adds memories',
-              AlbumRole.viewer => 'Viewer · Enjoys memories',
-            }),
-            trailing: !owner || membership.role == AlbumRole.owner
-                ? null
-                : PopupMenuButton<String>(
-                    key: ValueKey('member-options-${membership.userId}'),
-                    tooltip:
-                        'Change ${repository.memberById(membership.userId).name}’s role',
-                    enabled: repository.pendingWrites == 0,
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: 'viewer',
-                        child: Text('Make viewer'),
-                      ),
-                      PopupMenuItem(
-                        value: 'contributor',
-                        child: Text('Make contributor'),
-                      ),
-                      PopupMenuItem(
-                        value: 'remove',
-                        child: Text('Remove member'),
-                      ),
-                    ],
-                    onSelected: (action) async {
-                      if (action == 'remove') {
-                        final confirmed = await confirmLibraryAction(
-                          context,
-                          title: 'Remove this member?',
-                          message: 'Their memories stay in the album. You can add this family member again later.',
-                          confirm: 'Remove member',
-                        );
-                        if (!confirmed || !context.mounted) return;
-                        await saveLocalChange(
-                          context,
-                          () => repository.removeMember(
-                            albumId,
-                            membership.userId,
-                          ),
-                        );
-                      } else {
-                        await saveLocalChange(
-                          context,
-                          () => repository.setMemberRole(
-                            albumId,
-                            membership.userId,
-                            action == 'viewer'
-                                ? AlbumRole.viewer
-                                : AlbumRole.contributor,
-                          ),
-                        );
-                      }
-                    },
-                  ),
-          ),
-        if (owner &&
-            repository.snapshot.family.any(
-              (person) => album.roleFor(person.id) == null,
-            )) ...[
-          const SizedBox(height: 16),
-          SpaceButton(
-            key: const ValueKey('add-family-member'),
-            label: 'Add family member',
-            icon: Icons.person_add_alt_rounded,
-            onPressed: repository.pendingWrites > 0
-                ? null
-                : () => showSpaceSheet<void>(
-                    context,
-                    AddFamilyMemberSheet(albumId: albumId),
-                  ),
-          ),
-        ],
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-}
-
-class AddFamilyMemberSheet extends StatefulWidget {
-  final String albumId;
-  const AddFamilyMemberSheet({super.key, required this.albumId});
-  @override
-  State<AddFamilyMemberSheet> createState() => _AddFamilyMemberSheetState();
-}
-
-class _AddFamilyMemberSheetState extends State<AddFamilyMemberSheet> {
-  String? memberId;
-  AlbumRole role = AlbumRole.viewer;
-  @override
-  Widget build(BuildContext context) {
-    final repository = HomeScope.of(context);
-    final album = repository.albums
-        .where((item) => item.id == widget.albumId)
-        .firstOrNull;
-    final people = repository.snapshot.family
-        .where((person) => album?.roleFor(person.id) == null)
-        .toList();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          'A place for your people',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 10),
-        Text(
-          'Choose a sample family member and their role in this album.',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        for (final person in people)
-          ListTile(
-            key: ValueKey('choose-member-${person.id}'),
-            contentPadding: EdgeInsets.zero,
-            title: Text(person.name),
-            trailing: Icon(
-              memberId == person.id
-                  ? Icons.check_circle_rounded
-                  : Icons.circle_outlined,
-            ),
-            onTap: () => setState(() => memberId = person.id),
-          ),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<AlbumRole>(
-          key: const ValueKey('new-member-role'),
-          initialValue: role,
-          decoration: const InputDecoration(labelText: 'Album role'),
-          items: const [
-            DropdownMenuItem(value: AlbumRole.viewer, child: Text('Viewer')),
-            DropdownMenuItem(
-              value: AlbumRole.contributor,
-              child: Text('Contributor'),
-            ),
-          ],
-          onChanged: (value) =>
-              setState(() => role = value ?? AlbumRole.viewer),
-        ),
-        const SizedBox(height: 20),
-        SpaceButton(
-          label: 'Add to this album',
-          icon: Icons.person_add_alt_rounded,
-          onPressed: memberId == null || repository.pendingWrites > 0
-              ? null
-              : () async {
-                  final saved = await saveLocalChange(
-                    context,
-                    () => repository.setMemberRole(
-                      widget.albumId,
-                      memberId!,
-                      role,
-                    ),
-                  );
-                  if (saved && context.mounted) Navigator.pop(context);
-                },
-        ),
-        const SizedBox(height: 12),
-      ],
     );
   }
 }

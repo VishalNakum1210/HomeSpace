@@ -9,7 +9,7 @@ import '../domain/models.dart';
 import '../domain/repositories.dart';
 import 'album_page.dart';
 import 'library_widgets.dart';
-import 'local_edit_sheets.dart';
+import 'album_editor_page.dart';
 
 class CollectionsPage extends StatefulWidget {
   final VoidCallback? onProfile;
@@ -150,10 +150,7 @@ class _CollectionsPageState extends State<CollectionsPage> {
                   icon: Icons.add_photo_alternate_outlined,
                   onPressed: repository.scenario == DemoScenario.empty
                       ? null
-                      : () => showSpaceSheet<void>(
-                          context,
-                          const AlbumNameSheet(),
-                        ),
+                      : () => openAlbumEditor(context),
                 ),
               ),
             ),

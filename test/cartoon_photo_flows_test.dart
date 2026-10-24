@@ -87,7 +87,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Your happy place'), findsNothing);
       expect(find.text('Search results'), findsOneWidget);
-    expect(find.text('1 result'), findsOneWidget);
+      expect(find.text('1 result'), findsOneWidget);
       expect(find.byTooltip('Close search'), findsOneWidget);
       expect(key('memory-media-02'), findsOneWidget);
       await capture(tester, 'search-light');

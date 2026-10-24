@@ -4,117 +4,7 @@ import '../application/home_scope.dart';
 import '../design/space_widgets.dart';
 import '../design/space_theme.dart';
 import '../domain/models.dart';
-
-class AlbumNameSheet extends StatefulWidget {
-  final Album? album;
-  final List<String> mediaIds;
-  const AlbumNameSheet({super.key, this.album, this.mediaIds = const []});
-  @override
-  State<AlbumNameSheet> createState() => _AlbumNameSheetState();
-}
-
-class _AlbumNameSheetState extends State<AlbumNameSheet> {
-  final form = GlobalKey<FormState>();
-  late final name = TextEditingController(text: widget.album?.title ?? '');
-  late final description = TextEditingController(
-    text: widget.album?.description ?? '',
-  );
-  bool busy = false;
-  @override
-  void dispose() {
-    name.dispose();
-    description.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final repository = HomeScope.of(context);
-    return Form(
-      key: form,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            widget.album == null
-                ? 'A new place for memories'
-                : 'Give it a new name',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'This album is saved locally on your device.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 20),
-          TextFormField(
-            key: const ValueKey('album-name'),
-            controller: name,
-            maxLength: 80,
-            decoration: const InputDecoration(
-              labelText: 'Album name',
-              hintText: 'Family weekends',
-            ),
-            textCapitalization: TextCapitalization.sentences,
-            textInputAction: TextInputAction.done,
-            validator: (value) => value == null || value.trim().isEmpty
-                ? 'Give your album a name.'
-                : null,
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            key: const ValueKey('album-description'),
-            controller: description,
-            maxLength: 4096,
-            minLines: 1,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Description (optional)',
-            ),
-            textCapitalization: TextCapitalization.sentences,
-          ),
-          const SizedBox(height: 14),
-          SpaceButton(
-            label: busy
-                ? 'Saving…'
-                : widget.album == null
-                ? 'Create album'
-                : 'Save album',
-            icon: Icons.photo_album_outlined,
-            onPressed: busy
-                ? null
-                : () async {
-                    if (!form.currentState!.validate()) return;
-                    setState(() => busy = true);
-                    String? savedId;
-                    final success = await saveLocalChange(context, () async {
-                      if (widget.album == null) {
-                        savedId = await repository.createAlbum(
-                          name.text,
-                          description: description.text,
-                          mediaIds: widget.mediaIds,
-                        );
-                      } else {
-                        await repository.updateAlbum(
-                          widget.album!.id,
-                          name.text,
-                          description.text,
-                        );
-                        savedId = widget.album!.id;
-                      }
-                    });
-                    if (!context.mounted) return;
-                    setState(() => busy = false);
-                    if (success) Navigator.pop(context, savedId);
-                  },
-          ),
-          const SizedBox(height: 12),
-        ],
-      ),
-    );
-  }
-}
+import 'album_editor_page.dart';
 
 class EditProfileSheet extends StatefulWidget {
   const EditProfileSheet({super.key});
@@ -287,9 +177,9 @@ class AlbumPickerSheet extends StatelessWidget {
           onPressed: repository.pendingWrites > 0
               ? null
               : () async {
-                  final created = await showSpaceSheet<String>(
+                  final created = await openAlbumEditor(
                     context,
-                    AlbumNameSheet(mediaIds: mediaIds),
+                    mediaIds: mediaIds,
                   );
                   if (created != null && context.mounted) {
                     Navigator.pop(context, true);

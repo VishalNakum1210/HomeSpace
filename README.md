@@ -1,13 +1,17 @@
 # HomeSpace — Android frontend
 
-The playful HomeSpace family photo library, built with Flutter for Android only. Phase 3 adds the photo viewer, selection actions, album management, and Trash on top of persistent local repositories.
+HomeSpace is a playful family photo library built with Flutter for Android,
+with photo viewing, selection, album/member management, Trash and persistent local data.
 
-The cartoon redesign has completed phases 1 and 2: Photos, Collections and Profile follow the
+The cartoon redesign has completed phases 1–3: Photos, Collections and Profile follow the
 approved illustrated direction, with the existing house logo, Nunito, tactile
 buttons and Smooth Clay dock. See [the four-phase redesign plan](docs/cartoon-redesign.md).
 The new garden banner is bundled offline; secondary flows keep their existing
 working UI until their redesign phases. Search/selection, the photo viewer and
 photo details now use the updated layout; see [redesign phase two](docs/cartoon-redesign-phase-2.md).
+Album details, editing/cover selection, photo picking and member permissions now
+follow [redesign phase three](docs/cartoon-redesign-phase-3.md). Phase 4 covers
+the remaining settings, Trash and recovery screens.
 See [redesign phase-one validation](docs/cartoon-redesign-phase-1-validation.md)
 for checks and previews. Its APK is
 `output/releases/homespace-cartoon-phase-1-android.apk` (version 0.4.0+4).
@@ -46,8 +50,8 @@ flutter build apk --release --no-pub
 APK output: `build/app/outputs/flutter-apk/app-release.apk`.
 
 The current redesigned preview is saved as
-`output/releases/homespace-cartoon-phase-2-android.apk` (version 0.4.1+5).
-See [cartoon phase-two validation](docs/cartoon-redesign-phase-2.md) for checks
+`output/releases/homespace-cartoon-phase-3-android.apk` (version 0.4.2+6).
+See [cartoon phase-three validation](docs/cartoon-redesign-phase-3.md) for checks
 and preview locations. The earlier functional phase-3 build and its Android
 screenshots remain documented in [phase-three validation](docs/phase-3-validation.md).
 Generated APKs and screenshots remain local ignored artifacts. Earlier checks

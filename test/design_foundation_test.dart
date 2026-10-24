@@ -174,8 +174,8 @@ void main() {
       expect(find.text('By the water'), findsNothing);
       await tester.tap(find.text('Family weekends'));
       await tester.pumpAndSettle();
-      expect(find.text('SHARED ALBUM'), findsOneWidget);
-      expect(find.text('A space for 3 family members'), findsOneWidget);
+      expect(find.text('4 memories · Shared album'), findsOneWidget);
+      expect(find.byKey(const ValueKey('album-members')), findsOneWidget);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       await tester.tap(find.text('Mine'));

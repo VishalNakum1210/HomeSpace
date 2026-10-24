@@ -33,9 +33,15 @@ abstract interface class AlbumRepository {
     String title, {
     String description = '',
     List<String> mediaIds = const [],
+    String? coverId,
   });
   Future<void> renameAlbum(String id, String title);
-  Future<void> updateAlbum(String id, String title, String description);
+  Future<void> updateAlbum(
+    String id,
+    String title,
+    String description, {
+    String? coverId,
+  });
   Future<void> deleteAlbum(String id);
   Future<void> setAlbumCover(String albumId, String mediaId);
   Future<void> addToAlbum(String albumId, String mediaId);

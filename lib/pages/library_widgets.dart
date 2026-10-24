@@ -74,6 +74,7 @@ class MemoryTile extends StatelessWidget {
   final bool? selected;
   final bool favorite;
   final String? subtitle;
+  final bool avatarAttribution;
   const MemoryTile({
     super.key,
     required this.media,
@@ -82,6 +83,7 @@ class MemoryTile extends StatelessWidget {
     this.selected,
     this.favorite = false,
     this.subtitle,
+    this.avatarAttribution = false,
   });
   @override
   Widget build(BuildContext context) {
@@ -136,7 +138,31 @@ class MemoryTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (subtitle != null)
+                if (subtitle != null && avatarAttribution)
+                  Positioned(
+                    right: 7,
+                    bottom: 7,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFFE9D7FF),
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                      child: Text(
+                        subtitle!.characters.first,
+                        textScaler: TextScaler.noScaling,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF554366),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (subtitle != null && !avatarAttribution)
                   Positioned(
                     left: 0,
                     right: 0,
