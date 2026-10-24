@@ -94,7 +94,7 @@ void main() {
         'Anika',
       );
       await tester.tap(find.byKey(const ValueKey('avatar-blue')));
-      await tester.tap(find.text('Save profile'));
+      await tester.tap(find.byKey(const ValueKey('save-profile')));
       await tester.pumpAndSettle();
       await tester.ensureVisible(
         find.byKey(const ValueKey('appearance-setting')),
@@ -102,6 +102,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('appearance-setting')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('theme-dark')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('save-appearance')));
       await tester.pumpAndSettle();
 
       await tester.pumpWidget(const SizedBox.shrink());
@@ -162,12 +164,16 @@ void main() {
       store.failWrite = true;
       await tester.tap(find.byKey(const ValueKey('theme-dark')));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('save-appearance')));
+      await tester.pumpAndSettle();
       expect(find.text('Couldn’t save that change'), findsOneWidget);
       expect(repository.profile.appearance, Appearance.light);
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
       store.failWrite = false;
       await tester.tap(find.byKey(const ValueKey('theme-dark')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('save-appearance')));
       await tester.pumpAndSettle();
       expect(repository.profile.appearance, Appearance.dark);
     },
@@ -183,7 +189,7 @@ void main() {
       final saved = store.contents;
       repository.setScenario(DemoScenario.empty);
       await tester.pumpAndSettle();
-      expect(find.text('A home for new memories'), findsOneWidget);
+      expect(find.text('Your memories start here'), findsOneWidget);
       await tab(tester, 'collections');
       expect(find.text('0 albums'), findsOneWidget);
       repository.setScenario(DemoScenario.loading);

@@ -126,6 +126,7 @@ class _AlbumPageState extends State<AlbumPage> {
                             message:
                                 '“${album.title}” will be removed. Its photos stay in your library and other albums.',
                             confirm: 'Delete album',
+                            destructive: true,
                           );
                           if (!confirmed || !context.mounted) return;
                           final saved = await saveLocalChange(

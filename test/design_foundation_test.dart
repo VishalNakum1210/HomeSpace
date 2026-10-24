@@ -94,6 +94,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('theme-dark')));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('save-appearance')));
+      await tester.pumpAndSettle();
       expect(
         Theme.of(tester.element(find.byType(SpaceNavigation))).brightness,
         Brightness.dark,
@@ -107,6 +109,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('appearance-setting')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('theme-system')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('save-appearance')));
       await tester.pumpAndSettle();
       tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
       addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);

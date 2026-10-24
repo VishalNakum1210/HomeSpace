@@ -6,8 +6,7 @@ import '../design/cartoon_artwork.dart';
 import '../design/cartoon_header.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
-import '../domain/models.dart';
-import 'local_edit_sheets.dart';
+import 'settings_pages.dart';
 import 'library_widgets.dart';
 import 'trash_page.dart';
 
@@ -45,7 +44,7 @@ class ProfilePage extends StatelessWidget {
                   CartoonHeader(
                     profile: profile,
                     onProfile: () =>
-                        showSpaceSheet<void>(context, const EditProfileSheet()),
+                        openSpacePage<void>(context, const EditProfilePage()),
                   ),
                   Text('Your space', style: text.headlineMedium),
                   const SizedBox(height: 5),
@@ -86,9 +85,9 @@ class ProfilePage extends StatelessWidget {
                         SpaceButton(
                           key: const ValueKey('edit-profile'),
                           label: 'Edit profile',
-                          onPressed: () => showSpaceSheet<void>(
+                          onPressed: () => openSpacePage<void>(
                             context,
-                            const EditProfileSheet(),
+                            const EditProfilePage(),
                           ),
                         ),
                       ],
@@ -137,78 +136,8 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
-  Future<void> chooseTheme(BuildContext context) {
-    final repository = HomeScope.of(context);
-    final mode = repository.profile.appearance;
-    return showSpaceSheet<void>(
-      context,
-      Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'A little change of scenery',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Choose the look that feels like home.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 20),
-          for (final option in Appearance.values)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Semantics(
-                selected: option == mode,
-                button: true,
-                child: Material(
-                  color: option == mode
-                      ? SpaceStyle.of(context).accentSoft
-                      : Theme.of(context).colorScheme.surfaceContainerLow,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    side: BorderSide(
-                      color: option == mode
-                          ? SpaceStyle.of(context).accent
-                          : SpaceStyle.of(context).border,
-                      width: 1.5,
-                    ),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: ListTile(
-                    key: ValueKey('theme-${option.name}'),
-                    minVerticalPadding: 14,
-                    leading: Icon(switch (option) {
-                      Appearance.system => Icons.brightness_auto_rounded,
-                      Appearance.light => Icons.wb_sunny_rounded,
-                      Appearance.dark => Icons.nightlight_round,
-                    }, color: SpaceStyle.of(context).accentInk),
-                    title: Text(
-                      themeLabel(ThemeMode.values.byName(option.name)),
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    trailing: Icon(
-                      option == mode
-                          ? Icons.check_circle_rounded
-                          : Icons.circle_outlined,
-                      color: SpaceStyle.of(context).accentInk,
-                    ),
-                    onTap: () async {
-                      final success = await saveLocalChange(
-                        context,
-                        () => repository.setAppearance(option),
-                      );
-                      if (success && context.mounted) Navigator.pop(context);
-                    },
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  Future<void> chooseTheme(BuildContext context) =>
+      openSpacePage<void>(context, const AppearancePage());
 
   Future<void> showMotionInfo(BuildContext context) => showSpaceSheet<void>(
     context,
@@ -265,7 +194,7 @@ class ProfilePage extends StatelessWidget {
           onPressed: () => showLicensePage(
             context: context,
             applicationName: 'HomeSpace',
-            applicationVersion: '0.4.2',
+            applicationVersion: '0.4.3',
           ),
         ),
         const SizedBox(height: 10),

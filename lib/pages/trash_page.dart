@@ -24,7 +24,12 @@ class _TrashPageState extends State<TrashPage> {
     selected.contains(id) ? selected.remove(id) : selected.add(id);
   });
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Theme(
+    data: spaceTheme(Theme.of(context).brightness, SpacePage.profile),
+    child: Builder(builder: _page),
+  );
+
+  Widget _page(BuildContext context) {
     final repository = HomeScope.of(context);
     final entries = [...repository.trash]
       ..sort((a, b) => b.deletedAt.compareTo(a.deletedAt));
@@ -32,7 +37,43 @@ class _TrashPageState extends State<TrashPage> {
         .where((id) => entries.any((entry) => entry.mediaId == id))
         .toList();
     final enabled = ids.isNotEmpty && repository.pendingWrites == 0;
-    final style = SpaceStyle.of(context);
+    final text = Theme.of(context).textTheme;
+    final purple = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFFDBC4FF)
+        : const Color(0xFF7035B4);
+    final restore = OutlinedButton.icon(
+      key: const ValueKey('restore-selected'),
+      icon: const Icon(Icons.restore_rounded),
+      label: Text('Restore (${ids.length})'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: purple,
+        minimumSize: const Size(48, 54),
+        side: BorderSide(color: purple),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+      onPressed: !enabled
+          ? null
+          : () async {
+              final saved = await saveLocalChange(
+                context,
+                () => repository.restoreMany(ids),
+              );
+              if (saved && mounted) clear();
+            },
+    );
+    final delete = SpaceButton(
+      key: const ValueKey('delete-selected'),
+      label: 'Delete (${ids.length})',
+      icon: Icons.delete_outline_rounded,
+      backgroundColor: const Color(0xFFB42318),
+      foregroundColor: Colors.white,
+      onPressed: !enabled
+          ? null
+          : () async {
+              final saved = await deleteTrashedMemories(context, ids);
+              if (saved && mounted) clear();
+            },
+    );
     return PopScope(
       canPop: !selecting,
       onPopInvokedWithResult: (didPop, _) {
@@ -41,11 +82,12 @@ class _TrashPageState extends State<TrashPage> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(selecting ? '${ids.length} selected' : 'Trash'),
+          centerTitle: true,
           leading: selecting
               ? IconButton(
                   tooltip: 'Cancel selection',
-                  icon: const Icon(Icons.close_rounded),
                   onPressed: clear,
+                  icon: const Icon(Icons.close_rounded),
                 )
               : null,
           actions: [
@@ -57,91 +99,37 @@ class _TrashPageState extends State<TrashPage> {
                   () => selected.addAll(entries.map((entry) => entry.mediaId)),
                 ),
               )
-            else if (entries.isNotEmpty) ...[
+            else if (entries.isNotEmpty)
               IconButton(
                 tooltip: 'Select trashed memories',
                 icon: const Icon(Icons.checklist_rounded),
                 onPressed: () => setState(() => selecting = true),
               ),
-              IconButton(
-                key: const ValueKey('empty-trash'),
-                tooltip: 'Empty Trash',
-                icon: const Icon(Icons.delete_sweep_outlined),
-                onPressed: repository.pendingWrites > 0
-                    ? null
-                    : () => deleteTrashedMemories(
-                        context,
-                        entries.map((entry) => entry.mediaId).toList(),
-                      ),
-              ),
-            ],
           ],
-          bottom: !selecting
-              ? null
-              : SelectionActions(
-                  children: [
-                    OutlinedButton.icon(
-                      key: const ValueKey('restore-selected'),
-                      icon: const Icon(Icons.restore_rounded),
-                      label: const Text('Restore'),
-                      onPressed: !enabled
-                          ? null
-                          : () async {
-                              final saved = await saveLocalChange(
-                                context,
-                                () => repository.restoreMany(ids),
-                              );
-                              if (saved && mounted) clear();
-                            },
-                    ),
-                    OutlinedButton.icon(
-                      key: const ValueKey('delete-selected'),
-                      icon: const Icon(Icons.delete_forever_outlined),
-                      label: const Text('Delete forever'),
-                      onPressed: !enabled
-                          ? null
-                          : () async {
-                              final saved = await deleteTrashedMemories(
-                                context,
-                                ids,
-                              );
-                              if (saved && mounted) clear();
-                            },
-                    ),
-                  ],
-                ),
         ),
         body: CustomScrollView(
           key: const ValueKey('trash-scroll'),
           slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-              sliver: SliverToBoxAdapter(
-                child: SpaceCard(
-                  color: style.accentSoft,
+            if (entries.isNotEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                sliver: SliverToBoxAdapter(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        Icons.restore_rounded,
-                        color: style.accentInk,
-                        size: 32,
-                      ),
-                      const SizedBox(height: 10),
                       Text(
-                        'A little room to change your mind',
-                        style: Theme.of(context).textTheme.titleMedium,
+                        '${entries.length} ${entries.length == 1 ? 'memory' : 'memories'}',
+                        style: text.headlineMedium,
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Restore memories to their albums and favorites. This local preview keeps them until you choose Delete forever.',
-                        style: Theme.of(context).textTheme.bodyMedium,
+                        'Stored until you delete them.',
+                        style: text.bodyMedium,
+                        textAlign: TextAlign.center,
                       ),
                     ],
                   ),
                 ),
               ),
-            ),
             if (entries.isEmpty)
               const SliverToBoxAdapter(
                 child: SpaceEmpty(
@@ -151,7 +139,7 @@ class _TrashPageState extends State<TrashPage> {
                 ),
               ),
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              padding: const EdgeInsets.symmetric(horizontal: 20),
               sliver: SliverGrid.builder(
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: libraryColumns(context),
@@ -168,13 +156,14 @@ class _TrashPageState extends State<TrashPage> {
                     media: photo,
                     selected: selecting ? selected.contains(photo.id) : null,
                     subtitle: 'Trashed ${date.day}/${date.month}/${date.year}',
+                    showSubtitle: false,
                     onLongPress: () => toggle(photo.id),
                     onTap: selecting
                         ? () => toggle(photo.id)
                         : () => openMediaViewer(
                             context,
                             mediaIds: entries
-                                .map((item) => item.mediaId)
+                                .map((entry) => entry.mediaId)
                                 .toList(),
                             initialId: photo.id,
                             inTrash: true,
@@ -183,8 +172,58 @@ class _TrashPageState extends State<TrashPage> {
                 },
               ),
             ),
+            if (entries.isNotEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    children: [
+                      if (selecting) ...[
+                        if (MediaQuery.textScalerOf(context).scale(14) > 20)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              restore,
+                              const SizedBox(height: 12),
+                              delete,
+                            ],
+                          )
+                        else
+                          Row(
+                            children: [
+                              Expanded(child: restore),
+                              const SizedBox(width: 12),
+                              Expanded(child: delete),
+                            ],
+                          ),
+                        const SizedBox(height: 18),
+                        const Divider(),
+                      ],
+                      TextButton(
+                        key: const ValueKey('empty-trash'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Theme.of(context).colorScheme.error,
+                          minimumSize: const Size(48, 48),
+                        ),
+                        onPressed: repository.pendingWrites > 0
+                            ? null
+                            : () async {
+                                final saved = await deleteTrashedMemories(
+                                  context,
+                                  entries
+                                      .map((entry) => entry.mediaId)
+                                      .toList(),
+                                );
+                                if (saved && mounted) clear();
+                              },
+                        child: const Text('Empty Trash'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             const SliverToBoxAdapter(
-              child: SafeArea(top: false, child: SizedBox(height: 8)),
+              child: SafeArea(top: false, child: SizedBox(height: 16)),
             ),
           ],
         ),

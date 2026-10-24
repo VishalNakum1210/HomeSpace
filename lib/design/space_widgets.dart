@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'space_symbols.dart';
 import 'space_theme.dart';
+import 'state_artwork.dart';
 
 class SpaceCard extends StatelessWidget {
   final Widget child;
@@ -38,11 +39,15 @@ class SpaceButton extends StatefulWidget {
   final String label;
   final IconData? icon;
   final VoidCallback? onPressed;
+  final Color? backgroundColor;
+  final Color? foregroundColor;
   const SpaceButton({
     super.key,
     required this.label,
     this.icon,
     this.onPressed,
+    this.backgroundColor,
+    this.foregroundColor,
   });
   @override
   State<SpaceButton> createState() => _SpaceButtonState();
@@ -55,7 +60,10 @@ class _SpaceButtonState extends State<SpaceButton> {
   Widget build(BuildContext context) {
     final style = SpaceStyle.of(context);
     final enabled = widget.onPressed != null;
-    final foreground = enabled ? const Color(0xFF171B32) : style.muted;
+    final foreground = enabled
+        ? widget.foregroundColor ?? const Color(0xFF171B32)
+        : style.muted;
+    final background = widget.backgroundColor ?? style.accent;
     return Semantics(
       button: true,
       enabled: enabled,
@@ -63,11 +71,15 @@ class _SpaceButtonState extends State<SpaceButton> {
         duration: spaceMotion(context, pressed ? 80 : 160),
         transform: Matrix4.translationValues(0, pressed ? 3 : 0, 0),
         decoration: BoxDecoration(
-          color: enabled ? style.accent : style.border,
+          color: enabled ? background : style.border,
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-              color: enabled ? style.edge : style.border,
+              color: enabled
+                  ? widget.backgroundColor == null
+                        ? style.edge
+                        : Color.lerp(background, Colors.black, .2)!
+                  : style.border,
               offset: Offset(0, pressed ? 1 : 4),
             ),
           ],
@@ -219,11 +231,13 @@ class SpaceEmpty extends StatelessWidget {
   final IconData icon;
   final String title;
   final String message;
+  final Widget? action;
   const SpaceEmpty({
     super.key,
     required this.icon,
     required this.title,
     required this.message,
+    this.action,
   });
 
   @override
@@ -233,11 +247,7 @@ class SpaceEmpty extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 48),
       child: Column(
         children: [
-          CircleAvatar(
-            radius: 34,
-            backgroundColor: style.accentSoft,
-            child: Icon(icon, size: 32, color: style.accentInk),
-          ),
+          HouseStateArt(icon: icon),
           const SizedBox(height: 18),
           Text(
             title,
@@ -251,6 +261,7 @@ class SpaceEmpty extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyLarge!
                 .copyWith(color: style.muted),
           ),
+          if (action != null) ...[const SizedBox(height: 20), action!],
         ],
       ),
     );

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/models.dart';
 import '../domain/repositories.dart';
-import '../design/space_symbols.dart';
+import '../design/state_artwork.dart';
 import '../design/space_widgets.dart';
 
 class HomeScope extends InheritedNotifier<HomeRepository> {
@@ -104,7 +104,11 @@ class RepositoryBootPage extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const SpaceHouse(size: 72),
+                HouseStateArt(
+                  icon: repository.bootError == null
+                      ? Icons.photo_outlined
+                      : Icons.restore_rounded,
+                ),
                 const SizedBox(height: 24),
                 Text(
                   repository.bootError == null
@@ -150,41 +154,66 @@ class ScenarioContent extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => switch (repository.scenario) {
-    DemoScenario.loading => const Center(
-      child: Padding(
-        padding: EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(semanticsLabel: 'Loading demo library'),
-            SizedBox(height: 20),
-            Text('Loading demo memories…', textAlign: TextAlign.center),
-          ],
-        ),
-      ),
-    ),
-    DemoScenario.failed => Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SpaceEmpty(
-              icon: Icons.wifi_off_rounded,
-              title: 'Couldn’t load this preview',
-              message: 'This is a simulated error. Your saved local library is safe.',
-            ),
-            SpaceButton(
-              label: 'Try again',
-              icon: Icons.refresh_rounded,
-              onPressed: () => repository.setScenario(DemoScenario.populated),
-            ),
-          ],
-        ),
-      ),
-    ),
+    DemoScenario.loading => _state(context, false),
+    DemoScenario.failed => _state(context, true),
     _ => child,
   };
+
+  Widget _state(BuildContext context, bool failed) => SafeArea(
+    bottom: false,
+    child: LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(24, 24, 24, spaceBottomPadding(context)),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight:
+                (constraints.maxHeight - 24 - spaceBottomPadding(context))
+                    .clamp(0, double.infinity)
+                    .toDouble(),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              HouseStateArt(
+                icon: failed ? Icons.wifi_off_rounded : Icons.photo_outlined,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                failed
+                    ? 'Couldn’t load this preview'
+                    : 'Loading demo memories…',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              if (failed) ...[
+                Text(
+                  'This is a simulated error. Your saved local library is safe.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 24),
+                SpaceButton(
+                  label: 'Try again',
+                  icon: Icons.refresh_rounded,
+                  onPressed: () =>
+                      repository.setScenario(DemoScenario.populated),
+                ),
+              ] else if (MediaQuery.disableAnimationsOf(context))
+                const Icon(
+                  Icons.hourglass_empty_rounded,
+                  semanticLabel: 'Loading demo library',
+                )
+              else
+                const CircularProgressIndicator(
+                  semanticsLabel: 'Loading demo library',
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 String libraryStatus(HomeRepository repository) {

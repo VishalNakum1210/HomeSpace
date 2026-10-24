@@ -3,25 +3,21 @@
 HomeSpace is a playful family photo library built with Flutter for Android,
 with photo viewing, selection, album/member management, Trash and persistent local data.
 
-The cartoon redesign has completed phases 1–3: Photos, Collections and Profile follow the
-approved illustrated direction, with the existing house logo, Nunito, tactile
-buttons and Smooth Clay dock. See [the four-phase redesign plan](docs/cartoon-redesign.md).
-The new garden banner is bundled offline; secondary flows keep their existing
-working UI until their redesign phases. Search/selection, the photo viewer and
-photo details now use the updated layout; see [redesign phase two](docs/cartoon-redesign-phase-2.md).
-Album details, editing/cover selection, photo picking and member permissions now
-follow [redesign phase three](docs/cartoon-redesign-phase-3.md). Phase 4 covers
-the remaining settings, Trash and recovery screens.
-See [redesign phase-one validation](docs/cartoon-redesign-phase-1-validation.md)
-for checks and previews. Its APK is
-`output/releases/homespace-cartoon-phase-1-android.apk` (version 0.4.0+4).
+The four-phase cartoon redesign is complete. Photos, Collections, Profile,
+photo/album flows, settings and recovery follow the approved illustrated direction,
+with the existing house logo, Nunito, tactile buttons and Smooth Clay dock.
+The garden banner is bundled offline; supporting illustrations reuse the original
+code-drawn house. See [the completed redesign plan](docs/cartoon-redesign.md),
+[photo flows](docs/cartoon-redesign-phase-2.md),
+[album flows](docs/cartoon-redesign-phase-3.md) and
+[settings/recovery validation](docs/cartoon-redesign-phase-4.md).
 
 ## Included
 
 - Locally bundled Nunito typography, an original house mascot, and colorful code-drawn page symbols.
 - Green Photos, purple Collections, and orange Profile accents on neutral surfaces.
 - Compact icon-only floating navigation with a **blue circle** behind the active icon.
-- Light, dark, and device appearance modes; a working appearance chooser in Profile.
+- Light, dark, and device appearance modes; a full-page appearance preview with explicit Done/Back behavior.
 - Shared tactile buttons, cards, filters, inputs, badges, empty states, and modal sheets.
 - Offline sample library, local search and favorites, preserved tab scroll state, and Android Back handling.
 - Full-screen photo viewing with swipe, pinch/double-tap zoom, accessible paging/zoom controls, and photo details.
@@ -33,7 +29,7 @@ for checks and previews. Its APK is
 
 This is a frontend preview with bundled sample photos. Profile, appearance, favorites, albums, roles, and trash metadata persist locally across app restarts. Sharing controls change the local demo only; they send no invitations. Video playback, device-media import, connection/authentication, upload screens, and real server integration remain in later phases. No files are uploaded. The APK uses development signing until the release-packaging phase.
 
-Local saves use versioned JSON with a previous valid backup, serialized writes, and recovery without silently resetting damaged/newer data. Selection actions commit the whole batch together. Phase 3 keeps the existing schema and saved libraries. See [phase-three implementation](docs/phase-3.md) for current flows and [phase-two implementation](docs/phase-2.md) for the data architecture and demo-state flags.
+Local saves use versioned JSON with a previous valid backup, serialized writes, and recovery without silently resetting damaged/newer data. Selection actions commit the whole batch together. The redesign keeps the existing schema and saved libraries. See [phase-three implementation](docs/phase-3.md) for current flows and [phase-two implementation](docs/phase-2.md) for the data architecture and demo-state flags.
 
 ## Run and verify
 
@@ -50,8 +46,8 @@ flutter build apk --release --no-pub
 APK output: `build/app/outputs/flutter-apk/app-release.apk`.
 
 The current redesigned preview is saved as
-`output/releases/homespace-cartoon-phase-3-android.apk` (version 0.4.2+6).
-See [cartoon phase-three validation](docs/cartoon-redesign-phase-3.md) for checks
+`output/releases/homespace-cartoon-phase-4-android.apk` (version 0.4.3+7).
+See [cartoon phase-four validation](docs/cartoon-redesign-phase-4.md) for checks
 and preview locations. The earlier functional phase-3 build and its Android
 screenshots remain documented in [phase-three validation](docs/phase-3-validation.md).
 Generated APKs and screenshots remain local ignored artifacts. Earlier checks

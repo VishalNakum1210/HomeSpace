@@ -5,6 +5,7 @@ import '../design/cartoon_artwork.dart';
 import '../design/cartoon_header.dart';
 import '../design/space_theme.dart';
 import '../design/photo_action.dart';
+import '../design/state_artwork.dart';
 import '../design/space_widgets.dart';
 import '../domain/models.dart';
 import 'library_widgets.dart';
@@ -147,12 +148,20 @@ class _PhotosPageState extends State<PhotosPage> {
                               style: text.bodyMedium,
                             ),
                             const MemoryGarden(),
-                            if (repository.scenario == DemoScenario.offline)
+                            if (repository.scenario == DemoScenario.offline ||
+                                repository.scenario == DemoScenario.success ||
+                                repository.recoveryNotice != null)
                               Padding(
                                 padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  libraryStatus(repository),
-                                  style: text.bodyMedium,
+                                child: MemoryStatusBanner(
+                                  message: libraryStatus(repository),
+                                  onRetry:
+                                      repository.scenario ==
+                                          DemoScenario.offline
+                                      ? () => repository.setScenario(
+                                          DemoScenario.populated,
+                                        )
+                                      : null,
                                 ),
                               ),
                           ],
@@ -235,10 +244,20 @@ class _PhotosPageState extends State<PhotosPage> {
                       child: SpaceEmpty(
                         icon: Icons.photo_library_outlined,
                         title: repository.media.isEmpty
-                            ? 'A home for new memories'
+                            ? 'Your memories start here'
                             : 'A little quiet here',
+                        action: repository.scenario == DemoScenario.empty
+                            ? SpaceButton(
+                                label: 'Explore sample library',
+                                onPressed: () => repository.setScenario(
+                                  DemoScenario.populated,
+                                ),
+                              )
+                            : null,
                         message: repository.media.isEmpty
-                            ? 'This empty preview keeps your saved library untouched.'
+                            ? repository.scenario == DemoScenario.empty
+                                  ? 'Your saved library is safe. Explore the sample memories when you are ready.'
+                                  : 'Photos you add will appear here, all together.'
                             : 'Try another search or choose a different filter.',
                       ),
                     ),

@@ -13,7 +13,7 @@ green/purple/orange page accents, and icon-only floating dock with a blue circle
    (reference screens 02–04). Preserve zoom, paging and selection behavior.
 3. **Album flows — complete.** Album detail, create/edit, media picker, members and permissions
    (06–10). Apply existing owner/contributor/viewer rules.
-4. **Settings and recovery.** Edit profile, Appearance, Trash, confirmations and
+4. **Settings and recovery — complete.** Edit profile, Appearance, Trash, confirmations and
    empty/offline states (12–16); Android verification and release APK.
 
 ## Fixed implementation values

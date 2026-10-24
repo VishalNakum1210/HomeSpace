@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 
 import '../application/home_scope.dart';
 import '../design/space_theme.dart';
+import '../design/space_widgets.dart';
+import '../design/space_symbols.dart';
 import '../domain/models.dart';
 
 Future<T?> openSpacePage<T>(
@@ -75,6 +77,7 @@ class MemoryTile extends StatelessWidget {
   final bool favorite;
   final String? subtitle;
   final bool avatarAttribution;
+  final bool showSubtitle;
   const MemoryTile({
     super.key,
     required this.media,
@@ -84,6 +87,7 @@ class MemoryTile extends StatelessWidget {
     this.favorite = false,
     this.subtitle,
     this.avatarAttribution = false,
+    this.showSubtitle = true,
   });
   @override
   Widget build(BuildContext context) {
@@ -138,7 +142,7 @@ class MemoryTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (subtitle != null && avatarAttribution)
+                if (subtitle != null && avatarAttribution && showSubtitle)
                   Positioned(
                     right: 7,
                     bottom: 7,
@@ -162,7 +166,7 @@ class MemoryTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (subtitle != null && !avatarAttribution)
+                if (subtitle != null && !avatarAttribution && showSubtitle)
                   Positioned(
                     left: 0,
                     right: 0,
@@ -219,24 +223,84 @@ Future<bool> confirmLibraryAction(
   required String title,
   required String message,
   required String confirm,
+  bool destructive = false,
 }) async =>
     await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final width = MediaQuery.sizeOf(dialogContext).width;
+        final compact =
+            width < 360 ||
+            (width < 600 &&
+                MediaQuery.textScalerOf(dialogContext).scale(14) > 20);
+        final cancel = SpaceButton(
+          label: 'Cancel',
+          backgroundColor: theme.colorScheme.surfaceContainerLow,
+          foregroundColor: theme.colorScheme.onSurface,
+          onPressed: () => Navigator.pop(dialogContext, false),
+        );
+        final accept = SpaceButton(
+          key: const ValueKey('confirm-action'),
+          label: confirm,
+          backgroundColor: destructive ? const Color(0xFFB42318) : null,
+          foregroundColor: destructive ? Colors.white : null,
+          onPressed: () => Navigator.pop(dialogContext, true),
+        );
+        return AlertDialog(
+          scrollable: true,
+          backgroundColor: theme.colorScheme.surfaceContainer,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(26),
           ),
-          TextButton(
-            key: const ValueKey('confirm-action'),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(confirm),
+          icon: SizedBox(
+            width: 76,
+            height: 68,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                const SpaceHouse(size: 56),
+                if (destructive)
+                  const Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Icon(
+                      Icons.error_rounded,
+                      color: Color(0xFFB42318),
+                      size: 26,
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ],
-      ),
+          title: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleLarge,
+          ),
+          content: Text(
+            message,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium,
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          actions: [
+            compact
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [cancel, const SizedBox(height: 12), accept],
+                  )
+                : Row(
+                    children: [
+                      Expanded(child: cancel),
+                      const SizedBox(width: 12),
+                      Expanded(child: accept),
+                    ],
+                  ),
+          ],
+        );
+      },
     ) ??
     false;
 
@@ -292,6 +356,7 @@ Future<bool> deleteTrashedMemories(
         'Delete ${ids.length == 1 ? 'memory' : '${ids.length} memories'} forever?',
     message: 'This removes them from this local library, including album entries and favorites. This can’t be undone.',
     confirm: 'Delete forever',
+    destructive: true,
   );
   if (!confirmed || !context.mounted) return false;
   return saveLocalChange(context, () => repository.deleteManyPermanently(ids));
