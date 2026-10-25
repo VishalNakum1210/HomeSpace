@@ -2,8 +2,63 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:homespace/data/demo_remote_repositories.dart';
 import 'package:homespace/domain/models.dart';
 import 'package:homespace/domain/repositories.dart';
+import 'package:homespace/domain/server_address.dart';
 
 void main() {
+  test(
+    'Server addresses support LAN ports and reject malformed or secret URLs',
+    () {
+      expect(
+        parseServerAddress(' http://192.168.1.20:8080/photos ').port,
+        8080,
+      );
+      expect(parseServerAddress('https://server.test/home').path, '/home');
+      expect(parseServerAddress('http://[::1]:8080').port, 8080);
+      for (final value in [
+        '',
+        'server.test',
+        'ftp://server.test',
+        'http://',
+        'http://bad host',
+        'https://user:secret@server.test',
+        'https://server.test?token=secret',
+        'https://server.test#key',
+        'http://server.test:70000',
+        'http://server.test:0',
+        'http://server.test:abc',
+      ]) {
+        expect(
+          () => parseServerAddress(value),
+          throwsA(isA<LocalActionException>()),
+          reason: value,
+        );
+      }
+    },
+  );
+
+  test(
+    'Disposal and superseding attempts never publish a stale result',
+    () async {
+      final disposed = DemoConnectionRepository(
+        delay: const Duration(milliseconds: 10),
+      );
+      var updates = 0;
+      disposed.addListener(() => updates++);
+      final pending = disposed.connect(Uri.parse('http://server.test'));
+      disposed.dispose();
+      await pending;
+      expect(updates, 1);
+      final connection = DemoConnectionRepository(
+        delay: const Duration(milliseconds: 10),
+      );
+      addTearDown(connection.dispose);
+      final first = connection.connect(Uri.parse('http://old.test'));
+      final second = connection.connect(Uri.parse('http://new.test'));
+      await Future.wait([first, second]);
+      expect(connection.status.address!.host, 'new.test');
+      expect(connection.status.phase, ConnectionPhase.connected);
+    },
+  );
   test(
     'Connection fixtures always identify themselves as simulations',
     () async {

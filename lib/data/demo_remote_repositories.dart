@@ -2,12 +2,14 @@ import 'package:flutter/foundation.dart';
 
 import '../domain/models.dart';
 import '../domain/repositories.dart';
+import '../domain/server_address.dart';
 
 class DemoConnectionRepository extends ChangeNotifier
     implements ConnectionRepository {
   DemoScenario scenario;
   final Duration delay;
   int _attempt = 0;
+  bool _disposed = false;
   ConnectionStatus _status = const ConnectionStatus(
     ConnectionPhase.disconnected,
     'Demo mode. No server is connected.',
@@ -21,13 +23,8 @@ class DemoConnectionRepository extends ChangeNotifier
 
   @override
   Future<ConnectionStatus> connect(Uri address) async {
-    if (!['http', 'https'].contains(address.scheme) ||
-        address.host.isEmpty ||
-        address.userInfo.isNotEmpty) {
-      throw const LocalActionException(
-        'Enter an HTTP or HTTPS server address without credentials.',
-      );
-    }
+    if (_disposed) throw const LocalActionException('This preview is closed.');
+    parseServerAddress(address.toString());
     final attempt = ++_attempt;
     _status = ConnectionStatus(
       ConnectionPhase.connecting,
@@ -60,12 +57,20 @@ class DemoConnectionRepository extends ChangeNotifier
 
   @override
   void disconnect() {
+    if (_disposed) return;
     _attempt++;
     _status = const ConnectionStatus(
       ConnectionPhase.disconnected,
       'Demo mode. No server is connected.',
     );
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _attempt++;
+    super.dispose();
   }
 }
 

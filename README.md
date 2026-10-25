@@ -12,6 +12,10 @@ code-drawn house. See [the completed redesign plan](docs/cartoon-redesign.md),
 [album flows](docs/cartoon-redesign-phase-3.md) and
 [settings/recovery validation](docs/cartoon-redesign-phase-4.md).
 
+Frontend phase 5 adds Home server and Upload queue pages through Profile, using
+the same artwork, typography and controls. See [phase-five implementation and
+validation](docs/frontend-phase-5.md).
+
 ## Included
 
 - Locally bundled Nunito typography, an original house mascot, and colorful code-drawn page symbols.
@@ -25,9 +29,11 @@ code-drawn house. See [the completed redesign plan](docs/cartoon-redesign.md),
 - Album pages with photo picking/removal, editable name/description, cover selection, and deletion that keeps library photos.
 - Local shared-album member controls with owner, contributor, and viewer roles.
 - Trash page with single/batch restore, explicit permanent-delete confirmation, and empty states.
+- Home-server address validation, connection preview, cancel/disconnect and retry states.
+- Sample upload queue with All/Active/Finished filters, pause/resume, retry and confirmed cancellation.
 - Accessible control names, 48px touch targets, larger text layouts, and reduced-motion support.
 
-This is a frontend preview with bundled sample photos. Profile, appearance, favorites, albums, roles, and trash metadata persist locally across app restarts. Sharing controls change the local demo only; they send no invitations. Video playback, device-media import, connection/authentication, upload screens, and real server integration remain in later phases. No files are uploaded. The APK uses development signing until the release-packaging phase.
+This is a frontend preview with bundled sample photos. Profile, appearance, favorites, albums, roles, and trash metadata persist locally across app restarts. Sharing controls change the local demo only; they send no invitations. Connection and queue screens use explicit session-only simulations. Addresses are validated but never contacted; queue progress uses labeled sample values and never advances automatically. Video playback, device-media import, authentication and real server integration remain future work. No files are uploaded. The APK uses development signing until release packaging.
 
 Local saves use versioned JSON with a previous valid backup, serialized writes, and recovery without silently resetting damaged/newer data. Selection actions commit the whole batch together. The redesign keeps the existing schema and saved libraries. See [phase-three implementation](docs/phase-3.md) for current flows and [phase-two implementation](docs/phase-2.md) for the data architecture and demo-state flags.
 
@@ -46,8 +52,8 @@ flutter build apk --release --no-pub
 APK output: `build/app/outputs/flutter-apk/app-release.apk`.
 
 The current redesigned preview is saved as
-`output/releases/homespace-cartoon-phase-4-android.apk` (version 0.4.3+7).
-See [cartoon phase-four validation](docs/cartoon-redesign-phase-4.md) for checks
+`output/releases/homespace-frontend-phase-5-android.apk` (version 0.5.0+8).
+See [frontend phase-five validation](docs/frontend-phase-5.md) for checks
 and preview locations. The earlier functional phase-3 build and its Android
 screenshots remain documented in [phase-three validation](docs/phase-3-validation.md).
 Generated APKs and screenshots remain local ignored artifacts. Earlier checks

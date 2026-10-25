@@ -9,6 +9,8 @@ import '../design/space_widgets.dart';
 import 'settings_pages.dart';
 import 'library_widgets.dart';
 import 'trash_page.dart';
+import 'connection_page.dart';
+import 'uploads_page.dart';
 
 String themeLabel(ThemeMode mode) => switch (mode) {
   ThemeMode.light => 'Light',
@@ -120,6 +122,33 @@ class ProfilePage extends StatelessWidget {
                     onTap: () =>
                         openSpacePage<void>(context, const TrashPage()),
                   ),
+                  ListenableBuilder(
+                    listenable: repository.connection,
+                    builder: (context, _) => _SettingRow(
+                      settingKey: const ValueKey('server-setting'),
+                      icon: Icons.dns_outlined,
+                      title: 'Home server',
+                      subtitle: connectionLabel(
+                        repository.connection.status.phase,
+                      ),
+                      tone: const Color(0xFF1677E8),
+                      onTap: () =>
+                          openSpacePage<void>(context, const ConnectionPage()),
+                    ),
+                  ),
+                  ListenableBuilder(
+                    listenable: repository.uploads,
+                    builder: (context, _) => _SettingRow(
+                      settingKey: const ValueKey('uploads-setting'),
+                      icon: Icons.cloud_upload_outlined,
+                      title: 'Upload queue',
+                      subtitle:
+                          '${repository.uploads.items.length} sample items',
+                      tone: const Color(0xFF58A800),
+                      onTap: () =>
+                          openSpacePage<void>(context, const UploadsPage()),
+                    ),
+                  ),
                   _SettingRow(
                     icon: Icons.home_rounded,
                     title: 'About HomeSpace',
@@ -194,7 +223,7 @@ class ProfilePage extends StatelessWidget {
           onPressed: () => showLicensePage(
             context: context,
             applicationName: 'HomeSpace',
-            applicationVersion: '0.4.3',
+            applicationVersion: '0.5.0',
           ),
         ),
         const SizedBox(height: 10),
