@@ -16,6 +16,10 @@ Frontend phase 5 adds Home server and Upload queue pages through Profile, using
 the same artwork, typography and controls. See [phase-five implementation and
 validation](docs/frontend-phase-5.md).
 
+Phase 6 adds native Android launcher/splash branding and repeatable packaging.
+See [phase-six validation](docs/frontend-phase-6.md) and the
+[Android signing/build guide](docs/android-release.md).
+
 ## Included
 
 - Locally bundled Nunito typography, an original house mascot, and colorful code-drawn page symbols.
@@ -32,8 +36,9 @@ validation](docs/frontend-phase-5.md).
 - Home-server address validation, connection preview, cancel/disconnect and retry states.
 - Sample upload queue with All/Active/Finished filters, pause/resume, retry and confirmed cancellation.
 - Accessible control names, 48px touch targets, larger text layouts, and reduced-motion support.
+- Branded legacy/adaptive/themed Android launcher icons and light/dark native launch screens.
 
-This is a frontend preview with bundled sample photos. Profile, appearance, favorites, albums, roles, and trash metadata persist locally across app restarts. Sharing controls change the local demo only; they send no invitations. Connection and queue screens use explicit session-only simulations. Addresses are validated but never contacted; queue progress uses labeled sample values and never advances automatically. Video playback, device-media import, authentication and real server integration remain future work. No files are uploaded. The APK uses development signing until release packaging.
+This is a frontend preview with bundled sample photos. Profile, appearance, favorites, albums, roles, and trash metadata persist locally across app restarts. Sharing controls change the local demo only; they send no invitations. Connection and queue screens use explicit session-only simulations. Addresses are validated but never contacted; queue progress uses labeled sample values and never advances automatically. Video playback, device-media import, authentication and real server integration remain future work. No files are uploaded. The preview APK uses development signing; owner-signed production builds require explicit release configuration.
 
 Local saves use versioned JSON with a previous valid backup, serialized writes, and recovery without silently resetting damaged/newer data. Selection actions commit the whole batch together. The redesign keeps the existing schema and saved libraries. See [phase-three implementation](docs/phase-3.md) for current flows and [phase-two implementation](docs/phase-2.md) for the data architecture and demo-state flags.
 
@@ -52,8 +57,8 @@ flutter build apk --release --no-pub
 APK output: `build/app/outputs/flutter-apk/app-release.apk`.
 
 The current redesigned preview is saved as
-`output/releases/homespace-frontend-phase-5-android.apk` (version 0.5.0+8).
-See [frontend phase-five validation](docs/frontend-phase-5.md) for checks
+`output/releases/homespace-android-0.6.0+9-preview.apk` (version 0.6.0+9).
+See [frontend phase-six validation](docs/frontend-phase-6.md) for checks
 and preview locations. The earlier functional phase-3 build and its Android
 screenshots remain documented in [phase-three validation](docs/phase-3-validation.md).
 Generated APKs and screenshots remain local ignored artifacts. Earlier checks

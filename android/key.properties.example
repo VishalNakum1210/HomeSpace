@@ -1,0 +1,8 @@
+# Copy to key.properties only when preparing a production release.
+# Keep the real file and keystore private. Use forward slashes on Windows.
+# Escape the drive colon as below when writing a Java properties value.
+# A relative storeFile path is resolved from the android directory.
+storeFile=C\:/private/HomeSpace/homespace-upload.jks
+storePassword=REPLACE_WITH_STORE_PASSWORD
+keyAlias=upload
+keyPassword=REPLACE_WITH_KEY_PASSWORD

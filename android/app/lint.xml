@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- Flutter regenerates this machine-local file with doubled backslashes.
+         Java Properties accepts the unescaped colon in a value after '='.
+         Restrict this SDK-generated false positive to local.properties only. -->
+    <issue id="PropertyEscape">
+        <ignore path="../local.properties" />
+    </issue>
+</lint>

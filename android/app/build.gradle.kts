@@ -1,7 +1,33 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Preview builds keep their existing certificate so local updates retain data.
+// Production is explicit and never falls back to the development key.
+val productionSetting = providers.environmentVariable("HOMESPACE_PRODUCTION")
+    .orElse(providers.gradleProperty("homespace.production"))
+    .getOrElse("false")
+val productionBuild = productionSetting.toBooleanStrictOrNull()
+    ?: throw GradleException("HOMESPACE_PRODUCTION must be true or false.")
+val uploadSigning = Properties()
+if (productionBuild) {
+    val signingFile = rootProject.file("key.properties")
+    if (!signingFile.isFile) {
+        throw GradleException("Production signing requires android/key.properties. See docs/android-release.md.")
+    }
+    signingFile.inputStream().use { uploadSigning.load(it) }
+    for (name in listOf("storeFile", "storePassword", "keyAlias", "keyPassword")) {
+        if (uploadSigning.getProperty(name).isNullOrBlank()) {
+            throw GradleException("Production signing is incomplete: missing $name.")
+        }
+    }
+    if (!rootProject.file(uploadSigning.getProperty("storeFile")).isFile) {
+        throw GradleException("The configured production keystore is unavailable.")
+    }
 }
 
 android {
@@ -15,7 +41,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // Keep this ID stable for updates to the existing HomeSpace installation.
         applicationId = "com.homespace.homespace"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -29,11 +55,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (productionBuild) {
+            create("homespaceUpload") {
+                storeFile = rootProject.file(uploadSigning.getProperty("storeFile"))
+                storePassword = uploadSigning.getProperty("storePassword")
+                keyAlias = uploadSigning.getProperty("keyAlias")
+                keyPassword = uploadSigning.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(
+                if (productionBuild) "homespaceUpload" else "debug"
+            )
         }
     }
 }
