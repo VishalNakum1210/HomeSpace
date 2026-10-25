@@ -103,6 +103,62 @@ void main() {
   );
 
   testWidgets(
+    'Back from another tab preserves photo search until Photos handles Back',
+    (tester) async {
+      final repository = await start(tester);
+      final saved = (repository.store as MemorySnapshotStore).contents;
+      for (final tab in ['collections', 'profile']) {
+        await tester.tap(key('photo-search'));
+        await tester.enterText(key('photo-search'), 'lake');
+        await tester.testTextInput.receiveAction(TextInputAction.search);
+        await tester.pumpAndSettle();
+        await tester.tap(key('tab-$tab'));
+        await tester.pumpAndSettle();
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.text('Search results'), findsOneWidget);
+        expect(
+          tester.widget<TextField>(key('photo-search')).controller!.text,
+          'lake',
+        );
+        expect(key('memory-media-02'), findsOneWidget);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<TextField>(key('photo-search')).controller!.text,
+          isEmpty,
+        );
+        expect(find.text('Your happy place'), findsOneWidget);
+      }
+      expect((repository.store as MemorySnapshotStore).contents, saved);
+    },
+  );
+
+  testWidgets(
+    'Back from another tab preserves photo selection until Photos handles Back',
+    (tester) async {
+      final repository = await start(tester);
+      final saved = (repository.store as MemorySnapshotStore).contents;
+      for (final tab in ['collections', 'profile']) {
+        await tester.longPress(key('memory-media-01'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('memory-media-02'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('tab-$tab'));
+        await tester.pumpAndSettle();
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.text('2 selected'), findsOneWidget);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.text('2 selected'), findsNothing);
+        expect(find.text('Your happy place'), findsOneWidget);
+      }
+      expect((repository.store as MemorySnapshotStore).contents, saved);
+    },
+  );
+
+  testWidgets(
     'Selection actions stay clear of the dock and Clear selection is transient',
     (tester) async {
       final repository = await start(tester);

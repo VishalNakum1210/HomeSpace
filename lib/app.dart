@@ -95,6 +95,7 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
                                 index: page.index,
                                 children: [
                                   PhotosPage(
+                                    active: page == SpacePage.photos,
                                     onProfile: () =>
                                         selectPage(SpacePage.profile),
                                   ),

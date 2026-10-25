@@ -14,7 +14,8 @@ import 'media_viewer.dart';
 
 class PhotosPage extends StatefulWidget {
   final VoidCallback onProfile;
-  const PhotosPage({super.key, required this.onProfile});
+  final bool active;
+  const PhotosPage({super.key, required this.onProfile, this.active = true});
   @override
   State<PhotosPage> createState() => _PhotosPageState();
 }
@@ -79,9 +80,9 @@ class _PhotosPageState extends State<PhotosPage> {
     final allFavorite = ids.isNotEmpty && repository.favorites.containsAll(ids);
     final focused = selecting || searching;
     return PopScope(
-      canPop: !selecting && !searching,
+      canPop: !widget.active || (!selecting && !searching),
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) {
+        if (!didPop && widget.active) {
           if (selecting) {
             clearSelection();
           } else if (searching) {

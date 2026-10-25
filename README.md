@@ -20,6 +20,10 @@ Phase 6 adds native Android launcher/splash branding and repeatable packaging.
 See [phase-six validation](docs/frontend-phase-6.md) and the
 [Android signing/build guide](docs/android-release.md).
 
+Phase 7 adds connected-phone validation and a Back-navigation fix that preserves
+photo search/selection when returning from another tab. See
+[Android validation and polish](docs/frontend-phase-7.md).
+
 ## Included
 
 - Locally bundled Nunito typography, an original house mascot, and colorful code-drawn page symbols.
@@ -57,8 +61,8 @@ flutter build apk --release --no-pub
 APK output: `build/app/outputs/flutter-apk/app-release.apk`.
 
 The current redesigned preview is saved as
-`output/releases/homespace-android-0.6.0+9-preview.apk` (version 0.6.0+9).
-See [frontend phase-six validation](docs/frontend-phase-6.md) for checks
+`output/releases/homespace-android-0.6.1+10-preview.apk` (version 0.6.1+10).
+See [frontend phase-seven validation](docs/frontend-phase-7.md) for checks
 and preview locations. The earlier functional phase-3 build and its Android
 screenshots remain documented in [phase-three validation](docs/phase-3-validation.md).
 Generated APKs and screenshots remain local ignored artifacts. Earlier checks
