@@ -109,3 +109,12 @@ that opens Info and uses Back/Close after an image tap. Static analysis is clean
 Version 0.7.3+14 is packaged through `scripts/build_android.ps1`; its local build
 and device-validation outputs remain under `output/` with the other ignored
 release artifacts.
+
+Release APK build and final Android lint completed successfully (0 errors,
+1 existing API-compatibility warning). The signed APK is
+`output/releases/homespace-android-0.7.3+14-preview.apk`, 56,296,387 bytes,
+SHA-256 `86D82204DB60626782F7315C1173EA642EB50B6FB0493EC8A26F6D20A5167655`.
+It was installed with `adb install -r` on the connected Xiaomi; version/code
+`0.7.3` / `14` and the original first-install record were verified. Launch
+succeeded and the current process log had no matches for the checked fatal or
+unhandled Flutter error patterns. The source fix was pushed as `59970c4`.
