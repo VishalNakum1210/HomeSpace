@@ -82,9 +82,8 @@ No data reset or storage-schema change is included.
   foreground and its process log had no match for the checked fatal/unhandled
   Flutter error patterns. The phone screenshot retains the saved blue avatar
   and existing dated library: `output/phone/frontend-polish-startup.png`.
-- Physical pinch/pan feedback was requested from the user because this phone
-  blocks automated touch injection. Automated multi-pointer checks passed;
-  manual gesture confirmation was still pending when this note was recorded.
+- The user confirmed that pinch/pan no longer needs an unlocking tap. They then
+  requested removal of the single tap that hides/shows the viewer controls.
 - Source fixes, existing layout improvements and SVGs were committed and pushed
   to `origin/main` as `4b0b182`. This document's delivery notes are a follow-up.
 
@@ -93,3 +92,20 @@ Automated checks establish the tested behavior, not a universal “10/10” scor
 or a physical-device frame-timing certification. Real server/authentication,
 device import, uploads/synchronization, invitations and video playback remain
 separate integration work.
+
+## Follow-up — persistent photo controls, 0.7.3+14
+
+Single-tapping the image no longer hides or reveals controls. The header and
+bottom actions stay visible, and a tap does not resize the photo viewport or
+alter its zoom. The hide/show state, opacity/ignore-pointer wrappers, image
+semantic tap action and hidden-controls recovery button have been removed.
+Pinch/pan, double-tap zoom, swipe paging and accessible menu actions remain.
+
+A regression test fails on the previous version and checks that a single tap
+keeps controls hit-testable and leaves photo bounds/zoom unchanged, at both 1x
+and a pinched zoom. The earlier five multi-pointer regressions remain in place.
+The updated full suite passes **100 tests**, including the revised viewer test
+that opens Info and uses Back/Close after an image tap. Static analysis is clean.
+Version 0.7.3+14 is packaged through `scripts/build_android.ps1`; its local build
+and device-validation outputs remain under `output/` with the other ignored
+release artifacts.

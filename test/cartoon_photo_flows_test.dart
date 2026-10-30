@@ -241,7 +241,7 @@ void main() {
   );
 
   testWidgets(
-    'Hidden viewer controls give the canvas its full height and can be restored',
+    'Single photo taps keep canvas bounds and viewer controls usable',
     (tester) async {
       await start(tester);
       await tester.tap(key('memory-media-01'));
@@ -251,10 +251,16 @@ void main() {
       await tester.tap(key('viewer-pages'));
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
-      expect(tester.getSize(key('viewer-pages')).height, greaterThan(initial));
-      await tester.tap(find.byTooltip('Show controls'));
-      await tester.pumpAndSettle();
       expect(tester.getSize(key('viewer-pages')).height, initial);
+      expect(find.byTooltip('Show controls'), findsNothing);
+      await tester.tap(find.byTooltip('Photo details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Photo details'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Close viewer'));
+      await tester.pumpAndSettle();
+      expect(find.byType(MediaViewer), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

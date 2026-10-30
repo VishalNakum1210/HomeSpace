@@ -87,7 +87,6 @@ class _MediaViewerState extends State<MediaViewer> {
   final viewportKey = GlobalKey<_PhotoViewportState>();
   Drag? pageDrag;
   int? dragOrigin;
-  bool chrome = true;
   bool zoomed = false;
   @override
   void dispose() {
@@ -200,15 +199,11 @@ class _MediaViewerState extends State<MediaViewer> {
                   return Stack(
                     children: [
                       Positioned.fill(
-                        child: AnimatedPadding(
-                          duration: spaceMotion(context, 160),
+                        child: Padding(
                           padding: EdgeInsets.only(
-                            top: chrome
-                                ? top + MediaQuery.paddingOf(context).top
-                                : 0,
-                            bottom: chrome
-                                ? bottom + MediaQuery.paddingOf(context).bottom
-                                : 0,
+                            top: top + MediaQuery.paddingOf(context).top,
+                            bottom:
+                                bottom + MediaQuery.paddingOf(context).bottom,
                           ),
                           child: _PhotoViewport(
                             key: viewportKey,
@@ -218,7 +213,6 @@ class _MediaViewerState extends State<MediaViewer> {
                             onPageDragUpdate: updatePageDrag,
                             onPageDragEnd: endPageDrag,
                             onPageDragCancel: cancelPageDrag,
-                            onTap: () => setState(() => chrome = !chrome),
                             onZoom: (value) {
                               if (mounted && zoomed != value) {
                                 setState(() => zoomed = value);
@@ -281,8 +275,7 @@ class _MediaViewerState extends State<MediaViewer> {
                         top: 0,
                         left: 0,
                         right: 0,
-                        child: _chrome(
-                          context,
+                        child: _controls(
                           SafeArea(
                             bottom: false,
                             child: SizedBox(
@@ -384,8 +377,7 @@ class _MediaViewerState extends State<MediaViewer> {
                           left: 0,
                           right: 0,
                           bottom: 0,
-                          child: _chrome(
-                            context,
+                          child: _controls(
                             SafeArea(
                               top: false,
                               child: Padding(
@@ -539,18 +531,6 @@ class _MediaViewerState extends State<MediaViewer> {
                             ),
                           ),
                         ),
-                      if (!chrome)
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          child: SafeArea(
-                            child: IconButton(
-                              tooltip: 'Show controls',
-                              icon: const Icon(Icons.more_horiz_rounded),
-                              onPressed: () => setState(() => chrome = true),
-                            ),
-                          ),
-                        ),
                     ],
                   );
                 },
@@ -562,14 +542,8 @@ class _MediaViewerState extends State<MediaViewer> {
     );
   }
 
-  Widget _chrome(BuildContext context, Widget child) => IgnorePointer(
-    ignoring: !chrome,
-    child: AnimatedOpacity(
-      opacity: chrome ? 1 : 0,
-      duration: spaceMotion(context, 160),
-      child: ColoredBox(color: const Color(0xF5101519), child: child),
-    ),
-  );
+  Widget _controls(Widget child) =>
+      ColoredBox(color: const Color(0xF5101519), child: child);
 
   void _showDetails(BuildContext context, MediaItem photo) {
     final repository = HomeScope.of(context);
@@ -805,7 +779,6 @@ class _PhotoViewport extends StatefulWidget {
   final Widget child;
   final String label;
   final bool canZoom;
-  final VoidCallback onTap;
   final ValueChanged<bool> onZoom;
   final GestureDragStartCallback onPageDragStart;
   final GestureDragUpdateCallback onPageDragUpdate;
@@ -816,7 +789,6 @@ class _PhotoViewport extends StatefulWidget {
     required this.child,
     required this.label,
     required this.canZoom,
-    required this.onTap,
     required this.onZoom,
     required this.onPageDragStart,
     required this.onPageDragUpdate,
@@ -962,8 +934,6 @@ class _PhotoViewportState extends State<_PhotoViewport>
       size = constraints.biggest;
       return Semantics(
         label: widget.label,
-        button: true,
-        onTap: widget.onTap,
         child: ExcludeSemantics(
           child: Listener(
             onPointerDown: pointerDown,
@@ -973,7 +943,6 @@ class _PhotoViewportState extends State<_PhotoViewport>
               cancelPaging();
             },
             child: GestureDetector(
-              onTap: widget.onTap,
               onDoubleTapDown: widget.canZoom
                   ? (details) => tapped = details.localPosition
                   : null,

@@ -1,7 +1,7 @@
 name: homespace
 description: "HomeSpace — a playful family photo library. Android frontend."
 publish_to: 'none'
-version: 0.7.2+13
+version: 0.7.3+14
 
 environment:
   sdk: ^3.13.5

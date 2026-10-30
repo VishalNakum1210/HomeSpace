@@ -57,6 +57,39 @@ Future<(TestGesture, TestGesture)> pinchOut(WidgetTester tester) async {
 
 void main() {
   testWidgets(
+    'Single photo taps keep controls visible and leave zoom unchanged',
+    (tester) async {
+      await openPhoto(tester);
+      final initialBounds = tester.getRect(photoSurface);
+      await tester.tap(photoSurface);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Close viewer').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('Photo details').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('Show controls'), findsNothing);
+      expect(tester.getRect(photoSurface), initialBounds);
+      expect(photoTransform(tester).getMaxScaleOnAxis(), closeTo(1, .01));
+
+      final (first, second) = await pinchOut(tester);
+      await first.up();
+      await second.up();
+      await tester.pumpAndSettle();
+      final before = photoTransform(tester);
+      final zoomBounds = tester.getRect(photoSurface);
+      await tester.tap(photoSurface);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Close viewer').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('Photo details').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('Show controls'), findsNothing);
+      expect(tester.getRect(photoSurface), zoomBounds);
+      expect(
+        photoTransform(tester).getMaxScaleOnAxis(),
+        closeTo(before.getMaxScaleOnAxis(), .01),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'Adding a second finger during a long swipe zooms the original photo',
     (tester) async {
       await openPhoto(tester);

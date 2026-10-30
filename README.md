@@ -66,7 +66,7 @@ flutter build apk --release --no-pub
 APK output: `build/app/outputs/flutter-apk/app-release.apk`.
 
 The current redesigned preview is saved as
-`output/releases/homespace-android-0.7.2+13-preview.apk` (version 0.7.2+13).
+`output/releases/homespace-android-0.7.3+14-preview.apk` (version 0.7.3+14).
 See [gesture and control-flow validation](docs/frontend-polish.md) for current checks
 and preview locations. The earlier functional phase-3 build and its Android
 screenshots remain documented in [phase-three validation](docs/phase-3-validation.md).
