@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,8 @@ import 'package:homespace/data/local_home_repository.dart';
 import 'package:homespace/data/snapshot_store.dart';
 import 'package:homespace/domain/models.dart';
 import 'package:homespace/pages/media_viewer.dart';
+import 'package:homespace/design/space_navigation.dart';
+import 'package:homespace/design/space_theme.dart';
 
 const frame = ValueKey('photo-flow-frame');
 Finder key(String value) => find.byKey(ValueKey(value));
@@ -34,6 +37,17 @@ Future<LocalHomeRepository> start(WidgetTester tester) async {
   if (const bool.fromEnvironment('HOMESPACE_CAPTURE')) {
     final context = tester.element(find.text('Your happy place'));
     await tester.runAsync(() async {
+      for (final asset
+          in Directory('assets/illustrations/vector')
+              .listSync()
+              .whereType<File>()
+              .where((asset) => asset.path.endsWith('.svg'))) {
+        final loader = SvgAssetLoader(asset.path.replaceAll('\\', '/'));
+        await svg.cache.putIfAbsent(
+          loader.cacheKey(context),
+          () => loader.loadBytes(context),
+        );
+      }
       for (final media in repository.media) {
         await precacheImage(AssetImage(media.asset), context);
       }
@@ -86,7 +100,7 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.search);
       await tester.pumpAndSettle();
       expect(find.text('Your happy place'), findsNothing);
-      expect(find.text('Search results'), findsOneWidget);
+      expect(key('search-result-summary'), findsOneWidget);
       expect(find.text('1 result'), findsOneWidget);
       expect(find.byTooltip('Close search'), findsOneWidget);
       expect(key('memory-media-02'), findsOneWidget);
@@ -112,11 +126,15 @@ void main() {
         await tester.enterText(key('photo-search'), 'lake');
         await tester.testTextInput.receiveAction(TextInputAction.search);
         await tester.pumpAndSettle();
-        await tester.tap(key('tab-$tab'));
+        tester
+            .widget<SpaceNavigation>(
+              find.byType(SpaceNavigation, skipOffstage: false),
+            )
+            .onSelected(SpacePage.values.byName(tab));
         await tester.pumpAndSettle();
         await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();
-        expect(find.text('Search results'), findsOneWidget);
+        expect(key('search-result-summary'), findsOneWidget);
         expect(
           tester.widget<TextField>(key('photo-search')).controller!.text,
           'lake',
@@ -144,7 +162,11 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(key('memory-media-02'));
         await tester.pumpAndSettle();
-        await tester.tap(key('tab-$tab'));
+        tester
+            .widget<SpaceNavigation>(
+              find.byType(SpaceNavigation, skipOffstage: false),
+            )
+            .onSelected(SpacePage.values.byName(tab));
         await tester.pumpAndSettle();
         await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();
@@ -167,11 +189,12 @@ void main() {
       await tester.tap(key('memory-media-02'));
       await tester.pumpAndSettle();
       expect(find.text('2 selected'), findsOneWidget);
-      final dock = tester.getRect(key('space-navigation'));
-      expect(tester.getRect(key('bulk-trash')).bottom, lessThan(dock.top));
+      expect(find.byType(SpaceNavigation), findsNothing);
+      final screenBottom = tester.view.physicalSize.height;
+      expect(tester.getRect(key('bulk-trash')).bottom, lessThan(screenBottom));
       expect(
         tester.getRect(key('clear-photo-selection')).bottom,
-        lessThanOrEqualTo(dock.top),
+        lessThanOrEqualTo(screenBottom),
       );
       await capture(tester, 'selection-light');
       tester.view.physicalSize = const Size(320, 700);
@@ -201,7 +224,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Photo details'), findsOneWidget);
         expect(find.text('photo_01.jpg'), findsOneWidget);
-        expect(find.text('Added by Maya'), findsWidgets);
+        expect(find.text('Added by'), findsOneWidget);
+        expect(find.text('Maya'), findsWidgets);
         expect(
           Theme.of(tester.element(find.text('Photo details'))).brightness,
           appearance == Appearance.light ? Brightness.light : Brightness.dark,

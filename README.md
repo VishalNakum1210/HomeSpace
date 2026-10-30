@@ -3,16 +3,17 @@
 HomeSpace is a playful family photo library built with Flutter for Android,
 with photo viewing, selection, album/member management, Trash and persistent local data.
 
-The four-phase cartoon redesign is complete. Photos, Collections, Profile,
-photo/album flows, settings and recovery follow the approved illustrated direction,
-with the existing house logo, Nunito, tactile buttons and Smooth Clay dock.
-The garden banner is bundled offline; supporting illustrations reuse the original
-code-drawn house. See [the completed redesign plan](docs/cartoon-redesign.md),
-[photo flows](docs/cartoon-redesign-phase-2.md),
-[album flows](docs/cartoon-redesign-phase-3.md) and
-[settings/recovery validation](docs/cartoon-redesign-phase-4.md).
+The 16 reference screens have been aligned with the approved illustrated sheet:
+compact headers, reference artwork and demo portraits, pastel album cards,
+focused search/selection, photo details, forms, appearance and recovery states.
+The existing house logo, Nunito and tactile buttons remain. Artwork is now
+scalable SVG, and the previous Smooth Clay dock is restored with shaded icons
+and a circular blue selection. See [vector artwork and dock validation](docs/vector-artwork.md)
+and [the earlier reference alignment](docs/reference-fidelity.md).
+The earlier four-phase implementation is recorded in
+[the redesign plan](docs/cartoon-redesign.md).
 
-Frontend phase 5 adds Home server and Upload queue pages through Profile, using
+Frontend phase 5 adds Home server and Upload queue pages through Profile → About, using
 the same artwork, typography and controls. See [phase-five implementation and
 validation](docs/frontend-phase-5.md).
 
@@ -23,6 +24,10 @@ See [phase-six validation](docs/frontend-phase-6.md) and the
 Phase 7 adds connected-phone validation and a Back-navigation fix that preserves
 photo search/selection when returning from another tab. See
 [Android validation and polish](docs/frontend-phase-7.md).
+
+The latest frontend review fixes pinch/pan/paging handoffs, saves completing
+during Back navigation and stale bulk selections. See
+[gesture and control-flow validation](docs/frontend-polish.md).
 
 ## Included
 
@@ -61,8 +66,8 @@ flutter build apk --release --no-pub
 APK output: `build/app/outputs/flutter-apk/app-release.apk`.
 
 The current redesigned preview is saved as
-`output/releases/homespace-android-0.6.1+10-preview.apk` (version 0.6.1+10).
-See [frontend phase-seven validation](docs/frontend-phase-7.md) for checks
+`output/releases/homespace-android-0.7.2+13-preview.apk` (version 0.7.2+13).
+See [gesture and control-flow validation](docs/frontend-polish.md) for current checks
 and preview locations. The earlier functional phase-3 build and its Android
 screenshots remain documented in [phase-three validation](docs/phase-3-validation.md).
 Generated APKs and screenshots remain local ignored artifacts. Earlier checks

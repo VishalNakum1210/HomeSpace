@@ -93,7 +93,12 @@ void main() {
         find.byKey(const ValueKey('profile-name')),
         'Anika',
       );
+      await tester.tap(find.byKey(const ValueKey('profile-picture')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('avatar-blue')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('save-profile')));
       await tester.pumpAndSettle();
       await tester.ensureVisible(
@@ -191,7 +196,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Your memories start here'), findsOneWidget);
       await tab(tester, 'collections');
-      expect(find.text('0 albums'), findsOneWidget);
+      expect(find.text('Stories start here'), findsOneWidget);
       repository.setScenario(DemoScenario.loading);
       await tester.pump();
       expect(find.text('Loading demo memories…'), findsOneWidget);

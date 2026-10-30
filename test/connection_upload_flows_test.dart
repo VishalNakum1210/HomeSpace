@@ -65,7 +65,16 @@ Future<LocalHomeRepository> start(
 }
 
 Future<void> tap(WidgetTester tester, Finder finder) async {
-  final page = find.byType(UploadsPage).evaluate().isNotEmpty
+  if (finder.evaluate().isEmpty &&
+      (finder.toString().contains('server-setting') ||
+          finder.toString().contains('uploads-setting'))) {
+    await tester.ensureVisible(key('about-setting'));
+    await tester.tap(key('about-setting'));
+    await tester.pumpAndSettle();
+  }
+  final page = find.byType(BottomSheet).evaluate().isNotEmpty
+      ? find.byType(BottomSheet)
+      : find.byType(UploadsPage).evaluate().isNotEmpty
       ? find.byType(UploadsPage)
       : find.byType(ConnectionPage).evaluate().isNotEmpty
       ? find.byType(ConnectionPage)
@@ -153,6 +162,9 @@ void main() {
       expect(repo.connection.status.address!.port, 8080);
       await capture(tester, 'server-connected');
       await back(tester);
+      await tester.ensureVisible(key('about-setting'));
+      await tester.tap(key('about-setting'));
+      await tester.pumpAndSettle();
       expect(find.text('Demo connected'), findsOneWidget);
       await tap(tester, key('server-setting'));
       await repo.setAppearance(Appearance.dark);

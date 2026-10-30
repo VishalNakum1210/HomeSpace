@@ -153,16 +153,7 @@ class _AlbumEditorPageState extends State<AlbumEditorPage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-              Text(
-                widget.album == null && coverId != null
-                    ? 'The cover photo will be included in this album.'
-                    : candidates.isEmpty
-                    ? 'Add photos later to choose an album cover.'
-                    : 'Choose a favorite moment for the cover.',
-                style: text.bodyMedium,
-              ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 18),
               Text('Title', style: text.labelLarge),
               const SizedBox(height: 8),
               TextFormField(
@@ -170,6 +161,12 @@ class _AlbumEditorPageState extends State<AlbumEditorPage> {
                 controller: name,
                 enabled: !disabled,
                 maxLength: 80,
+                buildCounter: (
+                  context, {
+                  required currentLength,
+                  required isFocused,
+                  maxLength,
+                }) => null,
                 decoration: const InputDecoration(hintText: 'Family weekends'),
                 textCapitalization: TextCapitalization.sentences,
                 textInputAction: TextInputAction.next,
@@ -184,7 +181,9 @@ class _AlbumEditorPageState extends State<AlbumEditorPage> {
                 key: const ValueKey('album-description'),
                 controller: description,
                 enabled: !disabled,
-                maxLength: 4096,
+                maxLength: (widget.album?.description.length ?? 0) > 200
+                    ? 4096
+                    : 200,
                 minLines: 3,
                 maxLines: 5,
                 textCapitalization: TextCapitalization.sentences,
@@ -241,7 +240,7 @@ class _AlbumEditorPageState extends State<AlbumEditorPage> {
                     if (!mounted) return;
                     setState(() => busy = false);
                     if (saved && context.mounted) {
-                      Navigator.pop(context, savedId);
+                      popSpaceRouteIfCurrent(context, savedId);
                     }
                   },
           ),

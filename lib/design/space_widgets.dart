@@ -127,10 +127,12 @@ class _SpaceButtonState extends State<SpaceButton> {
 class SpaceFilter extends StatelessWidget {
   final String label;
   final bool selected;
+  final IconData? icon;
   final VoidCallback onTap;
   const SpaceFilter({
     super.key,
     required this.label,
+    this.icon,
     required this.selected,
     required this.onTap,
   });
@@ -163,14 +165,29 @@ class SpaceFilter extends StatelessWidget {
               constraints: const BoxConstraints(minHeight: 48),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
+                  horizontal: 12,
                   vertical: 12,
                 ),
-                child: Text(
-                  label,
-                  style: Theme.of(context).textTheme.labelLarge!.copyWith(
-                    color: selected ? style.accentInk : style.muted,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icon != null) ...[
+                      ExcludeSemantics(
+                        child: Icon(
+                          icon,
+                          size: 18,
+                          color: selected ? style.accentInk : style.muted,
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                    ],
+                    Text(
+                      label,
+                      style: Theme.of(context).textTheme.labelLarge!.copyWith(
+                        color: selected ? style.accentInk : style.muted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

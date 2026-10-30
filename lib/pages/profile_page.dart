@@ -4,6 +4,8 @@ import '../application/home_scope.dart';
 import '../design/space_symbols.dart';
 import '../design/cartoon_artwork.dart';
 import '../design/cartoon_header.dart';
+import '../design/album_widgets.dart';
+import '../domain/models.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
 import 'settings_pages.dart';
@@ -48,34 +50,39 @@ class ProfilePage extends StatelessWidget {
                     onProfile: () =>
                         openSpacePage<void>(context, const EditProfilePage()),
                   ),
-                  Text('Your space', style: text.headlineMedium),
-                  const SizedBox(height: 5),
-                  Text('Make yourself at home.', style: text.bodyMedium),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 4),
                   SpaceCard(
                     color: style.accentSoft,
                     borderColor: style.accent.withValues(alpha: .35),
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const SizedBox(width: 60),
-                            ProfileAvatar(profile: profile, size: 70),
-                            const SizedBox(width: 4),
-                            const SizedBox(
-                              width: 56,
-                              height: 70,
-                              child: FittedBox(child: HouseGreeting()),
-                            ),
-                          ],
+                        SizedBox(
+                          height: 90,
+                          child: Stack(
+                            children: [
+                              Center(
+                                child: MemberPortrait(
+                                  member: FamilyMember(
+                                    profile.userId,
+                                    profile.name,
+                                  ),
+                                  size: 82,
+                                ),
+                              ),
+                              const Positioned(
+                                right: 0,
+                                top: 0,
+                                child: HouseGreeting(profile: true),
+                              ),
+                            ],
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           'Hi, ${profile.name}!',
                           textAlign: TextAlign.center,
-                          style: text.headlineMedium,
+                          style: text.titleLarge,
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -122,34 +129,8 @@ class ProfilePage extends StatelessWidget {
                     onTap: () =>
                         openSpacePage<void>(context, const TrashPage()),
                   ),
-                  ListenableBuilder(
-                    listenable: repository.connection,
-                    builder: (context, _) => _SettingRow(
-                      settingKey: const ValueKey('server-setting'),
-                      icon: Icons.dns_outlined,
-                      title: 'Home server',
-                      subtitle: connectionLabel(
-                        repository.connection.status.phase,
-                      ),
-                      tone: const Color(0xFF1677E8),
-                      onTap: () =>
-                          openSpacePage<void>(context, const ConnectionPage()),
-                    ),
-                  ),
-                  ListenableBuilder(
-                    listenable: repository.uploads,
-                    builder: (context, _) => _SettingRow(
-                      settingKey: const ValueKey('uploads-setting'),
-                      icon: Icons.cloud_upload_outlined,
-                      title: 'Upload queue',
-                      subtitle:
-                          '${repository.uploads.items.length} sample items',
-                      tone: const Color(0xFF58A800),
-                      onTap: () =>
-                          openSpacePage<void>(context, const UploadsPage()),
-                    ),
-                  ),
                   _SettingRow(
+                    settingKey: const ValueKey('about-setting'),
                     icon: Icons.home_rounded,
                     title: 'About HomeSpace',
                     subtitle: 'App info and next steps',
@@ -216,6 +197,36 @@ class ProfilePage extends StatelessWidget {
           'Your local profile, theme, favorites, and albums survive an app restart. Connection and upload states are simulations; no files are sent to a server.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
+        const SizedBox(height: 18),
+        ListenableBuilder(
+          listenable: HomeScope.of(context).connection,
+          builder: (context, _) => ListTile(
+            key: const ValueKey('server-setting'),
+            leading: const Icon(Icons.dns_outlined),
+            title: const Text('Home server'),
+            subtitle: Text(
+              connectionLabel(HomeScope.of(context).connection.status.phase),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () {
+              Navigator.pop(context);
+              openSpacePage<void>(context, const ConnectionPage());
+            },
+          ),
+        ),
+        ListTile(
+          key: const ValueKey('uploads-setting'),
+          leading: const Icon(Icons.cloud_upload_outlined),
+          title: const Text('Upload queue'),
+          subtitle: Text(
+            '${HomeScope.of(context).uploads.items.length} sample items',
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () {
+            Navigator.pop(context);
+            openSpacePage<void>(context, const UploadsPage());
+          },
+        ),
         const SizedBox(height: 22),
         SpaceButton(
           label: 'Open-source licenses',
@@ -223,7 +234,7 @@ class ProfilePage extends StatelessWidget {
           onPressed: () => showLicensePage(
             context: context,
             applicationName: 'HomeSpace',
-            applicationVersion: '0.6.1',
+            applicationVersion: '0.7.2',
           ),
         ),
         const SizedBox(height: 10),
@@ -262,8 +273,8 @@ class _SettingRow extends StatelessWidget {
             vertical: 5,
           ),
           leading: Container(
-            width: 42,
-            height: 42,
+            width: 34,
+            height: 34,
             decoration: BoxDecoration(
               color: tone.withValues(alpha: dark ? .2 : .1),
               borderRadius: BorderRadius.circular(14),
@@ -273,15 +284,20 @@ class _SettingRow extends StatelessWidget {
               color: dark
                   ? Color.lerp(tone, Colors.white, .4)
                   : Color.lerp(tone, Colors.black, .3),
-              size: 24,
+              size: 21,
             ),
           ),
-          title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+          title: Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium!
+                .copyWith(fontSize: 16),
+          ),
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
               subtitle,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: Theme.of(context).textTheme.bodyMedium!
+                  .copyWith(fontSize: 12),
             ),
           ),
           trailing: Icon(Icons.chevron_right_rounded, color: style.muted),

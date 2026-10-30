@@ -41,10 +41,22 @@ Future<LocalHomeRepository> launch(
 }
 
 Future<void> tap(WidgetTester tester, Finder finder) async {
-  await tester.ensureVisible(finder);
+  await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
   await tester.pumpAndSettle();
   await tester.tap(finder);
   await tester.pumpAndSettle();
+}
+
+Future<void> menuAction(WidgetTester tester, String menu, String action) async {
+  if (find.byTooltip(action).evaluate().isEmpty &&
+      find.text(action).evaluate().isEmpty) {
+    await tap(tester, find.byTooltip(menu));
+  }
+  final tooltip = find.byTooltip(action);
+  await tap(
+    tester,
+    tooltip.evaluate().isNotEmpty ? tooltip : find.text(action),
+  );
 }
 
 Future<void> back(WidgetTester tester) async {
@@ -63,18 +75,72 @@ void main() {
   });
 
   testWidgets(
+    'Creating an album from photo selection returns to Photos with the selected memories saved',
+    (tester) async {
+      final repository = await launch(tester);
+      await tester.longPress(key('memory-media-01'));
+      await tester.pumpAndSettle();
+      await tap(tester, key('memory-media-03'));
+      await tap(tester, key('bulk-album'));
+      await tap(tester, find.text('Create a new album'));
+      await back(tester);
+      expect(find.text('A place in your story'), findsOneWidget);
+      await tap(tester, find.text('Create a new album'));
+      await tester.enterText(key('album-name'), 'Selected memories');
+      await tap(tester, key('save-album-editor'));
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(SpaceNavigation), findsOneWidget);
+      expect(find.text('2 selected'), findsNothing);
+      expect(repository.albums.last.title, 'Selected memories');
+      expect(repository.albums.last.mediaIds.toSet(), {'media-01', 'media-03'});
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Photo details album links return through details to the same viewer',
+    (tester) async {
+      await launch(tester);
+      await tap(tester, key('memory-media-01'));
+      await tap(tester, find.byTooltip('Photo details'));
+      await tap(tester, find.text('Family weekends'));
+      expect(find.byType(AlbumPage), findsOneWidget);
+      await back(tester);
+      expect(find.text('Photo details'), findsOneWidget);
+      await back(tester);
+      expect(find.byType(MediaViewer), findsOneWidget);
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('1 of 12 memories'),
+      );
+      await back(tester);
+      expect(find.byType(SpaceNavigation), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'Viewer swipes, zooms without paging, exposes details and returns to the library',
     (tester) async {
       await launch(tester);
       await tap(tester, key('memory-media-01'));
       expect(find.byType(MediaViewer), findsOneWidget);
       expect(find.byType(SpaceNavigation), findsNothing);
-      expect(find.text('1 / 12'), findsOneWidget);
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('1 of 12 memories'),
+      );
       await tester.drag(key('viewer-pages'), const Offset(-320, 0));
       await tester.pumpAndSettle();
-      expect(find.text('2 / 12'), findsOneWidget);
-      expect(find.text('A quiet afternoon by the lake'), findsOneWidget);
-      await tap(tester, find.byTooltip('Zoom in'));
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('2 of 12 memories'),
+      );
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('A quiet afternoon by the lake'),
+      );
+      await menuAction(tester, 'More photo options', 'Zoom in');
       final image = find.byWidgetPredicate(
         (widget) =>
             widget is Image &&
@@ -98,12 +164,21 @@ void main() {
       );
       await tester.drag(key('viewer-pages'), const Offset(-200, 0));
       await tester.pumpAndSettle();
-      expect(find.text('2 / 12'), findsOneWidget);
-      await tap(tester, find.byTooltip('Reset zoom'));
-      await tap(tester, find.byTooltip('Next photo'));
-      expect(find.text('3 / 12'), findsOneWidget);
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('2 of 12 memories'),
+      );
+      await menuAction(tester, 'More photo options', 'Reset zoom');
+      await menuAction(tester, 'More photo options', 'Next photo');
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('3 of 12 memories'),
+      );
       await tap(tester, find.byTooltip('Photo details'));
-      expect(find.text('Taking the scenic route'), findsWidgets);
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('Taking the scenic route'),
+      );
       expect(find.text('Little adventures'), findsOneWidget);
       await back(tester);
       await tap(tester, find.byTooltip('Close viewer'));
@@ -118,12 +193,21 @@ void main() {
       final repository = await launch(tester);
       await tap(tester, find.text('Favorites'));
       await tap(tester, key('memory-media-01'));
-      expect(find.text('1 / 3'), findsOneWidget);
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('1 of 3 memories'),
+      );
       await tap(tester, key('toggle-favorite'));
       expect(repository.favorites.contains('media-01'), isFalse);
-      expect(find.text('1 / 3'), findsOneWidget);
-      await tap(tester, find.byTooltip('Next photo'));
-      expect(find.text('2 / 3'), findsOneWidget);
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('1 of 3 memories'),
+      );
+      await menuAction(tester, 'More photo options', 'Next photo');
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('2 of 3 memories'),
+      );
       await back(tester);
       expect(key('memory-media-01'), findsNothing);
       expect(key('memory-media-02'), findsOneWidget);
@@ -235,7 +319,7 @@ void main() {
             .mediaIds,
         hasLength(6),
       );
-      await tap(tester, find.byTooltip('Select album photos'));
+      await menuAction(tester, 'Album options', 'Select album photos');
       await tap(tester, key('album-memory-media-01'));
       await tap(tester, key('set-album-cover'));
       expect(
@@ -251,7 +335,7 @@ void main() {
       await tap(tester, find.text('Save album'));
       expect(find.text('Our people'), findsOneWidget);
       expect(find.text('Summer together'), findsOneWidget);
-      await tap(tester, find.byTooltip('Select album photos'));
+      await menuAction(tester, 'Album options', 'Select album photos');
       await tap(tester, key('album-memory-media-01'));
       await tap(tester, key('remove-album-photos'));
       await tap(tester, key('confirm-action'));
@@ -290,9 +374,15 @@ void main() {
         AlbumRole.contributor,
       );
       await tap(tester, key('member-options-member-sam'));
-      await tap(tester, find.text('Remove member'));
+      await menuAction(tester, 'Member options', 'Remove member');
       await tap(tester, key('confirm-action'));
       await tap(tester, key('add-family-member'));
+      expect(
+        find.text(
+          'Choose a sample family member and their role. No invitations are sent.',
+        ),
+        findsOneWidget,
+      );
       await tap(tester, key('choose-member-member-sam'));
       await tap(tester, find.text('Add to this album'));
       expect(
@@ -306,12 +396,6 @@ void main() {
             .singleWhere((album) => album.id == 'album-adventures')
             .roleFor('member-sam'),
         isNull,
-      );
-      expect(
-        find.text(
-          'Local sharing preview. Changes stay on this device; no invitations are sent.',
-        ),
-        findsOneWidget,
       );
       final restarted = LocalHomeRepository(store: store);
       addTearDown(restarted.dispose);
@@ -331,12 +415,15 @@ void main() {
       await launch(tester);
       await tap(tester, key('tab-collections'));
       await tap(tester, key('album-album-adventures'));
-      expect(find.byTooltip('Album options'), findsNothing);
+      await tap(tester, find.byTooltip('Album options'));
+      expect(find.text('Edit album'), findsNothing);
+      expect(find.text('Delete album'), findsNothing);
+      await back(tester);
       await tap(tester, key('album-members'));
       expect(key('member-options-member-alex'), findsNothing);
       expect(key('add-family-member'), findsNothing);
       await back(tester);
-      await tap(tester, find.byTooltip('Select album photos'));
+      await menuAction(tester, 'Album options', 'Select album photos');
       await tap(tester, key('album-memory-media-03'));
       expect(
         tester.widget<OutlinedButton>(key('remove-album-photos')).onPressed,
@@ -364,7 +451,7 @@ void main() {
       expect(find.text('Couldn’t save that change'), findsOneWidget);
       expect(repository.trash, hasLength(1));
       await tap(tester, find.text('OK'));
-      expect(find.text('1 selected'), findsOneWidget);
+      expect(find.text('Restore (1)'), findsOneWidget);
       store.fail = false;
       await tap(tester, key('delete-selected'));
       await tap(tester, key('confirm-action'));
@@ -411,10 +498,15 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       await tester.tapAt(center);
       await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('More photo options'));
+      await tester.pumpAndSettle();
       expect(find.byTooltip('Reset zoom'), findsOneWidget);
-      await tap(tester, find.byTooltip('Reset zoom'));
-      await tap(tester, find.byTooltip('Next photo'));
-      expect(find.text('2 / 12'), findsOneWidget);
+      await menuAction(tester, 'More photo options', 'Reset zoom');
+      await menuAction(tester, 'More photo options', 'Next photo');
+      expect(
+        tester.getSemantics(key('viewer-position')).label,
+        contains('2 of 12 memories'),
+      );
     },
   );
 
@@ -446,7 +538,7 @@ void main() {
         await tap(tester, key('album-members'));
         expect(tester.takeException(), isNull, reason: 'Members at $size');
         await back(tester);
-        await tap(tester, find.byTooltip('Select album photos'));
+        await menuAction(tester, 'Album options', 'Select album photos');
         expect(
           tester.takeException(),
           isNull,
@@ -465,7 +557,18 @@ void main() {
         );
         await back(tester);
         await back(tester);
-        await tap(tester, find.byTooltip('Select photos'));
+        await tester.scrollUntilVisible(
+          key('memory-media-01'),
+          160,
+          scrollable: find
+              .descendant(
+                of: find.byKey(const PageStorageKey('photos-scroll')),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await tester.longPress(key('memory-media-01'));
+        await tester.pumpAndSettle();
         expect(
           tester.takeException(),
           isNull,

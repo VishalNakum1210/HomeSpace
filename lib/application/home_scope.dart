@@ -15,6 +15,15 @@ class HomeScope extends InheritedNotifier<HomeRepository> {
       context.dependOnInheritedWidgetOfExactType<HomeScope>()!.notifier!;
 }
 
+/// A route stays mounted during its exit animation. Async completions must
+/// not pop its replacement or display an error on an unrelated screen.
+bool spaceRouteIsCurrent(BuildContext context) =>
+    context.mounted && (ModalRoute.of(context)?.isCurrent ?? true);
+
+void popSpaceRouteIfCurrent<T>(BuildContext context, [T? result]) {
+  if (spaceRouteIsCurrent(context)) Navigator.of(context).pop<T>(result);
+}
+
 Future<bool> saveLocalChange(
   BuildContext context,
   Future<void> Function() action,
@@ -23,7 +32,7 @@ Future<bool> saveLocalChange(
     await action();
     return true;
   } catch (error) {
-    if (context.mounted) {
+    if (context.mounted && spaceRouteIsCurrent(context)) {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(

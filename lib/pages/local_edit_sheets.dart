@@ -61,7 +61,7 @@ class AlbumPickerSheet extends StatelessWidget {
                       () => repository.addManyToAlbum(album.id, mediaIds),
                     );
                     if (success && context.mounted) {
-                      Navigator.pop(context, true);
+                      popSpaceRouteIfCurrent(context, true);
                     }
                   },
           ),
@@ -77,7 +77,7 @@ class AlbumPickerSheet extends StatelessWidget {
                     mediaIds: mediaIds,
                   );
                   if (created != null && context.mounted) {
-                    Navigator.pop(context, true);
+                    popSpaceRouteIfCurrent(context, true);
                   }
                 },
         ),

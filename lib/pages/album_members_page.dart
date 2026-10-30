@@ -32,9 +32,6 @@ class AlbumMembersPage extends StatelessWidget {
             album.roleFor(repository.profile.userId) == AlbumRole.owner;
         final cover = repository.coverFor(album);
         final text = Theme.of(context).textTheme;
-        final canAdd = repository.snapshot.family.any(
-          (person) => album.roleFor(person.id) == null,
-        );
         return Scaffold(
           appBar: AppBar(title: Text(album.title), centerTitle: true),
           body: ListView(
@@ -80,7 +77,10 @@ class AlbumMembersPage extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: SpaceCard(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final person = repository.memberById(membership.userId);
@@ -156,28 +156,16 @@ class AlbumMembersPage extends StatelessWidget {
                 const SizedBox(height: 14),
                 SpaceButton(
                   key: const ValueKey('add-family-member'),
-                  label: 'Add family member',
+                  label: 'Add member',
                   icon: Icons.person_add_alt_rounded,
-                  onPressed: !canAdd || repository.pendingWrites > 0
+                  onPressed: repository.pendingWrites > 0
                       ? null
                       : () => showSpaceSheet<void>(
                           context,
                           AddFamilyMemberSheet(albumId: albumId),
                         ),
                 ),
-                if (!canAdd) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    'Everyone in your family is already here.',
-                    style: text.bodyMedium,
-                  ),
-                ],
               ],
-              const SizedBox(height: 24),
-              Text(
-                'Local sharing preview. Changes stay on this device; no invitations are sent.',
-                style: text.bodyMedium,
-              ),
             ],
           ),
         );
@@ -236,7 +224,45 @@ class _MemberPermissionsSheetState extends State<MemberPermissionsSheet> {
           children: [
             MemberPortrait(member: person, size: 46),
             const SizedBox(width: 12),
-            Expanded(child: Text(person.name, style: text.titleMedium)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(person.name, style: text.titleMedium),
+                  Text(
+                    referenceMemberEmail(person) ?? 'Email not provided',
+                    style: text.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+            if (allowed)
+              PopupMenuButton<String>(
+                tooltip: 'Member options',
+                enabled: !busy,
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'remove',
+                    key: ValueKey('remove-album-member'),
+                    child: Text('Remove member'),
+                  ),
+                ],
+                onSelected: (_) async {
+                  final confirmed = await confirmLibraryAction(
+                    context,
+                    title: 'Remove this member?',
+                    message: 'Their memories stay in the album. You can add this family member again later.',
+                    confirm: 'Remove member',
+                  );
+                  if (!confirmed || !context.mounted) return;
+                  final saved = await saveLocalChange(
+                    context,
+                    () =>
+                        repository.removeMember(widget.albumId, widget.userId),
+                  );
+                  if (saved && context.mounted) popSpaceRouteIfCurrent(context);
+                },
+              ),
           ],
         ),
         const SizedBox(height: 20),
@@ -320,40 +346,9 @@ class _MemberPermissionsSheetState extends State<MemberPermissionsSheet> {
                       selected!,
                     ),
                   );
-                  if (saved && context.mounted) Navigator.pop(context);
+                  if (saved && context.mounted) popSpaceRouteIfCurrent(context);
                 },
         ),
-        if (allowed)
-          Center(
-            child: TextButton(
-              key: const ValueKey('remove-album-member'),
-              style: TextButton.styleFrom(
-                foregroundColor: Theme.of(context).colorScheme.error,
-                minimumSize: const Size(48, 48),
-              ),
-              onPressed: busy
-                  ? null
-                  : () async {
-                      final confirmed = await confirmLibraryAction(
-                        context,
-                        title: 'Remove this member?',
-                        message: 'Their memories stay in the album. You can add this family member again later.',
-                        confirm: 'Remove member',
-                      );
-                      if (!confirmed || !context.mounted) return;
-                      final saved = await saveLocalChange(
-                        context,
-                        () => repository.removeMember(
-                          widget.albumId,
-                          widget.userId,
-                        ),
-                      );
-                      if (saved && context.mounted) Navigator.pop(context);
-                    },
-              child: const Text('Remove member'),
-            ),
-          ),
-        Text('Changes apply only to this album.', style: text.bodyMedium),
         const SizedBox(height: 8),
       ],
     );
@@ -379,6 +374,19 @@ class _AddFamilyMemberSheetState extends State<AddFamilyMemberSheet> {
     final people = repository.snapshot.family
         .where((person) => album?.roleFor(person.id) == null)
         .toList();
+    if (people.isEmpty) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Add member', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 14),
+          const Text('Everyone in your family is already here.'),
+          const SizedBox(height: 18),
+          SpaceButton(label: 'Done', onPressed: () => Navigator.pop(context)),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -389,7 +397,7 @@ class _AddFamilyMemberSheetState extends State<AddFamilyMemberSheet> {
         ),
         const SizedBox(height: 10),
         Text(
-          'Choose a sample family member and their role in this album.',
+          'Choose a sample family member and their role. No invitations are sent.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         for (final person in people)
@@ -434,7 +442,7 @@ class _AddFamilyMemberSheetState extends State<AddFamilyMemberSheet> {
                       role,
                     ),
                   );
-                  if (saved && context.mounted) Navigator.pop(context);
+                  if (saved && context.mounted) popSpaceRouteIfCurrent(context);
                 },
         ),
         const SizedBox(height: 12),

@@ -4,6 +4,7 @@ import '../application/home_scope.dart';
 import '../design/space_theme.dart';
 import '../design/cartoon_header.dart';
 import '../design/cartoon_artwork.dart';
+import '../design/album_widgets.dart';
 import '../design/space_widgets.dart';
 import '../domain/models.dart';
 import '../domain/repositories.dart';
@@ -77,6 +78,11 @@ class _CollectionsPageState extends State<CollectionsPage> {
                               padding: const EdgeInsets.only(right: 10),
                               child: SpaceFilter(
                                 label: label,
+                                icon: label == 'Shared'
+                                    ? Icons.people_outline_rounded
+                                    : label == 'Mine'
+                                    ? Icons.person_outline_rounded
+                                    : null,
                                 selected: filter == label,
                                 onTap: () => setState(() => filter = label),
                               ),
@@ -84,13 +90,7 @@ class _CollectionsPageState extends State<CollectionsPage> {
                         ],
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6, bottom: 4),
-                      child: Text(
-                        '${albums.length} albums',
-                        style: text.bodyMedium,
-                      ),
-                    ),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
@@ -108,12 +108,12 @@ class _CollectionsPageState extends State<CollectionsPage> {
               sliver: SliverList.builder(
                 itemCount: (albums.length / columns).ceil(),
                 itemBuilder: (context, row) => Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.only(bottom: 12),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       for (var column = 0; column < columns; column++) ...[
-                        if (column > 0) const SizedBox(width: 14),
+                        if (column > 0) const SizedBox(width: 10),
                         Expanded(
                           child: row * columns + column < albums.length
                               ? _AlbumCard(
@@ -178,181 +178,161 @@ class _AlbumCard extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final cover = repository.coverFor(album);
     final photos = repository.photosFor(album);
+    final owner = album.roleFor(repository.profile.userId) == AlbumRole.owner;
     final tint = [
       const Color(0xFFFFE4E7),
       const Color(0xFFEFE2FF),
       const Color(0xFFDDF1FF),
       const Color(0xFFE8F6D6),
     ][tintIndex % 4];
-    final cardColor = Theme.of(context).brightness == Brightness.dark
+    final color = Theme.of(context).brightness == Brightness.dark
         ? Color.alphaBlend(
             tint.withValues(alpha: .12),
             Theme.of(context).colorScheme.surfaceContainer,
           )
         : tint;
     return Semantics(
-      button: true,
-      label:
-          '${album.title}, ${photos.length} photos, ${album.shared ? 'shared' : 'personal'} album',
+      container: true,
+      label: '${album.title}, ${photos.length} photos',
       child: Material(
-        color: cardColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        color: color,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           key: ValueKey('album-${album.id}'),
           onTap: onTap,
-          child: ExcludeSemantics(
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: AspectRatio(
-                      aspectRatio: 1.1,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (cover == null)
-                            ColoredBox(
-                              color: style.accentSoft,
-                              child: Icon(
-                                Icons.photo_album_outlined,
-                                size: 42,
-                                color: style.accentInk,
-                              ),
-                            )
-                          else
-                            Image.asset(
-                              cover.asset,
-                              fit: BoxFit.cover,
-                              cacheWidth: 600,
-                            ),
-                          if (album.shared)
-                            Positioned(
-                              top: 7,
-                              left: 7,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 7,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xEEFFFFFF),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.people_alt_rounded,
-                                      size: 12,
-                                      color: Color(0xFF42445C),
-                                    ),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      'Shared',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: Color(0xFF42445C),
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          if (album.shared)
-                            Positioned(
-                              left: 10,
-                              bottom: 10,
-                              child: _Members(
-                                members: [
-                                  for (final member in album.memberships)
-                                    repository
-                                        .memberById(member.userId)
-                                        .initial,
-                                ],
-                                small: true,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 9, 4, 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: AspectRatio(
+                    aspectRatio: 1.35,
+                    child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        Text(
-                          album.title,
-                          style: text.titleMedium!.copyWith(fontSize: 16),
+                        if (cover == null)
+                          ColoredBox(
+                            color: style.accentSoft,
+                            child: Icon(
+                              Icons.photo_album_outlined,
+                              color: style.accentInk,
+                            ),
+                          )
+                        else
+                          Image.asset(
+                            cover.asset,
+                            fit: BoxFit.cover,
+                            cacheWidth: 600,
+                          ),
+                        Positioned(
+                          right: 4,
+                          bottom: 4,
+                          child: AlbumPeople(
+                            members: [
+                              for (final membership in album.memberships)
+                                repository.memberById(membership.userId),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          '${photos.length} photos · ${album.shared ? 'Shared' : 'Just you'}',
-                          style: text.bodyMedium!.copyWith(fontSize: 12),
-                        ),
+                        if (cover != null &&
+                            repository.favorites.contains(cover.id))
+                          const Positioned(
+                            right: 5,
+                            top: 5,
+                            child: Icon(
+                              Icons.favorite_border_rounded,
+                              color: Colors.white,
+                              size: 24,
+                              shadows: [
+                                Shadow(color: Colors.black54, blurRadius: 3),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                   ),
-                ],
-              ),
+                ),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 52),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(
+                            left: 3,
+                            top: 5,
+                            bottom: 5,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                album.title,
+                                style: text.titleMedium!.copyWith(fontSize: 14),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                '${photos.length} memories',
+                                style: text.bodyMedium!.copyWith(fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: 'Options for ${album.title}',
+                        enabled: repository.pendingWrites == 0,
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: 'open',
+                            child: Text('Open album'),
+                          ),
+                          if (owner)
+                            const PopupMenuItem(
+                              value: 'edit',
+                              child: Text('Edit album'),
+                            ),
+                          if (owner)
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Delete album'),
+                            ),
+                        ],
+                        onSelected: (action) async {
+                          if (action == 'open') {
+                            onTap();
+                            return;
+                          }
+                          if (action == 'edit') {
+                            await openAlbumEditor(context, album: album);
+                            return;
+                          }
+                          final confirmed = await confirmLibraryAction(
+                            context,
+                            title: 'Delete this album?',
+                            message: 'Its photos stay in your library and other albums.',
+                            confirm: 'Delete album',
+                            destructive: true,
+                          );
+                          if (confirmed && context.mounted) {
+                            await saveLocalChange(
+                              context,
+                              () => repository.deleteAlbum(album.id),
+                            );
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _Members extends StatelessWidget {
-  final List<String> members;
-  final bool small;
-  const _Members({required this.members, this.small = false});
-  @override
-  Widget build(BuildContext context) {
-    final diameter = small ? 25.0 : 34.0;
-    return SizedBox(
-      width: diameter + (members.length - 1) * diameter * .7,
-      height: diameter,
-      child: Stack(
-        children: [
-          for (var i = 0; i < members.length; i++)
-            Positioned(
-              left: i * diameter * .7,
-              child: Container(
-                width: diameter,
-                height: diameter,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: [
-                    const Color(0xFFEEDCFF),
-                    const Color(0xFFFFE0B3),
-                    const Color(0xFFD9EDFC),
-                  ][i % 3],
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.surfaceContainer,
-                    width: 2,
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    members[i],
-                    textScaler: TextScaler.noScaling,
-                    style: TextStyle(
-                      fontFamily: 'Nunito',
-                      fontWeight: FontWeight.w900,
-                      fontSize: small ? 10 : 13,
-                      color: const Color(0xFF554366),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }

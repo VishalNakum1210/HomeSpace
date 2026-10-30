@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,6 +67,17 @@ Future<LocalHomeRepository> start(
   if (const bool.fromEnvironment('HOMESPACE_CAPTURE')) {
     await tester.runAsync(() async {
       final context = tester.element(find.byType(Scaffold).first);
+      for (final asset
+          in Directory('assets/illustrations/vector')
+              .listSync()
+              .whereType<File>()
+              .where((asset) => asset.path.endsWith('.svg'))) {
+        final loader = SvgAssetLoader(asset.path.replaceAll('\\', '/'));
+        await svg.cache.putIfAbsent(
+          loader.cacheKey(context),
+          () => loader.loadBytes(context),
+        );
+      }
       for (final media in repository.media) {
         await precacheImage(AssetImage(media.asset), context);
       }
@@ -76,10 +88,25 @@ Future<LocalHomeRepository> start(
 }
 
 Future<void> tap(WidgetTester tester, Finder finder) async {
+  var avatarSheet = false;
+  if (finder.toString().contains('avatar-') && finder.evaluate().isEmpty) {
+    await tester.tap(key('profile-picture'));
+    await tester.pumpAndSettle();
+    avatarSheet = true;
+  }
+  if (finder.toString().contains('Explore sample library') &&
+      finder.evaluate().isEmpty) {
+    await tester.tap(key('add-photos'));
+    await tester.pumpAndSettle();
+  }
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
   await tester.tap(finder);
   await tester.pumpAndSettle();
+  if (avatarSheet) {
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+  }
 }
 
 Future<void> back(WidgetTester tester) async {
@@ -131,7 +158,7 @@ void main() {
     await tap(tester, key('theme-dark'));
     expect(repository.profile.appearance, Appearance.light);
     expect(
-      Theme.of(tester.element(find.text('Tap Done to keep your choice.')))
+      Theme.of(tester.element(find.text('Choose how HomeSpace looks.')))
           .brightness,
       Brightness.dark,
     );
@@ -168,7 +195,7 @@ void main() {
       addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
       await tester.pumpAndSettle();
       expect(
-        Theme.of(tester.element(find.text('Tap Done to keep your choice.')))
+        Theme.of(tester.element(find.text('Choose how HomeSpace looks.')))
             .brightness,
         Brightness.dark,
       );
@@ -302,6 +329,8 @@ void main() {
         await tester.pumpAndSettle();
         if (size.width < 400) {
           tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+          await tester.pumpAndSettle();
+          await tester.ensureVisible(key('save-profile'));
           await tester.pumpAndSettle();
           expect(
             tester.getRect(key('save-profile')).bottom,

@@ -15,11 +15,14 @@ class TrashPage extends StatefulWidget {
 class _TrashPageState extends State<TrashPage> {
   bool selecting = false;
   final selected = <String>{};
+  int selectionRevision = 0;
   void clear() => setState(() {
+    selectionRevision++;
     selecting = false;
     selected.clear();
   });
   void toggle(String id) => setState(() {
+    selectionRevision++;
     selecting = true;
     selected.contains(id) ? selected.remove(id) : selected.add(id);
   });
@@ -54,24 +57,26 @@ class _TrashPageState extends State<TrashPage> {
       onPressed: !enabled
           ? null
           : () async {
+              final revision = selectionRevision;
               final saved = await saveLocalChange(
                 context,
                 () => repository.restoreMany(ids),
               );
-              if (saved && mounted) clear();
+              if (saved && mounted && revision == selectionRevision) clear();
             },
     );
     final delete = SpaceButton(
       key: const ValueKey('delete-selected'),
       label: 'Delete (${ids.length})',
       icon: Icons.delete_outline_rounded,
-      backgroundColor: const Color(0xFFB42318),
+      backgroundColor: const Color(0xFFE12D39),
       foregroundColor: Colors.white,
       onPressed: !enabled
           ? null
           : () async {
+              final revision = selectionRevision;
               final saved = await deleteTrashedMemories(context, ids);
-              if (saved && mounted) clear();
+              if (saved && mounted && revision == selectionRevision) clear();
             },
     );
     return PopScope(
@@ -81,13 +86,13 @@ class _TrashPageState extends State<TrashPage> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(selecting ? '${ids.length} selected' : 'Trash'),
+          title: const Text('Trash'),
           centerTitle: true,
           leading: selecting
               ? IconButton(
                   tooltip: 'Cancel selection',
                   onPressed: clear,
-                  icon: const Icon(Icons.close_rounded),
+                  icon: const Icon(Icons.arrow_back_rounded),
                 )
               : null,
           actions: [
@@ -95,9 +100,10 @@ class _TrashPageState extends State<TrashPage> {
               IconButton(
                 tooltip: 'Select all trashed memories',
                 icon: const Icon(Icons.select_all_rounded),
-                onPressed: () => setState(
-                  () => selected.addAll(entries.map((entry) => entry.mediaId)),
-                ),
+                onPressed: () => setState(() {
+                  selectionRevision++;
+                  selected.addAll(entries.map((entry) => entry.mediaId));
+                }),
               )
             else if (entries.isNotEmpty)
               IconButton(
@@ -208,13 +214,18 @@ class _TrashPageState extends State<TrashPage> {
                         onPressed: repository.pendingWrites > 0
                             ? null
                             : () async {
+                                final revision = selectionRevision;
                                 final saved = await deleteTrashedMemories(
                                   context,
                                   entries
                                       .map((entry) => entry.mediaId)
                                       .toList(),
                                 );
-                                if (saved && mounted) clear();
+                                if (saved &&
+                                    mounted &&
+                                    revision == selectionRevision) {
+                                  clear();
+                                }
                               },
                         child: const Text('Empty Trash'),
                       ),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../design/vector_artwork.dart';
+
 import '../application/home_scope.dart';
 import '../design/cartoon_artwork.dart';
 import '../design/cartoon_header.dart';
@@ -15,9 +17,98 @@ import 'media_viewer.dart';
 class PhotosPage extends StatefulWidget {
   final VoidCallback onProfile;
   final bool active;
-  const PhotosPage({super.key, required this.onProfile, this.active = true});
+  final ValueChanged<bool>? onFocusChanged;
+  const PhotosPage({
+    super.key,
+    required this.onProfile,
+    this.active = true,
+    this.onFocusChanged,
+  });
   @override
   State<PhotosPage> createState() => _PhotosPageState();
+}
+
+class _EmptyPhotoLibrary extends StatelessWidget {
+  final VoidCallback onProfile;
+  const _EmptyPhotoLibrary({required this.onProfile});
+  @override
+  Widget build(BuildContext context) {
+    final repository = HomeScope.of(context);
+    final text = Theme.of(context).textTheme;
+    return SafeArea(
+      bottom: false,
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(20, 0, 20, spaceBottomPadding(context)),
+        child: Column(
+          children: [
+            CartoonHeader(profile: repository.profile, onProfile: onProfile),
+            SpaceArtwork(
+              'empty-garden',
+              height: 172,
+              width: double.infinity,
+              fit: BoxFit.contain,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Your memories start here',
+              style: text.headlineMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Add photos, people and places\nthat matter most.',
+              style: text.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            SpaceButton(
+              key: const ValueKey('add-photos'),
+              label: 'Add photos',
+              icon: Icons.add_circle_outline_rounded,
+              backgroundColor: const Color(0xFF1677E8),
+              foregroundColor: Colors.white,
+              onPressed: () => showSpaceSheet<void>(
+                context,
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Add photos', style: text.titleLarge),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'This frontend preview uses sample photos. Device import and home-server uploads are not connected yet.',
+                    ),
+                    const SizedBox(height: 18),
+                    if (repository.scenario == DemoScenario.empty)
+                      SpaceButton(
+                        label: 'Explore sample library',
+                        onPressed: () {
+                          Navigator.pop(context);
+                          repository.setScenario(DemoScenario.populated);
+                        },
+                      )
+                    else
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Done'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            MemoryStatusBanner(
+              warning: true,
+              message: repository.scenario == DemoScenario.offline
+                  ? "You’re offline\nSaved photos are available."
+                  : 'Local preview\nYour saved library is kept.',
+              onRetry: () => repository.setScenario(DemoScenario.populated),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _PhotosPageState extends State<PhotosPage> {
@@ -26,19 +117,27 @@ class _PhotosPageState extends State<PhotosPage> {
   bool selecting = false;
   bool searching = false;
   final selected = <String>{};
-  void clearSelection() => setState(() {
+  int selectionRevision = 0;
+  void changeMode(VoidCallback update) {
+    setState(update);
+    widget.onFocusChanged?.call(selecting || searching);
+  }
+
+  void clearSelection() => changeMode(() {
+    selectionRevision++;
     selecting = false;
     selected.clear();
   });
   void closeSearch() {
     FocusScope.of(context).unfocus();
-    setState(() {
+    changeMode(() {
       searching = false;
       search.clear();
     });
   }
 
-  void toggle(String id) => setState(() {
+  void toggle(String id) => changeMode(() {
+    selectionRevision++;
     selecting = true;
     selected.contains(id) ? selected.remove(id) : selected.add(id);
   });
@@ -79,6 +178,12 @@ class _PhotosPageState extends State<PhotosPage> {
     final enabled = ids.isNotEmpty && repository.pendingWrites == 0;
     final allFavorite = ids.isNotEmpty && repository.favorites.containsAll(ids);
     final focused = selecting || searching;
+    if (repository.media.isEmpty && !focused) {
+      return ScenarioContent(
+        repository: repository,
+        child: _EmptyPhotoLibrary(onProfile: widget.onProfile),
+      );
+    }
     return PopScope(
       canPop: !widget.active || (!selecting && !searching),
       onPopInvokedWithResult: (didPop, _) {
@@ -101,26 +206,6 @@ class _PhotosPageState extends State<PhotosPage> {
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 slivers: [
-                  if (selecting)
-                    SliverAppBar(
-                      pinned: true,
-                      leading: IconButton(
-                        tooltip: 'Cancel selection',
-                        onPressed: clearSelection,
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                      title: Text('${ids.length} selected'),
-                      actions: [
-                        IconButton(
-                          tooltip: 'Select all visible photos',
-                          icon: const Icon(Icons.select_all_rounded),
-                          onPressed: () => setState(
-                            () =>
-                                selected.addAll(photos.map((item) => item.id)),
-                          ),
-                        ),
-                      ],
-                    ),
                   SliverPadding(
                     key: const ValueKey('photos-header'),
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
@@ -132,23 +217,26 @@ class _PhotosPageState extends State<PhotosPage> {
                             CartoonHeader(
                               profile: repository.profile,
                               onProfile: widget.onProfile,
-                              action: IconButton(
-                                tooltip: 'Select photos',
-                                onPressed: () =>
-                                    setState(() => selecting = true),
-                                icon: const Icon(Icons.checklist_rounded),
-                              ),
                             ),
                             Text(
                               'Your happy place',
                               style: text.headlineMedium,
                             ),
                             const SizedBox(height: 5),
-                            Text(
-                              'Photos, people and places that matter most.',
-                              style: text.bodyMedium,
+                            Stack(
+                              children: [
+                                const MemoryGarden(),
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  width: MediaQuery.sizeOf(context).width * .58,
+                                  child: Text(
+                                    'Photos, people and places\nthat matter most.',
+                                    style: text.bodyMedium,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const MemoryGarden(),
                             if (repository.scenario == DemoScenario.offline ||
                                 repository.scenario == DemoScenario.success ||
                                 repository.recoveryNotice != null)
@@ -170,10 +258,14 @@ class _PhotosPageState extends State<PhotosPage> {
                           Row(
                             key: const ValueKey('photo-search-row'),
                             children: [
-                              if (searching && !selecting)
+                              if (focused)
                                 IconButton(
-                                  tooltip: 'Close search',
-                                  onPressed: closeSearch,
+                                  tooltip: selecting
+                                      ? 'Cancel selection'
+                                      : 'Close search',
+                                  onPressed: selecting
+                                      ? clearSelection
+                                      : closeSearch,
                                   icon: const Icon(Icons.arrow_back_rounded),
                                 ),
                               Expanded(
@@ -183,10 +275,10 @@ class _PhotosPageState extends State<PhotosPage> {
                                   controller: search,
                                   onTap: () {
                                     if (!searching) {
-                                      setState(() => searching = true);
+                                      changeMode(() => searching = true);
                                     }
                                   },
-                                  onChanged: (_) => setState(
+                                  onChanged: (_) => changeMode(
                                     () => searching = search.text.isNotEmpty,
                                   ),
                                   textInputAction: TextInputAction.search,
@@ -227,9 +319,14 @@ class _PhotosPageState extends State<PhotosPage> {
                                       padding: const EdgeInsets.only(right: 8),
                                       child: SpaceFilter(
                                         label: label,
+                                        icon: label == 'Favorites'
+                                            ? Icons.favorite_border_rounded
+                                            : label == 'Videos'
+                                            ? Icons.play_arrow_outlined
+                                            : null,
                                         selected: filter == label,
                                         onTap: () =>
-                                            setState(() => filter = label),
+                                            changeMode(() => filter = label),
                                       ),
                                     ),
                                 ],
@@ -240,6 +337,42 @@ class _PhotosPageState extends State<PhotosPage> {
                       ),
                     ),
                   ),
+                  if (focused)
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                      sliver: SliverToBoxAdapter(
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Semantics(
+                                header: true,
+                                label: 'Search results',
+                                child: Text(
+                                  '${photos.length} ${photos.length == 1 ? 'result' : 'results'}',
+                                  key: const ValueKey('search-result-summary'),
+                                  style: text.bodyMedium,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              style: TextButton.styleFrom(
+                                foregroundColor: const Color(0xFF1267D2),
+                              ),
+                              onPressed: photos.isEmpty
+                                  ? null
+                                  : () => changeMode(() {
+                                      selectionRevision++;
+                                      selecting = true;
+                                      selected.addAll(
+                                        photos.map((photo) => photo.id),
+                                      );
+                                    }),
+                              child: const Text('Select all'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   if (photos.isEmpty)
                     SliverToBoxAdapter(
                       child: SpaceEmpty(
@@ -266,17 +399,18 @@ class _PhotosPageState extends State<PhotosPage> {
                       in focused
                           ? {'Search results'}
                           : photos.map(repository.groupFor).toSet()) ...[
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      sliver: SliverToBoxAdapter(
-                        child: SpaceSection(
-                          group,
-                          detail: focused
-                              ? '${photos.length} ${photos.length == 1 ? 'result' : 'results'}'
-                              : '${photos.where((item) => repository.groupFor(item) == group).length} memories',
+                    if (!focused)
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        sliver: SliverToBoxAdapter(
+                          child: SpaceSection(
+                            group,
+                            detail: focused
+                                ? '${photos.length} ${photos.length == 1 ? 'result' : 'results'}'
+                                : '${photos.where((item) => repository.groupFor(item) == group).length} memories',
+                          ),
                         ),
                       ),
-                    ),
                     SliverPadding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       sliver: SliverGrid.builder(
@@ -344,12 +478,27 @@ class _PhotosPageState extends State<PhotosPage> {
                 Positioned(
                   left: 20,
                   right: 20,
-                  bottom: 100 + MediaQuery.paddingOf(context).bottom,
+                  bottom: 12 + MediaQuery.paddingOf(context).bottom,
                   child: SpaceCard(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${ids.length} selected',
+                                style: text.titleMedium,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Cancel selection',
+                              onPressed: clearSelection,
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
                         Row(
                           children: [
                             Expanded(
@@ -367,6 +516,7 @@ class _PhotosPageState extends State<PhotosPage> {
                                 onPressed: !enabled
                                     ? null
                                     : () async {
+                                        final revision = selectionRevision;
                                         final saved = await saveLocalChange(
                                           context,
                                           () => repository.setFavorites(
@@ -374,7 +524,11 @@ class _PhotosPageState extends State<PhotosPage> {
                                             !allFavorite,
                                           ),
                                         );
-                                        if (saved && mounted) clearSelection();
+                                        if (saved &&
+                                            mounted &&
+                                            revision == selectionRevision) {
+                                          clearSelection();
+                                        }
                                       },
                               ),
                             ),
@@ -389,12 +543,15 @@ class _PhotosPageState extends State<PhotosPage> {
                                 onPressed: !enabled
                                     ? null
                                     : () async {
+                                        final revision = selectionRevision;
                                         final saved =
                                             await showSpaceSheet<bool>(
                                               context,
                                               AlbumPickerSheet(mediaIds: ids),
                                             );
-                                        if (saved == true && mounted) {
+                                        if (saved == true &&
+                                            mounted &&
+                                            revision == selectionRevision) {
                                           clearSelection();
                                         }
                                       },
@@ -412,11 +569,16 @@ class _PhotosPageState extends State<PhotosPage> {
                                 onPressed: !enabled
                                     ? null
                                     : () async {
+                                        final revision = selectionRevision;
                                         final saved = await trashMemories(
                                           context,
                                           ids,
                                         );
-                                        if (saved && mounted) clearSelection();
+                                        if (saved &&
+                                            mounted &&
+                                            revision == selectionRevision) {
+                                          clearSelection();
+                                        }
                                       },
                               ),
                             ),

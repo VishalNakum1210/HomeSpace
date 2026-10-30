@@ -21,11 +21,14 @@ class AlbumPage extends StatefulWidget {
 class _AlbumPageState extends State<AlbumPage> {
   bool selecting = false;
   final selected = <String>{};
+  int selectionRevision = 0;
   void clear() => setState(() {
+    selectionRevision++;
     selecting = false;
     selected.clear();
   });
   void toggle(String id) => setState(() {
+    selectionRevision++;
     selecting = true;
     selected.contains(id) ? selected.remove(id) : selected.add(id);
   });
@@ -79,7 +82,9 @@ class _AlbumPageState extends State<AlbumPage> {
         if (!didPop && selecting) clear();
       },
       child: Scaffold(
+        extendBodyBehindAppBar: !selecting,
         appBar: AppBar(
+          backgroundColor: selecting ? null : Colors.transparent,
           title: selecting ? Text('${ids.length} selected') : null,
           leading: selecting
               ? IconButton(
@@ -93,30 +98,42 @@ class _AlbumPageState extends State<AlbumPage> {
                   IconButton(
                     tooltip: 'Select all album photos',
                     icon: const Icon(Icons.select_all_rounded),
-                    onPressed: () => setState(
-                      () => selected.addAll(photos.map((photo) => photo.id)),
-                    ),
+                    onPressed: () => setState(() {
+                      selectionRevision++;
+                      selected.addAll(photos.map((photo) => photo.id));
+                    }),
                   ),
                 ]
               : [
-                  if (canAdd && photos.isNotEmpty)
-                    IconButton(
-                      tooltip: 'Select album photos',
-                      icon: const Icon(Icons.checklist_rounded),
-                      onPressed: () => setState(() => selecting = true),
-                    ),
-                  if (owner)
+                  if (owner || canAdd)
                     PopupMenuButton<String>(
                       tooltip: 'Album options',
                       enabled: !busy,
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'edit', child: Text('Edit album')),
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Text('Delete album'),
-                        ),
+                      itemBuilder: (_) => [
+                        if (canAdd)
+                          const PopupMenuItem(
+                            value: 'select',
+                            child: Tooltip(
+                              message: 'Select album photos',
+                              child: Text('Select photos'),
+                            ),
+                          ),
+                        if (owner)
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: Text('Edit album'),
+                          ),
+                        if (owner)
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Delete album'),
+                          ),
                       ],
                       onSelected: (action) async {
+                        if (action == 'select') {
+                          setState(() => selecting = true);
+                          return;
+                        }
                         if (action == 'edit') {
                           await openAlbumEditor(context, album: album);
                         } else {
@@ -133,7 +150,9 @@ class _AlbumPageState extends State<AlbumPage> {
                             context,
                             () => repository.deleteAlbum(album.id),
                           );
-                          if (saved && context.mounted) Navigator.pop(context);
+                          if (saved && context.mounted) {
+                            popSpaceRouteIfCurrent(context);
+                          }
                         }
                       },
                     ),
@@ -149,6 +168,7 @@ class _AlbumPageState extends State<AlbumPage> {
                       onPressed: !canRemove
                           ? null
                           : () async {
+                              final revision = selectionRevision;
                               final confirmed = await confirmLibraryAction(
                                 context,
                                 title:
@@ -164,7 +184,11 @@ class _AlbumPageState extends State<AlbumPage> {
                                   ids,
                                 ),
                               );
-                              if (saved && mounted) clear();
+                              if (saved &&
+                                  mounted &&
+                                  revision == selectionRevision) {
+                                clear();
+                              }
                             },
                     ),
                     if (owner)
@@ -175,6 +199,7 @@ class _AlbumPageState extends State<AlbumPage> {
                         onPressed: ids.length != 1 || busy
                             ? null
                             : () async {
+                                final revision = selectionRevision;
                                 final saved = await saveLocalChange(
                                   context,
                                   () => repository.setAlbumCover(
@@ -182,7 +207,11 @@ class _AlbumPageState extends State<AlbumPage> {
                                     ids.single,
                                   ),
                                 );
-                                if (saved && mounted) clear();
+                                if (saved &&
+                                    mounted &&
+                                    revision == selectionRevision) {
+                                  clear();
+                                }
                               },
                       ),
                   ],
@@ -193,7 +222,12 @@ class _AlbumPageState extends State<AlbumPage> {
           slivers: [
             if (!selecting)
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  MediaQuery.paddingOf(context).top + 8,
+                  20,
+                  8,
+                ),
                 sliver: SliverToBoxAdapter(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,7 +235,7 @@ class _AlbumPageState extends State<AlbumPage> {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(22),
                         child: SizedBox(
-                          height: 152,
+                          height: 180,
                           width: double.infinity,
                           child: cover == null
                               ? ColoredBox(
@@ -271,11 +305,6 @@ class _AlbumPageState extends State<AlbumPage> {
                         ),
                         const SizedBox(height: 12),
                       ],
-                      Text(switch (role) {
-                        AlbumRole.owner => 'Owner · You manage this album.',
-                        AlbumRole.contributor => 'Contributor · Add memories and remove your own additions.',
-                        _ => 'Viewer · Enjoy the memories in this album.',
-                      }, style: text.bodyMedium!.copyWith(fontSize: 12)),
                     ],
                   ),
                 ),
@@ -325,6 +354,9 @@ class _AlbumPageState extends State<AlbumPage> {
                           ? repository.memberById(album.addedBy[photo.id]!).name
                           : null,
                       avatarAttribution: true,
+                      attribution: album.shared
+                          ? repository.memberById(album.addedBy[photo.id]!)
+                          : null,
                       onLongPress: canAdd ? () => toggle(photo.id) : null,
                       onTap: selecting
                           ? () => toggle(photo.id)
@@ -385,7 +417,7 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
               (filter == 'All' ||
                   (filter == 'Favorites'
                       ? repository.favorites.contains(item.id)
-                      : item.kind == MediaKind.video)) &&
+                      : item.category.toLowerCase() == 'screenshots')) &&
               (item.title.toLowerCase().contains(
                     search.text.trim().toLowerCase(),
                   ) ||
@@ -450,11 +482,20 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        for (final option in ['All', 'Favorites', 'Videos'])
+                        for (final option in [
+                          'All',
+                          'Favorites',
+                          'Screenshots',
+                        ])
                           Padding(
                             padding: const EdgeInsets.only(right: 8),
                             child: SpaceFilter(
                               label: option,
+                              icon: option == 'Favorites'
+                                  ? Icons.favorite_border_rounded
+                                  : option == 'Screenshots'
+                                  ? Icons.insert_drive_file_outlined
+                                  : null,
                               selected: filter == option,
                               onTap: () => setState(() => filter = option),
                             ),
@@ -537,7 +578,9 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
                       context,
                       () => repository.addManyToAlbum(widget.albumId, ids),
                     );
-                    if (saved && context.mounted) Navigator.pop(context);
+                    if (saved && context.mounted) {
+                      popSpaceRouteIfCurrent(context);
+                    }
                   },
           ),
         ),

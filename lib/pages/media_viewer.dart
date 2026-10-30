@@ -1,13 +1,55 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 
 import '../application/home_scope.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
 import '../design/photo_action.dart';
+import '../design/album_widgets.dart';
+import 'album_page.dart';
 import '../domain/models.dart';
 import 'library_widgets.dart';
 import 'local_edit_sheets.dart';
+
+String _photoTime(DateTime value) {
+  final date = value.toLocal();
+  final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
+  return '$hour:${date.minute.toString().padLeft(2, '0')} ${date.hour < 12 ? 'AM' : 'PM'}';
+}
+
+class BundledPhotoMetadata {
+  final int bytes;
+  final int width;
+  final int height;
+  const BundledPhotoMetadata(this.bytes, this.width, this.height);
+  String get fileSize => bytes >= 1024 * 1024
+      ? '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB'
+      : '${(bytes / 1024).toStringAsFixed(0)} KB';
+}
+
+Future<BundledPhotoMetadata> readBundledPhotoMetadata(String asset) async {
+  final data = await rootBundle.load(asset);
+  final buffer = await ui.ImmutableBuffer.fromUint8List(
+    data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+  );
+  try {
+    final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    try {
+      return BundledPhotoMetadata(
+        data.lengthInBytes,
+        descriptor.width,
+        descriptor.height,
+      );
+    } finally {
+      descriptor.dispose();
+    }
+  } finally {
+    buffer.dispose();
+  }
+}
 
 Future<void> openMediaViewer(
   BuildContext context, {
@@ -42,17 +84,49 @@ class _MediaViewerState extends State<MediaViewer> {
       .indexOf(widget.initialId)
       .clamp(0, widget.mediaIds.isEmpty ? 0 : widget.mediaIds.length - 1);
   late final controller = PageController(initialPage: index);
-  final zoomKeys = <String, GlobalKey<_ZoomablePhotoState>>{};
+  final viewportKey = GlobalKey<_PhotoViewportState>();
+  Drag? pageDrag;
+  int? dragOrigin;
   bool chrome = true;
   bool zoomed = false;
   @override
   void dispose() {
+    pageDrag?.cancel();
     controller.dispose();
     super.dispose();
   }
 
+  void startPageDrag(DragStartDetails details) {
+    cancelPageDrag();
+    if (!controller.hasClients) return;
+    dragOrigin = index;
+    late final Drag drag;
+    drag = controller.position.drag(details, () {
+      if (identical(pageDrag, drag)) pageDrag = null;
+    });
+    pageDrag = drag;
+  }
+
+  void updatePageDrag(DragUpdateDetails details) => pageDrag?.update(details);
+
+  void endPageDrag(DragEndDetails details) {
+    dragOrigin = null;
+    final drag = pageDrag;
+    pageDrag = null;
+    drag?.end(details);
+  }
+
+  void cancelPageDrag() {
+    final origin = dragOrigin;
+    dragOrigin = null;
+    final drag = pageDrag;
+    pageDrag = null;
+    drag?.cancel();
+    if (origin != null && controller.hasClients) controller.jumpToPage(origin);
+  }
+
   void changePage(int next) {
-    zoomKeys[widget.mediaIds[index]]?.currentState?.reset();
+    viewportKey.currentState?.reset();
     setState(() {
       index = next;
       zoomed = false;
@@ -60,12 +134,16 @@ class _MediaViewerState extends State<MediaViewer> {
   }
 
   void step(int amount) {
+    if (!controller.hasClients) return;
+    final next = (index + amount).clamp(0, widget.mediaIds.length - 1);
+    if (next == index) return;
+    viewportKey.currentState?.reset();
     final duration = spaceMotion(context, 220);
     if (duration == Duration.zero) {
-      controller.jumpToPage(index + amount);
+      controller.jumpToPage(next);
     } else {
       controller.animateToPage(
-        index + amount,
+        next,
         duration: duration,
         curve: Curves.easeOutCubic,
       );
@@ -115,11 +193,8 @@ class _MediaViewerState extends State<MediaViewer> {
               backgroundColor: const Color(0xFF101519),
               body: LayoutBuilder(
                 builder: (context, constraints) {
-                  final compact = constraints.maxHeight < 450;
                   final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
-                  final top = compact
-                      ? 80.0
-                      : 88 + 48 * (scale.clamp(1.0, 2.0).toDouble() - 1);
+                  final top = 56 + 28 * (scale.clamp(1.0, 2.0).toDouble() - 1);
                   final bottom =
                       88 + 32 * (scale.clamp(1.0, 2.0).toDouble() - 1);
                   return Stack(
@@ -135,60 +210,71 @@ class _MediaViewerState extends State<MediaViewer> {
                                 ? bottom + MediaQuery.paddingOf(context).bottom
                                 : 0,
                           ),
-                          child: widget.mediaIds.isEmpty
-                              ? const Center(
-                                  child: Text('This memory is unavailable'),
-                                )
-                              : PageView.builder(
-                                  key: const ValueKey('viewer-pages'),
-                                  controller: controller,
-                                  physics: zoomed
-                                      ? const NeverScrollableScrollPhysics()
-                                      : const PageScrollPhysics(),
-                                  onPageChanged: changePage,
-                                  itemCount: widget.mediaIds.length,
-                                  itemBuilder: (context, page) {
-                                    final item = repository.mediaById(
-                                      widget.mediaIds[page],
-                                    );
-                                    final isTrashed = repository.trash.any(
-                                      (entry) => entry.mediaId == item?.id,
-                                    );
-                                    if (item == null ||
-                                        isTrashed != widget.inTrash) {
-                                      return const Center(
-                                        child: Text(
-                                          'This memory is unavailable',
+                          child: _PhotoViewport(
+                            key: viewportKey,
+                            label: photo?.title ?? 'Unavailable memory',
+                            canZoom: available && photo.kind == MediaKind.photo,
+                            onPageDragStart: startPageDrag,
+                            onPageDragUpdate: updatePageDrag,
+                            onPageDragEnd: endPageDrag,
+                            onPageDragCancel: cancelPageDrag,
+                            onTap: () => setState(() => chrome = !chrome),
+                            onZoom: (value) {
+                              if (mounted && zoomed != value) {
+                                setState(() => zoomed = value);
+                              }
+                            },
+                            child: widget.mediaIds.isEmpty
+                                ? const Center(
+                                    child: Text('This memory is unavailable'),
+                                  )
+                                : PageView.builder(
+                                    key: const ValueKey('viewer-pages'),
+                                    controller: controller,
+                                    // One viewport recognizer coordinates all
+                                    // photos, including a second finger landing
+                                    // on the neighboring page during a swipe.
+                                    physics:
+                                        const NeverScrollableScrollPhysics(),
+                                    onPageChanged: changePage,
+                                    itemCount: widget.mediaIds.length,
+                                    itemBuilder: (context, page) {
+                                      final item = repository.mediaById(
+                                        widget.mediaIds[page],
+                                      );
+                                      final isTrashed = repository.trash.any(
+                                        (entry) => entry.mediaId == item?.id,
+                                      );
+                                      if (item == null ||
+                                          isTrashed != widget.inTrash) {
+                                        return const Center(
+                                          child: Text(
+                                            'This memory is unavailable',
+                                          ),
+                                        );
+                                      }
+                                      if (item.kind == MediaKind.video) {
+                                        return const SingleChildScrollView(
+                                          child: SpaceEmpty(
+                                            icon: Icons.movie_outlined,
+                                            title: 'Video preview',
+                                            message: 'Video playback will be added with the upload experience.',
+                                          ),
+                                        );
+                                      }
+                                      return Image.asset(
+                                        item.asset,
+                                        fit: BoxFit.contain,
+                                        semanticLabel: item.title,
+                                        errorBuilder: (_, _, _) => const Center(
+                                          child: Text(
+                                            'Couldn’t open this photo',
+                                          ),
                                         ),
                                       );
-                                    }
-                                    if (item.kind == MediaKind.video) {
-                                      return const SingleChildScrollView(
-                                        child: SpaceEmpty(
-                                          icon: Icons.movie_outlined,
-                                          title: 'Video preview',
-                                          message: 'Video playback will be added with the upload experience.',
-                                        ),
-                                      );
-                                    }
-                                    return _ZoomablePhoto(
-                                      key: zoomKeys.putIfAbsent(
-                                        item.id,
-                                        () => GlobalKey<_ZoomablePhotoState>(),
-                                      ),
-                                      media: item,
-                                      onTap: () =>
-                                          setState(() => chrome = !chrome),
-                                      onZoom: (value) {
-                                        if (mounted &&
-                                            page == index &&
-                                            zoomed != value) {
-                                          setState(() => zoomed = value);
-                                        }
-                                      },
-                                    );
-                                  },
-                                ),
+                                    },
+                                  ),
+                          ),
                         ),
                       ),
                       Positioned(
@@ -208,81 +294,84 @@ class _MediaViewerState extends State<MediaViewer> {
                                     onPressed: () => Navigator.pop(context),
                                     icon: const Icon(Icons.arrow_back_rounded),
                                   ),
-                                  IconButton(
-                                    tooltip: 'Previous photo',
-                                    onPressed: index > 0
-                                        ? () => step(-1)
-                                        : null,
-                                    icon: const Icon(
-                                      Icons.chevron_left_rounded,
+                                  Expanded(
+                                    child: Semantics(
+                                      key: const ValueKey('viewer-position'),
+
+                                      liveRegion: true,
+                                      label:
+                                          '${photo?.title ?? 'Unavailable memory'}, ${widget.mediaIds.isEmpty ? 0 : index + 1} of ${widget.mediaIds.length} memories',
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          if (photo != null) ...[
+                                            Text(
+                                              _dateLabel(photo.takenAt),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: text.labelLarge,
+                                            ),
+                                            Text(
+                                              _photoTime(photo.takenAt),
+                                              style: text.bodyMedium!.copyWith(
+                                                fontSize: 12,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
                                     ),
                                   ),
-                                  Expanded(
-                                    child: Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        if (photo != null)
-                                          Text(
-                                            _dateLabel(photo.takenAt),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: text.labelLarge,
-                                          ),
-                                        if (photo != null && !compact)
-                                          Text(
-                                            photo.title,
-                                            key: const ValueKey('viewer-title'),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: text.bodyMedium!.copyWith(
-                                              fontSize: 12,
-                                              color: const Color(0xFFDCE3ED),
-                                            ),
-                                          ),
-                                        Semantics(
-                                          liveRegion: true,
-                                          label:
-                                              '${widget.mediaIds.isEmpty ? 0 : index + 1} of ${widget.mediaIds.length} memories',
-                                          child: ExcludeSemantics(
-                                            child: Text(
-                                              '${widget.mediaIds.isEmpty ? 0 : index + 1} / ${widget.mediaIds.length}',
-                                              key: const ValueKey(
-                                                'viewer-position',
-                                              ),
-                                              style: text.bodyMedium!.copyWith(
-                                                fontSize: 11,
-                                                color: const Color(0xFFDCE3ED),
-                                              ),
-                                            ),
+                                  PopupMenuButton<String>(
+                                    tooltip: 'More photo options',
+                                    itemBuilder: (_) => [
+                                      PopupMenuItem(
+                                        enabled: false,
+                                        child: Text(
+                                          '${widget.mediaIds.isEmpty ? 0 : index + 1} / ${widget.mediaIds.length}',
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'previous',
+                                        enabled: index > 0,
+                                        child: const Tooltip(
+                                          message: 'Previous photo',
+                                          child: Text('Previous photo'),
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'next',
+                                        enabled:
+                                            index < widget.mediaIds.length - 1,
+                                        child: const Tooltip(
+                                          message: 'Next photo',
+                                          child: Text('Next photo'),
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'zoom',
+                                        enabled:
+                                            available &&
+                                            photo.kind == MediaKind.photo,
+                                        child: Tooltip(
+                                          message: zoomed
+                                              ? 'Reset zoom'
+                                              : 'Zoom in',
+                                          child: Text(
+                                            zoomed ? 'Reset zoom' : 'Zoom in',
                                           ),
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Next photo',
-                                    onPressed:
-                                        index < widget.mediaIds.length - 1
-                                        ? () => step(1)
-                                        : null,
-                                    icon: const Icon(
-                                      Icons.chevron_right_rounded,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: zoomed ? 'Reset zoom' : 'Zoom in',
-                                    onPressed:
-                                        !available ||
-                                            photo.kind != MediaKind.photo
-                                        ? null
-                                        : () => zoomKeys[photo.id]?.currentState
-                                              ?.toggle(),
-                                    icon: Icon(
-                                      zoomed
-                                          ? Icons.zoom_out_rounded
-                                          : Icons.zoom_in_rounded,
-                                    ),
+                                      ),
+                                    ],
+                                    onSelected: (action) {
+                                      if (action == 'previous') step(-1);
+                                      if (action == 'next') step(1);
+                                      if (action == 'zoom' && photo != null) {
+                                        viewportKey.currentState?.toggle();
+                                      }
+                                    },
                                   ),
                                 ],
                               ),
@@ -325,7 +414,9 @@ class _MediaViewerState extends State<MediaViewer> {
                                                       );
                                                   if (saved &&
                                                       context.mounted) {
-                                                    Navigator.pop(context);
+                                                    popSpaceRouteIfCurrent(
+                                                      context,
+                                                    );
                                                   }
                                                 },
                                         ),
@@ -346,7 +437,9 @@ class _MediaViewerState extends State<MediaViewer> {
                                                       );
                                                   if (saved &&
                                                       context.mounted) {
-                                                    Navigator.pop(context);
+                                                    popSpaceRouteIfCurrent(
+                                                      context,
+                                                    );
                                                   }
                                                 },
                                         ),
@@ -432,7 +525,9 @@ class _MediaViewerState extends State<MediaViewer> {
                                                       );
                                                   if (saved &&
                                                       context.mounted) {
-                                                    Navigator.pop(context);
+                                                    popSpaceRouteIfCurrent(
+                                                      context,
+                                                    );
                                                   }
                                                 },
                                         ),
@@ -482,6 +577,10 @@ class _MediaViewerState extends State<MediaViewer> {
     final albums = repository.albums.where(
       (album) => album.mediaIds.contains(photo.id),
     );
+    final metadata = readBundledPhotoMetadata(photo.asset);
+    final contributors = {for (final album in albums) album.addedBy[photo.id]}
+        .whereType<String>()
+        .toList();
     final appearance = repository.profile.appearance;
     final brightness = switch (appearance) {
       Appearance.light => Brightness.light,
@@ -524,38 +623,120 @@ class _MediaViewerState extends State<MediaViewer> {
                       ),
                     ],
                   ),
-                  Text(photo.title, style: theme.textTheme.bodyMedium),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
                   _DetailRow(
                     icon: Icons.calendar_today_outlined,
                     label: 'Date & time',
-                    value:
-                        '${_dateLabel(date)} · ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
+                    value: '${_dateLabel(date)} · ${_photoTime(date)}',
                   ),
-                  _DetailRow(
-                    icon: Icons.insert_drive_file_outlined,
-                    label: 'Filename',
-                    value: photo.asset.split('/').last,
-                    note:
-                        '${photo.category} · Bundled sample · Available offline',
+                  const Divider(height: 1),
+                  FutureBuilder<BundledPhotoMetadata>(
+                    future: metadata,
+                    builder: (context, result) => _DetailRow(
+                      icon: Icons.insert_drive_file_outlined,
+                      label: 'Filename',
+                      value: photo.asset.split('/').last,
+                      note: result.hasData
+                          ? '${result.data!.fileSize} · ${result.data!.width} × ${result.data!.height}'
+                          : result.hasError
+                          ? 'File details unavailable'
+                          : 'Reading file details…',
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text('Albums', style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  if (albums.isEmpty)
-                    const _DetailRow(
-                      icon: Icons.photo_album_outlined,
-                      label: 'In your library',
-                      value: 'This memory has a home in your library.',
-                    )
-                  else
-                    for (final album in albums)
-                      _DetailRow(
-                        icon: Icons.photo_album_outlined,
-                        label: album.title,
-                        value:
-                            'Added by ${repository.memberById(album.addedBy[photo.id]!).name}',
+                  const Divider(height: 1),
+                  Row(
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(right: 12),
+                        child: Icon(
+                          Icons.photo_album_outlined,
+                          color: Color(0xFFA560F5),
+                        ),
                       ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Albums', style: theme.textTheme.labelLarge),
+                              const SizedBox(height: 7),
+                              if (albums.isEmpty)
+                                Text(
+                                  'Not in an album',
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                              for (final album in albums)
+                                InkWell(
+                                  onTap: () => openSpacePage<void>(
+                                    context,
+                                    AlbumPage(albumId: album.id),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 5,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                          child: SizedBox(
+                                            width: 28,
+                                            height: 24,
+                                            child:
+                                                repository.coverFor(album) ==
+                                                    null
+                                                ? const Icon(
+                                                    Icons.photo_outlined,
+                                                  )
+                                                : MediaThumbnail(
+                                                    media: repository.coverFor(
+                                                      album,
+                                                    )!,
+                                                  ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            album.title,
+                                            style: theme.textTheme.bodyMedium,
+                                          ),
+                                        ),
+                                        const Icon(
+                                          Icons.chevron_right_rounded,
+                                          size: 19,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 1),
+                  _DetailRow(
+                    icon: Icons.person_outline_rounded,
+                    label: 'Added by',
+                    value: contributors.isEmpty
+                        ? 'Not recorded'
+                        : contributors
+                              .map((id) => repository.memberById(id).name)
+                              .join(', '),
+                    leading: contributors.isEmpty
+                        ? null
+                        : AlbumPeople(
+                            members: contributors
+                                .map(repository.memberById)
+                                .toList(),
+                          ),
+                    note: contributors.isEmpty ? null : 'Album contributors',
+                  ),
                 ],
               ),
             ),
@@ -571,11 +752,13 @@ class _DetailRow extends StatelessWidget {
   final String label;
   final String value;
   final String? note;
+  final Widget? leading;
   const _DetailRow({
     required this.icon,
     required this.label,
     required this.value,
     this.note,
+    this.leading,
   });
   @override
   Widget build(BuildContext context) {
@@ -586,15 +769,16 @@ class _DetailRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: style.accentSoft,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: style.accentInk, size: 21),
-          ),
+          leading ??
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: style.accentSoft,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: style.accentInk, size: 21),
+              ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -617,21 +801,33 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-class _ZoomablePhoto extends StatefulWidget {
-  final MediaItem media;
+class _PhotoViewport extends StatefulWidget {
+  final Widget child;
+  final String label;
+  final bool canZoom;
   final VoidCallback onTap;
   final ValueChanged<bool> onZoom;
-  const _ZoomablePhoto({
+  final GestureDragStartCallback onPageDragStart;
+  final GestureDragUpdateCallback onPageDragUpdate;
+  final GestureDragEndCallback onPageDragEnd;
+  final GestureDragCancelCallback onPageDragCancel;
+  const _PhotoViewport({
     super.key,
-    required this.media,
+    required this.child,
+    required this.label,
+    required this.canZoom,
     required this.onTap,
     required this.onZoom,
+    required this.onPageDragStart,
+    required this.onPageDragUpdate,
+    required this.onPageDragEnd,
+    required this.onPageDragCancel,
   });
   @override
-  State<_ZoomablePhoto> createState() => _ZoomablePhotoState();
+  State<_PhotoViewport> createState() => _PhotoViewportState();
 }
 
-class _ZoomablePhotoState extends State<_ZoomablePhoto>
+class _PhotoViewportState extends State<_PhotoViewport>
     with SingleTickerProviderStateMixin {
   final transform = TransformationController();
   late final animation = AnimationController(vsync: this)..addListener(_tick);
@@ -639,6 +835,85 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
   Offset? tapped;
   Size size = Size.zero;
   bool zoomed = false;
+  final pointers = <int>{};
+  bool multiplePointers = false;
+  bool startedZoomed = false;
+  bool paging = false;
+  Offset? swipeStart;
+
+  void cancelPaging() {
+    if (!paging) return;
+    paging = false;
+    widget.onPageDragCancel();
+  }
+
+  void pointerDown(PointerDownEvent event) {
+    if (pointers.isEmpty) {
+      multiplePointers = false;
+      startedZoomed = zoomed;
+      swipeStart = null;
+    }
+    pointers.add(event.pointer);
+    if (pointers.length > 1) {
+      multiplePointers = true;
+      cancelPaging();
+    }
+  }
+
+  void interactionStart(ScaleStartDetails details) {
+    animation.stop();
+    swipeStart = details.focalPoint;
+  }
+
+  void interactionUpdate(ScaleUpdateDetails details) {
+    if (details.pointerCount > 1 || zoomed) {
+      multiplePointers |= details.pointerCount > 1;
+      startedZoomed |= zoomed;
+      cancelPaging();
+      return;
+    }
+    // A pinch stays a photo gesture until every finger is lifted, including
+    // when it ends at 1x. A fresh one-finger drag then pages normally.
+    if (multiplePointers || startedZoomed) return;
+    final delta = details.focalPoint - (swipeStart ?? details.focalPoint);
+    if (!paging && delta.dx.abs() > 8 && delta.dx.abs() > delta.dy.abs()) {
+      paging = true;
+      widget.onPageDragStart(
+        DragStartDetails(
+          globalPosition: details.focalPoint,
+          localPosition: details.localFocalPoint,
+        ),
+      );
+    }
+    if (paging) {
+      widget.onPageDragUpdate(
+        DragUpdateDetails(
+          delta: Offset(details.focalPointDelta.dx, 0),
+          primaryDelta: details.focalPointDelta.dx,
+          globalPosition: details.focalPoint,
+          localPosition: details.localFocalPoint,
+        ),
+      );
+    }
+  }
+
+  void interactionEnd(ScaleEndDetails details) {
+    if (!paging) return;
+    if (details.pointerCount > 0 || multiplePointers) {
+      cancelPaging();
+      return;
+    }
+    paging = false;
+    widget.onPageDragEnd(
+      DragEndDetails(
+        velocity: Velocity(
+          pixelsPerSecond: Offset(details.velocity.pixelsPerSecond.dx, 0),
+        ),
+        primaryVelocity: details.velocity.pixelsPerSecond.dx,
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -686,28 +961,35 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
     builder: (context, constraints) {
       size = constraints.biggest;
       return Semantics(
-        label: widget.media.title,
+        label: widget.label,
         button: true,
         onTap: widget.onTap,
         child: ExcludeSemantics(
-          child: GestureDetector(
-            onTap: widget.onTap,
-            onDoubleTapDown: (details) => tapped = details.localPosition,
-            onDoubleTap: () => toggle(at: tapped),
-            child: InteractiveViewer(
-              transformationController: transform,
-              minScale: 1,
-              maxScale: 4,
-              panEnabled: zoomed,
-              onInteractionStart: (_) => animation.stop(),
-              child: SizedBox.expand(
-                child: Image.asset(
-                  widget.media.asset,
-                  fit: BoxFit.contain,
-                  semanticLabel: widget.media.title,
-                  errorBuilder: (_, _, _) =>
-                      const Center(child: Text('Couldn’t open this photo')),
-                ),
+          child: Listener(
+            onPointerDown: pointerDown,
+            onPointerUp: (event) => pointers.remove(event.pointer),
+            onPointerCancel: (event) {
+              pointers.remove(event.pointer);
+              cancelPaging();
+            },
+            child: GestureDetector(
+              onTap: widget.onTap,
+              onDoubleTapDown: widget.canZoom
+                  ? (details) => tapped = details.localPosition
+                  : null,
+              onDoubleTap: widget.canZoom ? () => toggle(at: tapped) : null,
+              child: InteractiveViewer(
+                transformationController: transform,
+                minScale: 1,
+                maxScale: 4,
+                scaleEnabled: widget.canZoom,
+                // One recognizer owns the whole pointer sequence. PageView's
+                // horizontal recognizer must not reject a later second finger.
+                panEnabled: true,
+                onInteractionStart: interactionStart,
+                onInteractionUpdate: interactionUpdate,
+                onInteractionEnd: interactionEnd,
+                child: SizedBox.expand(child: widget.child),
               ),
             ),
           ),

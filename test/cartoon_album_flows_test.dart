@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,6 +52,17 @@ Future<LocalHomeRepository> start(
   if (const bool.fromEnvironment('HOMESPACE_CAPTURE')) {
     final context = tester.element(find.text('Your happy place'));
     await tester.runAsync(() async {
+      for (final asset
+          in Directory('assets/illustrations/vector')
+              .listSync()
+              .whereType<File>()
+              .where((asset) => asset.path.endsWith('.svg'))) {
+        final loader = SvgAssetLoader(asset.path.replaceAll('\\', '/'));
+        await svg.cache.putIfAbsent(
+          loader.cacheKey(context),
+          () => loader.loadBytes(context),
+        );
+      }
       for (final media in repository.media) {
         await precacheImage(AssetImage(media.asset), context);
       }
@@ -61,7 +73,7 @@ Future<LocalHomeRepository> start(
 }
 
 Future<void> tap(WidgetTester tester, Finder finder) async {
-  await tester.ensureVisible(finder);
+  await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
   await tester.pumpAndSettle();
   await tester.tap(finder);
   await tester.pumpAndSettle();

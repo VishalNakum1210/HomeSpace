@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+
+import '../design/vector_artwork.dart';
+
 import 'package:flutter/services.dart';
 
 import '../application/home_scope.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
-import '../design/space_symbols.dart';
+import '../design/album_widgets.dart';
 import '../domain/models.dart';
 
 Future<T?> openSpacePage<T>(
@@ -77,6 +80,7 @@ class MemoryTile extends StatelessWidget {
   final bool favorite;
   final String? subtitle;
   final bool avatarAttribution;
+  final FamilyMember? attribution;
   final bool showSubtitle;
   const MemoryTile({
     super.key,
@@ -87,6 +91,7 @@ class MemoryTile extends StatelessWidget {
     this.favorite = false,
     this.subtitle,
     this.avatarAttribution = false,
+    this.attribution,
     this.showSubtitle = true,
   });
   @override
@@ -146,24 +151,9 @@ class MemoryTile extends StatelessWidget {
                   Positioned(
                     right: 7,
                     bottom: 7,
-                    child: Container(
-                      width: 26,
-                      height: 26,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: const Color(0xFFE9D7FF),
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: Text(
-                        subtitle!.characters.first,
-                        textScaler: TextScaler.noScaling,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF554366),
-                        ),
-                      ),
+                    child: MemberPortrait(
+                      member: attribution ?? FamilyMember('', subtitle!),
+                      size: 26,
                     ),
                   ),
                 if (subtitle != null && !avatarAttribution && showSubtitle)
@@ -236,14 +226,16 @@ Future<bool> confirmLibraryAction(
                 MediaQuery.textScalerOf(dialogContext).scale(14) > 20);
         final cancel = SpaceButton(
           label: 'Cancel',
-          backgroundColor: theme.colorScheme.surfaceContainerLow,
+          backgroundColor: theme.brightness == Brightness.dark
+              ? theme.colorScheme.surfaceContainerLow
+              : const Color(0xFFEEF1FA),
           foregroundColor: theme.colorScheme.onSurface,
           onPressed: () => Navigator.pop(dialogContext, false),
         );
         final accept = SpaceButton(
           key: const ValueKey('confirm-action'),
           label: confirm,
-          backgroundColor: destructive ? const Color(0xFFB42318) : null,
+          backgroundColor: destructive ? const Color(0xFFE12D39) : null,
           foregroundColor: destructive ? Colors.white : null,
           onPressed: () => Navigator.pop(dialogContext, true),
         );
@@ -254,24 +246,12 @@ Future<bool> confirmLibraryAction(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(26),
           ),
-          icon: SizedBox(
-            width: 76,
-            height: 68,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                const SpaceHouse(size: 56),
-                if (destructive)
-                  const Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Icon(
-                      Icons.error_rounded,
-                      color: Color(0xFFB42318),
-                      size: 26,
-                    ),
-                  ),
-              ],
+          icon: ExcludeSemantics(
+            child: SpaceArtwork(
+              'delete-house',
+              width: 112,
+              height: 76,
+              fit: BoxFit.contain,
             ),
           ),
           title: Text(
@@ -352,10 +332,11 @@ Future<bool> deleteTrashedMemories(
   final repository = HomeScope.of(context);
   final confirmed = await confirmLibraryAction(
     context,
-    title:
-        'Delete ${ids.length == 1 ? 'memory' : '${ids.length} memories'} forever?',
-    message: 'This removes them from this local library, including album entries and favorites. This can’t be undone.',
-    confirm: 'Delete forever',
+    title: 'Delete permanently?',
+    message: ids.length == 1
+        ? 'This memory cannot be restored.'
+        : 'These ${ids.length} memories cannot be restored.',
+    confirm: 'Delete',
     destructive: true,
   );
   if (!confirmed || !context.mounted) return false;

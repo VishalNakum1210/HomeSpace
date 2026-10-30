@@ -1,7 +1,18 @@
 import 'package:flutter/material.dart';
 
+import 'vector_artwork.dart';
+
 import '../domain/models.dart';
 import 'space_theme.dart';
+
+/// Example addresses for the bundled demo members, never used to send invitations.
+String? referenceMemberEmail(FamilyMember member) =>
+    switch ((member.id, member.name)) {
+      ('member-maya', 'Maya') => 'maya@example.com',
+      ('member-alex', 'Alex') => 'alex@example.com',
+      ('member-sam', 'Sam') => 'sam@example.com',
+      _ => null,
+    };
 
 class AlbumTheme extends StatelessWidget {
   final Widget child;
@@ -19,6 +30,26 @@ class MemberPortrait extends StatelessWidget {
   const MemberPortrait({super.key, required this.member, this.size = 36});
   @override
   Widget build(BuildContext context) {
+    final portrait = switch (member.id) {
+      'member-maya' when member.name == 'Maya' => 'maya',
+      'member-alex' when member.name == 'Alex' => 'alex',
+      'member-sam' when member.name == 'Sam' => 'sam',
+      _ => null,
+    };
+    if (portrait != null) {
+      return ExcludeSemantics(
+        child: Container(
+          width: size,
+          height: size,
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Theme.of(context).colorScheme.surfaceContainer,
+          ),
+          child: ClipOval(child: SpaceArtwork(portrait, fit: BoxFit.cover)),
+        ),
+      );
+    }
     final tint = switch (member.id) {
       'member-maya' => const Color(0xFFFFE4B5),
       'member-alex' => const Color(0xFFE9D7FF),

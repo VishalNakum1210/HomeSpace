@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../design/vector_artwork.dart';
+
 import 'package:flutter/services.dart';
 
 import '../application/home_scope.dart';
@@ -46,9 +49,119 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Center(
-                    child: ProfileAvatar(
-                      profile: profile.copyWith(avatarTone: tone),
-                      size: 96,
+                    child: SizedBox(
+                      width: 112,
+                      height: 112,
+                      child: Stack(
+                        children: [
+                          ProfileAvatar(
+                            profile: profile.copyWith(avatarTone: tone),
+                            size: 112,
+                          ),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: IconButton.filled(
+                              key: const ValueKey('profile-picture'),
+                              tooltip: 'Choose avatar',
+                              style: IconButton.styleFrom(
+                                backgroundColor: const Color(0xFF1677E8),
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: busy
+                                  ? null
+                                  : () => showSpaceSheet<void>(
+                                      context,
+                                      StatefulBuilder(
+                                        builder: (sheetContext, updateSheet) => Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Choose avatar',
+                                              style: text.titleLarge,
+                                            ),
+                                            const SizedBox(height: 18),
+                                            Wrap(
+                                              spacing: 12,
+                                              runSpacing: 12,
+                                              children: [
+                                                for (final option
+                                                    in AvatarTone.values)
+                                                  Semantics(
+                                                    button: true,
+                                                    selected: tone == option,
+                                                    label:
+                                                        '${option.name} avatar',
+                                                    child: InkWell(
+                                                      key: ValueKey(
+                                                        'avatar-${option.name}',
+                                                      ),
+                                                      customBorder:
+                                                          const CircleBorder(),
+                                                      onTap: busy
+                                                          ? null
+                                                          : () {
+                                                              setState(
+                                                                () => tone =
+                                                                    option,
+                                                              );
+                                                              updateSheet(
+                                                                () {},
+                                                              );
+                                                            },
+                                                      child: ExcludeSemantics(
+                                                        child: Container(
+                                                          padding:
+                                                              const EdgeInsets.all(
+                                                                4,
+                                                              ),
+                                                          decoration: BoxDecoration(
+                                                            shape:
+                                                                BoxShape.circle,
+                                                            border: Border.all(
+                                                              color:
+                                                                  tone == option
+                                                                  ? style
+                                                                        .accentInk
+                                                                  : Colors
+                                                                        .transparent,
+                                                              width: 2,
+                                                            ),
+                                                          ),
+                                                          child: ProfileAvatar(
+                                                            profile: profile
+                                                                .copyWith(
+                                                                  avatarTone:
+                                                                      option,
+                                                                ),
+                                                            size: 44,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 16),
+                                            TextButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(sheetContext),
+                                              child: const Text('Done'),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                              icon: const Icon(
+                                Icons.photo_camera_rounded,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 26),
@@ -59,6 +172,12 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     controller: name,
                     enabled: !busy,
                     maxLength: 60,
+                    buildCounter: (
+                      context, {
+                      required currentLength,
+                      required isFocused,
+                      maxLength,
+                    }) => null,
                     decoration: const InputDecoration(hintText: 'Your name'),
                     textCapitalization: TextCapitalization.words,
                     textInputAction: TextInputAction.done,
@@ -67,76 +186,28 @@ class _EditProfilePageState extends State<EditProfilePage> {
                         ? 'Enter your name.'
                         : null,
                   ),
-                  const SizedBox(height: 20),
-                  Text('A little color for you', style: text.titleMedium),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      for (final option in AvatarTone.values)
-                        Semantics(
-                          button: true,
-                          selected: tone == option,
-                          label: '${option.name} avatar',
-                          child: InkWell(
-                            key: ValueKey('avatar-${option.name}'),
-                            customBorder: const CircleBorder(),
-                            onTap: busy
-                                ? null
-                                : () => setState(() => tone = option),
-                            child: ExcludeSemantics(
-                              child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: tone == option
-                                        ? style.accentInk
-                                        : Colors.transparent,
-                                    width: 2,
-                                  ),
-                                ),
-                                child: ProfileAvatar(
-                                  profile: profile.copyWith(avatarTone: option),
-                                  size: 44,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
+                  const SizedBox(height: 28),
+                  SpaceButton(
+                    key: const ValueKey('save-profile'),
+                    label: busy ? 'Saving…' : 'Save changes',
+                    onPressed: busy || repository.pendingWrites > 0
+                        ? null
+                        : () async {
+                            if (!form.currentState!.validate()) return;
+                            FocusScope.of(context).unfocus();
+                            setState(() => busy = true);
+                            final saved = await saveLocalChange(
+                              context,
+                              () => repository.updateProfile(name!.text, tone!),
+                            );
+                            if (!mounted) return;
+                            setState(() => busy = false);
+                            if (saved && context.mounted) {
+                              popSpaceRouteIfCurrent(context);
+                            }
+                          },
                   ),
                 ],
-              ),
-            ),
-          ),
-          bottomNavigationBar: SafeArea(
-            top: false,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                12,
-                20,
-                16 + MediaQuery.viewInsetsOf(context).bottom,
-              ),
-              child: SpaceButton(
-                key: const ValueKey('save-profile'),
-                label: busy ? 'Saving…' : 'Save changes',
-                onPressed: busy || repository.pendingWrites > 0
-                    ? null
-                    : () async {
-                        if (!form.currentState!.validate()) return;
-                        FocusScope.of(context).unfocus();
-                        setState(() => busy = true);
-                        final saved = await saveLocalChange(
-                          context,
-                          () => repository.updateProfile(name!.text, tone!),
-                        );
-                        if (!mounted) return;
-                        setState(() => busy = false);
-                        if (saved && context.mounted) Navigator.pop(context);
-                      },
               ),
             ),
           ),
@@ -269,9 +340,11 @@ class _AppearancePageState extends State<AppearancePage> {
                                         20) ...[
                                       const SizedBox(width: 12),
                                       ExcludeSemantics(
-                                        child: CustomPaint(
-                                          size: const Size(64, 46),
-                                          painter: _ThemePreview(option),
+                                        child: SpaceArtwork(
+                                          'theme-${option.name}',
+                                          width: 64,
+                                          height: 46,
+                                          fit: BoxFit.contain,
                                         ),
                                       ),
                                     ],
@@ -282,42 +355,44 @@ class _AppearancePageState extends State<AppearancePage> {
                           ),
                         ),
                       ),
-                    const SizedBox(height: 18),
-                    const HouseGreeting(),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Tap Done to keep your choice.',
-                      style: text.bodyMedium,
+                    const SizedBox(height: 16),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const SizedBox(
+                          width: 110,
+                          height: 94,
+                          child: HouseGreeting(),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: SpaceButton(
+                            key: const ValueKey('save-appearance'),
+                            label: busy ? 'Saving…' : 'Done',
+                            onPressed: busy || repository.pendingWrites > 0
+                                ? null
+                                : () async {
+                                    if (draft ==
+                                        repository.profile.appearance) {
+                                      Navigator.pop(context);
+                                      return;
+                                    }
+                                    setState(() => busy = true);
+                                    final saved = await saveLocalChange(
+                                      context,
+                                      () => repository.setAppearance(draft!),
+                                    );
+                                    if (!mounted) return;
+                                    setState(() => busy = false);
+                                    if (saved && context.mounted) {
+                                      popSpaceRouteIfCurrent(context);
+                                    }
+                                  },
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                ),
-              ),
-              bottomNavigationBar: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-                  child: SpaceButton(
-                    key: const ValueKey('save-appearance'),
-                    label: busy ? 'Saving…' : 'Done',
-                    onPressed: busy || repository.pendingWrites > 0
-                        ? null
-                        : () async {
-                            if (draft == repository.profile.appearance) {
-                              Navigator.pop(context);
-                              return;
-                            }
-                            setState(() => busy = true);
-                            final saved = await saveLocalChange(
-                              context,
-                              () => repository.setAppearance(draft!),
-                            );
-                            if (!mounted) return;
-                            setState(() => busy = false);
-                            if (saved && context.mounted) {
-                              Navigator.pop(context);
-                            }
-                          },
-                  ),
                 ),
               ),
             ),
@@ -326,57 +401,4 @@ class _AppearancePageState extends State<AppearancePage> {
       ),
     );
   }
-}
-
-class _ThemePreview extends CustomPainter {
-  final Appearance appearance;
-  const _ThemePreview(this.appearance);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final paint = Paint();
-    canvas.save();
-    canvas.clipRRect(RRect.fromRectAndRadius(rect, const Radius.circular(8)));
-    canvas.drawRect(
-      rect,
-      paint
-        ..color = appearance == Appearance.dark
-            ? const Color(0xFF1D252D)
-            : const Color(0xFFEDF2F6),
-    );
-    if (appearance == Appearance.system) {
-      canvas.drawRect(
-        Rect.fromLTWH(size.width / 2, 0, size.width / 2, size.height),
-        paint..color = const Color(0xFF1D252D),
-      );
-    }
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(6, 6, 30, 5),
-        const Radius.circular(3),
-      ),
-      paint..color = const Color(0xFF8BD547),
-    );
-    for (var index = 0; index < 3; index++) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(6 + index * 18, 16, 15, 18),
-          const Radius.circular(3),
-        ),
-        paint..color = const Color(0xFFA8BFCD),
-      );
-    }
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(20, 38, 24, 4),
-        const Radius.circular(3),
-      ),
-      paint..color = const Color(0xFF88CFFF),
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_ThemePreview oldDelegate) =>
-      oldDelegate.appearance != appearance;
 }

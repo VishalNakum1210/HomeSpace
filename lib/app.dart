@@ -20,6 +20,7 @@ class HomeSpaceApp extends StatefulWidget {
 
 class _HomeSpaceAppState extends State<HomeSpaceApp> {
   SpacePage page = SpacePage.photos;
+  bool photoFocused = false;
   @override
   void initState() {
     super.initState();
@@ -96,6 +97,11 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
                                 children: [
                                   PhotosPage(
                                     active: page == SpacePage.photos,
+                                    onFocusChanged: (value) {
+                                      if (photoFocused != value) {
+                                        setState(() => photoFocused = value);
+                                      }
+                                    },
                                     onProfile: () =>
                                         selectPage(SpacePage.profile),
                                   ),
@@ -124,9 +130,14 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
                                       child: AnimatedOpacity(
                                         opacity: keyboardOpen ? 0 : 1,
                                         duration: spaceMotion(context, 120),
-                                        child: SpaceNavigation(
-                                          selected: page,
-                                          onSelected: selectPage,
+                                        child: Offstage(
+                                          offstage:
+                                              page == SpacePage.photos &&
+                                              photoFocused,
+                                          child: SpaceNavigation(
+                                            selected: page,
+                                            onSelected: selectPage,
+                                          ),
                                         ),
                                       ),
                                     ),

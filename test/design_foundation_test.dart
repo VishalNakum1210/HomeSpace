@@ -30,7 +30,15 @@ Future<void> startApp(
 }
 
 Future<void> openTab(WidgetTester tester, String name) async {
-  await tester.tap(find.byKey(ValueKey('tab-$name')));
+  if (find.byKey(ValueKey('tab-$name')).evaluate().isEmpty) {
+    tester
+        .widget<SpaceNavigation>(
+          find.byType(SpaceNavigation, skipOffstage: false),
+        )
+        .onSelected(SpacePage.values.byName(name));
+  } else {
+    await tester.tap(find.byKey(ValueKey('tab-$name')));
+  }
   await tester.pumpAndSettle();
 }
 
@@ -171,10 +179,12 @@ void main() {
     (tester) async {
       await startApp(tester);
       await openTab(tester, 'collections');
-      expect(find.text('4 albums'), findsOneWidget);
+      expect(find.byKey(const ValueKey('album-album-family')), findsOneWidget);
+      expect(find.byKey(const ValueKey('album-album-water')), findsOneWidget);
       await tester.tap(find.text('Shared').first);
       await tester.pumpAndSettle();
-      expect(find.text('2 albums'), findsOneWidget);
+      expect(find.byKey(const ValueKey('album-album-family')), findsOneWidget);
+      expect(find.byKey(const ValueKey('album-album-water')), findsNothing);
       expect(find.text('By the water'), findsNothing);
       await tester.tap(find.text('Family weekends'));
       await tester.pumpAndSettle();
