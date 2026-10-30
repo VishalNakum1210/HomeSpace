@@ -67,8 +67,28 @@ No data reset or storage-schema change is included.
 - Refreshed all sixteen screen captures and reviewed their composition. Local
   contact sheet: `output/previews/frontend-polish-16-screen.png`.
 
-Android packaging, device status and Git delivery are recorded after their
-checks complete. Render previews and APKs remain ignored artifacts.
+- Android release build succeeded (226.3 seconds). Release lint succeeded with
+  **0 errors and 1 existing `UnusedAttribute` warning** for the API 33+
+  Back-callback flag on older supported Android versions. Toolchain/Gradle
+  deprecation warnings remain; no configuration migration was needed here.
+- APK signature verifies. Package: `com.homespace.homespace`, version/code
+  `0.7.2` / `13`, Android minimum/target APIs `24` / `36`.
+- APK: `output/releases/homespace-android-0.7.2+13-preview.apk`, **56,296,403
+  bytes**, SHA-256
+  `FFCEE63FAFAADB17F8C8DA1828F3354531844670D5EF485C6F1CAF8A24C83352`.
+  Adjacent JSON records the code revision and development signing mode.
+- Installed with `adb install -r` on the connected Xiaomi, retaining the
+  first-install record and saved data. Launch succeeded; the app remained
+  foreground and its process log had no match for the checked fatal/unhandled
+  Flutter error patterns. The phone screenshot retains the saved blue avatar
+  and existing dated library: `output/phone/frontend-polish-startup.png`.
+- Physical pinch/pan feedback was requested from the user because this phone
+  blocks automated touch injection. Automated multi-pointer checks passed;
+  manual gesture confirmation was still pending when this note was recorded.
+- Source fixes, existing layout improvements and SVGs were committed and pushed
+  to `origin/main` as `4b0b182`. This document's delivery notes are a follow-up.
+
+Render previews and APKs remain ignored artifacts.
 Automated checks establish the tested behavior, not a universal “10/10” score
 or a physical-device frame-timing certification. Real server/authentication,
 device import, uploads/synchronization, invitations and video playback remain
