@@ -494,12 +494,13 @@ class HomeSpaceApiClient {
 
     return albums.map<Album>((raw) {
       final map = raw as Map<String, dynamic>;
+      final rawMedia = (map['mediaIds'] as List<dynamic>?)?.map((e) => e as String).toList() ?? const <String>[];
       return Album(
         id: map['id'] as String,
         title: map['title'] as String,
         description: map['description'] as String? ?? '',
         coverId: map['coverMediaId'] as String?,
-        mediaIds: const [],
+        mediaIds: rawMedia,
         memberships: [
           AlbumMembership(
             map['ownerId'] as String,

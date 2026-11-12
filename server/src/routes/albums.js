@@ -41,6 +41,7 @@ export async function albumRoutes(fastify, options) {
     `);
 
     const rows = stmt.all(req.user.id, req.user.id, req.user.id, req.user.id);
+    const mediaStmt = db.prepare('SELECT media_id FROM album_media WHERE album_id = ? ORDER BY added_at DESC');
 
     return {
       albums: rows.map(r => ({
@@ -49,6 +50,7 @@ export async function albumRoutes(fastify, options) {
         title: r.title,
         description: r.description,
         coverMediaId: r.cover_media_id,
+        mediaIds: mediaStmt.all(r.id).map(m => m.media_id),
         createdAt: r.created_at,
         updatedAt: r.updated_at,
         userRole: r.user_role,
