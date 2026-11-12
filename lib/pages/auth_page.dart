@@ -103,6 +103,21 @@ class _AuthPageState extends State<AuthPage> {
           name: name.text.trim(),
         );
         if (!mounted) return;
+        try {
+          final repo = HomeScope.of(context);
+          if (repo is LocalHomeRepository) {
+            await repo.initForAuthenticatedUser(
+              userId: result.userId,
+              name: result.name,
+              avatarTone: result.avatarTone,
+              serverUri: targetUri,
+              token: result.token,
+            );
+          } else {
+            await repo.updateProfile(result.name, result.avatarTone);
+          }
+        } catch (_) {}
+        if (!mounted) return;
         await widget.session.setAuthenticated(
           serverUri: targetUri,
           token: result.token,
@@ -111,21 +126,6 @@ class _AuthPageState extends State<AuthPage> {
           name: result.name,
           avatarTone: result.avatarTone,
         );
-        if (!mounted) return;
-        try {
-          final repo = HomeScope.of(context);
-          if (repo is LocalHomeRepository) {
-            unawaited(repo.initForAuthenticatedUser(
-              userId: result.userId,
-              name: result.name,
-              avatarTone: result.avatarTone,
-              serverUri: targetUri,
-              token: result.token,
-            ));
-          } else {
-            unawaited(repo.updateProfile(result.name, result.avatarTone));
-          }
-        } catch (_) {}
       } else {
         final result = await client.login(
           baseUri: targetUri,
@@ -133,6 +133,21 @@ class _AuthPageState extends State<AuthPage> {
           password: password.text,
         );
         if (!mounted) return;
+        try {
+          final repo = HomeScope.of(context);
+          if (repo is LocalHomeRepository) {
+            await repo.initForAuthenticatedUser(
+              userId: result.userId,
+              name: result.name,
+              avatarTone: result.avatarTone,
+              serverUri: targetUri,
+              token: result.token,
+            );
+          } else {
+            await repo.updateProfile(result.name, result.avatarTone);
+          }
+        } catch (_) {}
+        if (!mounted) return;
         await widget.session.setAuthenticated(
           serverUri: targetUri,
           token: result.token,
@@ -141,21 +156,6 @@ class _AuthPageState extends State<AuthPage> {
           name: result.name,
           avatarTone: result.avatarTone,
         );
-        if (!mounted) return;
-        try {
-          final repo = HomeScope.of(context);
-          if (repo is LocalHomeRepository) {
-            unawaited(repo.initForAuthenticatedUser(
-              userId: result.userId,
-              name: result.name,
-              avatarTone: result.avatarTone,
-              serverUri: targetUri,
-              token: result.token,
-            ));
-          } else {
-            unawaited(repo.updateProfile(result.name, result.avatarTone));
-          }
-        } catch (_) {}
       }
       TextInput.finishAutofillContext(shouldSave: false);
       password.clear();

@@ -74,20 +74,31 @@ Future<void> main() async {
     ),
   );
 
+  await repository.initialize();
+
   if (activeServerUri != null) {
     unawaited(connectionRepo.connect(activeServerUri));
   }
 
   if (hasSession && session.isAuthenticated && activeServerUri != null) {
-    unawaited(
-      repository.initialize().then((_) {
-        return repository.syncWithServer(
+    if (repository.profile.userId != session.userId ||
+        (session.userName != null && repository.profile.name != session.userName)) {
+      await repository.initForAuthenticatedUser(
+        userId: session.userId!,
+        name: session.userName ?? 'HomeSpace User',
+        avatarTone: session.avatarTone ?? AvatarTone.orange,
+        serverUri: activeServerUri,
+        token: session.authToken!,
+      );
+    } else {
+      unawaited(
+        repository.syncWithServer(
           serverUri: activeServerUri,
           token: session.authToken!,
           clearLocalFirst: false,
-        );
-      }).catchError((_) {}),
-    );
+        ).catchError((_) {}),
+      );
+    }
   }
 
   runApp(
