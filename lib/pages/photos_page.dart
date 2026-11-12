@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../application/auto_backup_service.dart';
 import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
 import '../application/photo_picker_service.dart';
@@ -105,22 +108,37 @@ class _PhotosPageState extends State<PhotosPage> {
   final selected = <String>{};
   int selectionRevision = 0;
 
+  bool _backupTriggered = false;
+
+  void _triggerSyncAndBackupIfReady() {
+    if (_backupTriggered) return;
+    final session = FrontendSessionScope.maybeOf(context);
+    final repo = HomeScope.of(context);
+    if (session?.serverUri != null &&
+        session?.authToken != null &&
+        repo is LocalHomeRepository) {
+      _backupTriggered = true;
+      repo.syncWithServer(
+        serverUri: session!.serverUri!,
+        token: session.authToken!,
+      );
+      unawaited(AutoBackupService.triggerAutoBackupIfEnabled(repository: repo));
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final session = FrontendSessionScope.maybeOf(context);
-      final repo = HomeScope.of(context);
-      if (session?.serverUri != null &&
-          session?.authToken != null &&
-          repo is LocalHomeRepository) {
-        repo.syncWithServer(
-          serverUri: session!.serverUri!,
-          token: session.authToken!,
-        );
-      }
+      _triggerSyncAndBackupIfReady();
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _triggerSyncAndBackupIfReady();
   }
   void changeMode(VoidCallback update) {
     setState(update);

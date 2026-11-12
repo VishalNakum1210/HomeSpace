@@ -5,10 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mime/mime.dart';
 import 'package:video_player/video_player.dart';
 
+import '../application/device_media_service.dart';
 import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
+import '../data/homespace_api_client.dart';
 import '../design/album_widgets.dart';
 import '../design/photo_action.dart';
 import '../design/space_theme.dart';
@@ -428,6 +431,12 @@ class _MediaViewerState extends State<MediaViewer> {
                                       ),
                                     ),
                                   ),
+                                  IconButton(
+                                    key: const ValueKey('viewer-download'),
+                                    icon: const Icon(Icons.download_rounded),
+                                    tooltip: 'Download to device',
+                                    onPressed: photo == null ? null : () => _downloadMedia(context, photo),
+                                  ),
                                   PopupMenuButton<String>(
                                     tooltip: 'More photo options',
                                     itemBuilder: (_) => [
@@ -435,6 +444,14 @@ class _MediaViewerState extends State<MediaViewer> {
                                         enabled: false,
                                         child: Text(
                                           '${widget.mediaIds.isEmpty ? 0 : index + 1} / ${widget.mediaIds.length}',
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'download',
+                                        enabled: photo != null,
+                                        child: const Tooltip(
+                                          message: 'Download to device',
+                                          child: Text('Download original'),
                                         ),
                                       ),
                                       PopupMenuItem(
@@ -470,6 +487,9 @@ class _MediaViewerState extends State<MediaViewer> {
                                       ),
                                     ],
                                     onSelected: (action) {
+                                      if (action == 'download' && photo != null) {
+                                        _downloadMedia(context, photo);
+                                      }
                                       if (action == 'previous') step(-1);
                                       if (action == 'next') step(1);
                                       if (action == 'zoom' && photo != null) {
@@ -549,6 +569,15 @@ class _MediaViewerState extends State<MediaViewer> {
                                       ),
                                       Expanded(
                                         child: PhotoAction(
+                                          key: const ValueKey('download-trash-memory'),
+                                          label: 'Download',
+                                          tooltip: 'Download to device',
+                                          icon: Icons.download_rounded,
+                                          onPressed: () => _downloadMedia(context, photo),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: PhotoAction(
                                           label: 'Info',
                                           tooltip: 'Photo details',
                                           icon: Icons.info_outline_rounded,
@@ -605,6 +634,15 @@ class _MediaViewerState extends State<MediaViewer> {
                                       ),
                                       Expanded(
                                         child: PhotoAction(
+                                          key: const ValueKey('download-memory'),
+                                          label: 'Download',
+                                          tooltip: 'Download to device',
+                                          icon: Icons.download_rounded,
+                                          onPressed: () => _downloadMedia(context, photo),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: PhotoAction(
                                           label: 'Info',
                                           tooltip: 'Photo details',
                                           icon: Icons.info_outline_rounded,
@@ -651,6 +689,130 @@ class _MediaViewerState extends State<MediaViewer> {
         },
       ),
     );
+  }
+
+  Future<void> _downloadMedia(BuildContext context, MediaItem photo) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Downloading ${photo.title}…',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final List<int> bytes;
+      final asset = photo.asset;
+      final fileName = photo.title.isNotEmpty
+          ? photo.title
+          : (photo.kind == MediaKind.video ? 'video_${photo.id}.mp4' : 'photo_${photo.id}.jpg');
+
+      if (asset.startsWith('http://') || asset.startsWith('https://')) {
+        final token = FrontendSessionScope.maybeOf(context)?.authToken;
+        final fileUrl = asset.endsWith('/thumb')
+            ? asset.replaceRange(asset.length - 6, asset.length, '/file')
+            : (asset.endsWith('/preview')
+                ? asset.replaceRange(asset.length - 8, asset.length, '/file')
+                : asset);
+
+        final client = createHomeSpaceHttpClient();
+        try {
+          final uri = Uri.parse(fileUrl);
+          final response = await client.get(
+            uri,
+            headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+          ).timeout(const Duration(minutes: 5));
+
+          if (response.statusCode == 200) {
+            bytes = response.bodyBytes;
+          } else {
+            throw Exception('Server returned ${response.statusCode}');
+          }
+        } finally {
+          client.close();
+        }
+      } else if (!kIsWeb && File(asset).existsSync()) {
+        bytes = await File(asset).readAsBytes();
+      } else {
+        final data = await rootBundle.load(asset);
+        bytes = data.buffer.asUint8List();
+      }
+
+      if (bytes.isEmpty) {
+        throw Exception('No data received');
+      }
+
+      final isVideo = photo.kind == MediaKind.video ||
+          fileName.toLowerCase().endsWith('.mp4') ||
+          fileName.toLowerCase().endsWith('.mov') ||
+          fileName.toLowerCase().endsWith('.webm');
+      final mimeType = lookupMimeType(fileName) ?? (isVideo ? 'video/mp4' : 'image/jpeg');
+
+      final savedPath = await DeviceMediaService.saveMediaToDevice(
+        bytes: bytes,
+        fileName: fileName,
+        mimeType: mimeType,
+      );
+
+      if (!context.mounted) return;
+      messenger.hideCurrentSnackBar();
+
+      if (savedPath != null) {
+        messenger.showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Color(0xFF4CAF50), size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Saved to device gallery ($fileName)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      } else {
+        messenger.showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            content: Text('Could not save $fileName to device storage.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text('Download failed: $e'),
+        ),
+      );
+    }
   }
 
   Widget _controls(Widget child) =>

@@ -100,8 +100,26 @@ class HttpConnectionRepository extends ChangeNotifier implements ConnectionRepos
   }
 }
 
+class _PendingUploadTask {
+  final UploadItem item;
+  final List<int> bytes;
+  final String filename;
+  final String? mimeType;
+  final String? targetAlbumId;
+
+  _PendingUploadTask({
+    required this.item,
+    required this.bytes,
+    required this.filename,
+    this.mimeType,
+    this.targetAlbumId,
+  });
+}
+
 class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
   final List<UploadItem> _items = [];
+  final List<_PendingUploadTask> _pendingQueue = [];
+  bool _isProcessing = false;
   final HomeSpaceApiClient _apiClient;
   final Uri? Function() _getServerAddress;
   final String? Function() _getAuthToken;
@@ -138,9 +156,42 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
       phase: UploadPhase.queued,
     );
     _items.add(item);
+    _pendingQueue.add(_PendingUploadTask(
+      item: item,
+      bytes: bytes,
+      filename: filename,
+      mimeType: mimeType,
+      targetAlbumId: targetAlbumId,
+    ));
     notifyListeners();
 
-    _startUpload(item, bytes, filename, mimeType, targetAlbumId);
+    _processQueue();
+  }
+
+  void _processQueue() {
+    if (_isProcessing || _pendingQueue.isEmpty) return;
+    _isProcessing = true;
+    _runQueueLoop();
+  }
+
+  Future<void> _runQueueLoop() async {
+    while (_pendingQueue.isNotEmpty) {
+      final task = _pendingQueue.removeAt(0);
+      final currentIdx = _items.indexWhere((e) => e.id == task.item.id);
+      if (currentIdx == -1 ||
+          _items[currentIdx].phase == UploadPhase.canceled ||
+          _items[currentIdx].phase == UploadPhase.paused) {
+        continue;
+      }
+      await _startUpload(
+        task.item,
+        task.bytes,
+        task.filename,
+        task.mimeType,
+        task.targetAlbumId,
+      );
+    }
+    _isProcessing = false;
   }
 
   Future<void> _startUpload(
@@ -236,6 +287,7 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     final idx = _items.indexWhere((e) => e.id == id);
     if (idx != -1) {
       _items[idx] = _items[idx].copyWith(phase: UploadPhase.canceled);
+      _pendingQueue.removeWhere((task) => task.item.id == id);
       notifyListeners();
     }
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../application/auto_backup_service.dart';
+import '../application/device_media_service.dart';
 import '../application/home_scope.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
@@ -50,6 +51,26 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
       statusMessage = null;
     });
 
+    final hasPerm = await DeviceMediaService.checkStoragePermission();
+    if (!hasPerm) {
+      final granted = await DeviceMediaService.requestStoragePermission();
+      if (!granted) {
+        if (!mounted) return;
+        setState(() {
+          scanning = false;
+          statusMessage = 'Storage permission was not granted. Please enable photo/video permissions in Settings.';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            behavior: SnackBarBehavior.floating,
+            content: Text('Storage permission required to backup photos and videos.'),
+          ),
+        );
+        return;
+      }
+    }
+
+    if (!mounted) return;
     final repository = HomeScope.of(context);
     final count = await AutoBackupService.scanAndQueueBackup(
       folders: folders,
