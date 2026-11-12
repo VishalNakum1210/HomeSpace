@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:video_player/video_player.dart';
 
 import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
@@ -294,12 +295,10 @@ class _MediaViewerState extends State<MediaViewer> {
                                         );
                                       }
                                       if (item.kind == MediaKind.video) {
-                                        return const SingleChildScrollView(
-                                          child: SpaceEmpty(
-                                            icon: Icons.movie_outlined,
-                                            title: 'Video preview',
-                                            message: 'Video playback will be added with the upload experience.',
-                                          ),
+                                        return _VideoPlayerView(
+                                          key: ValueKey('video-${item.id}'),
+                                          item: item,
+                                          active: page == index,
                                         );
                                       }
                                       if (item.asset.startsWith('http://') ||
@@ -1065,4 +1064,242 @@ class _PhotoViewportState extends State<_PhotoViewport>
       );
     },
   );
+}
+
+class _VideoPlayerView extends StatefulWidget {
+  final MediaItem item;
+  final bool active;
+  const _VideoPlayerView({
+    super.key,
+    required this.item,
+    this.active = true,
+  });
+
+  @override
+  State<_VideoPlayerView> createState() => _VideoPlayerViewState();
+}
+
+class _VideoPlayerViewState extends State<_VideoPlayerView> {
+  VideoPlayerController? _controller;
+  bool _initialized = false;
+  bool _hasError = false;
+  String _errorMessage = '';
+  bool _showControls = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _initPlayer();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _VideoPlayerView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active && !widget.active) {
+      _controller?.pause();
+    }
+  }
+
+  Future<void> _initPlayer() async {
+    final asset = widget.item.asset;
+    final token = FrontendSessionScope.maybeOf(context)?.authToken;
+    final authHeaders = token != null ? {'Authorization': 'Bearer $token'} : null;
+
+    try {
+      if (asset.startsWith('http://') || asset.startsWith('https://')) {
+        final videoUrl = asset.endsWith('/thumb')
+            ? asset.replaceRange(asset.length - 6, asset.length, '/file')
+            : asset;
+        _controller = VideoPlayerController.networkUrl(
+          Uri.parse(videoUrl),
+          httpHeaders: authHeaders ?? const {},
+        );
+      } else if (!kIsWeb && File(asset).existsSync()) {
+        _controller = VideoPlayerController.file(File(asset));
+      } else {
+        _controller = VideoPlayerController.asset(asset);
+      }
+
+      await _controller!.initialize();
+      if (!mounted) return;
+      setState(() {
+        _initialized = true;
+      });
+      _controller!.addListener(_onControllerUpdate);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _hasError = true;
+        _errorMessage = e.toString();
+      });
+    }
+  }
+
+  void _onControllerUpdate() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeListener(_onControllerUpdate);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  void _togglePlayPause() {
+    if (_controller == null || !_initialized) return;
+    setState(() {
+      if (_controller!.value.isPlaying) {
+        _controller!.pause();
+        _showControls = true;
+      } else {
+        _controller!.play();
+        _showControls = false;
+      }
+    });
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes;
+    final seconds = d.inSeconds % 60;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hasError) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline_rounded, color: Colors.amber, size: 48),
+              const SizedBox(height: 12),
+              const Text(
+                'Could not play video',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _errorMessage,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _hasError = false;
+                    _initialized = false;
+                  });
+                  _initPlayer();
+                },
+                icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+                label: const Text('Retry', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!_initialized || _controller == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: Colors.white),
+            const SizedBox(height: 16),
+            Text(
+              'Loading video…',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final isPlaying = _controller!.value.isPlaying;
+    final position = _controller!.value.position;
+    final duration = _controller!.value.duration;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() {
+          _showControls = !_showControls;
+        });
+      },
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Center(
+            child: AspectRatio(
+              aspectRatio: _controller!.value.aspectRatio,
+              child: VideoPlayer(_controller!),
+            ),
+          ),
+          if (_showControls || !isPlaying)
+            Container(
+              decoration: const BoxDecoration(
+                color: Colors.black26,
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                iconSize: 64,
+                color: Colors.white,
+                icon: Icon(
+                  isPlaying ? Icons.pause_circle_filled_rounded : Icons.play_circle_filled_rounded,
+                ),
+                onPressed: _togglePlayPause,
+              ),
+            ),
+          if (_showControls || !isPlaying)
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 20,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    VideoProgressIndicator(
+                      _controller!,
+                      allowScrubbing: true,
+                      colors: const VideoProgressColors(
+                        playedColor: Color(0xFF1677E8),
+                        bufferedColor: Colors.white24,
+                        backgroundColor: Colors.white12,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _formatDuration(position),
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                        Text(
+                          _formatDuration(duration),
+                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
