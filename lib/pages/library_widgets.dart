@@ -52,12 +52,10 @@ class MediaThumbnail extends StatelessWidget {
   const MediaThumbnail({super.key, required this.media});
   @override
   Widget build(BuildContext context) {
-    if (media.kind != MediaKind.photo) {
-      return const Center(child: Icon(Icons.movie_outlined, size: 40));
-    }
+    Widget imageWidget;
     if (media.asset.startsWith('http://') || media.asset.startsWith('https://')) {
       final token = FrontendSessionScope.maybeOf(context)?.authToken;
-      return Image.network(
+      imageWidget = Image.network(
         media.asset,
         headers: token != null ? {'Authorization': 'Bearer $token'} : null,
         fit: BoxFit.cover,
@@ -72,28 +70,77 @@ class MediaThumbnail extends StatelessWidget {
             child: child,
           );
         },
-        errorBuilder: (_, _, _) =>
-            const Center(child: Icon(Icons.broken_image_outlined)),
+        errorBuilder: (_, _, _) => Center(
+          child: Icon(
+            media.kind == MediaKind.video ? Icons.movie_outlined : Icons.broken_image_outlined,
+            size: 36,
+          ),
+        ),
       );
-    }
-    if (!kIsWeb && File(media.asset).existsSync()) {
-      return Image.file(
+    } else if (!kIsWeb && File(media.asset).existsSync()) {
+      imageWidget = Image.file(
         File(media.asset),
         fit: BoxFit.cover,
         cacheWidth: 360,
         gaplessPlayback: true,
-        errorBuilder: (_, _, _) =>
-            const Center(child: Icon(Icons.broken_image_outlined)),
+        errorBuilder: (_, _, _) => Center(
+          child: Icon(
+            media.kind == MediaKind.video ? Icons.movie_outlined : Icons.broken_image_outlined,
+            size: 36,
+          ),
+        ),
+      );
+    } else {
+      imageWidget = Image.asset(
+        media.asset,
+        fit: BoxFit.cover,
+        cacheWidth: 360,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => Center(
+          child: Icon(
+            media.kind == MediaKind.video ? Icons.movie_outlined : Icons.broken_image_outlined,
+            size: 36,
+          ),
+        ),
       );
     }
-    return Image.asset(
-      media.asset,
-      fit: BoxFit.cover,
-      cacheWidth: 360,
-      gaplessPlayback: true,
-      errorBuilder: (_, _, _) =>
-          const Center(child: Icon(Icons.broken_image_outlined)),
-    );
+
+    if (media.kind == MediaKind.video) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          imageWidget,
+          Positioned(
+            left: 6,
+            bottom: 6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.play_arrow_rounded, color: Colors.white, size: 12),
+                  SizedBox(width: 2),
+                  Text(
+                    'Video',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return imageWidget;
   }
 }
 
