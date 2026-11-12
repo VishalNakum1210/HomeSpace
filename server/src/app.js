@@ -18,6 +18,10 @@ export async function buildApp({ db, dataDir, config }) {
   await fastify.register(rateLimit, {
     max: 100,
     timeWindow: '1 minute',
+    allowList: (req) => {
+      const url = req.url || '';
+      return url.startsWith('/api/media') || url.startsWith('/api/health');
+    },
   });
 
   // Multipart file upload support for media uploads (1GB max for high-res videos & photos)
