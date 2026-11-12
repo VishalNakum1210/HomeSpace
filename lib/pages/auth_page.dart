@@ -103,12 +103,15 @@ class _AuthPageState extends State<AuthPage> {
           name: name.text.trim(),
         );
         if (!mounted) return;
-        widget.session.setAuthenticated(
+        await widget.session.setAuthenticated(
           serverUri: targetUri,
           token: result.token,
           userId: result.userId,
           email: result.email,
+          name: result.name,
+          avatarTone: result.avatarTone,
         );
+        if (!mounted) return;
         try {
           final repo = HomeScope.of(context);
           if (repo is LocalHomeRepository) {
@@ -130,12 +133,15 @@ class _AuthPageState extends State<AuthPage> {
           password: password.text,
         );
         if (!mounted) return;
-        widget.session.setAuthenticated(
+        await widget.session.setAuthenticated(
           serverUri: targetUri,
           token: result.token,
           userId: result.userId,
           email: result.email,
+          name: result.name,
+          avatarTone: result.avatarTone,
         );
+        if (!mounted) return;
         try {
           final repo = HomeScope.of(context);
           if (repo is LocalHomeRepository) {
@@ -160,6 +166,8 @@ class _AuthPageState extends State<AuthPage> {
         SnackBar(
           content: Text(e.message),
           backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
         ),
       );
     } catch (e) {
@@ -168,11 +176,140 @@ class _AuthPageState extends State<AuthPage> {
         SnackBar(
           content: Text('Cannot connect to home server: $e'),
           backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
         ),
       );
     } finally {
       if (mounted) setState(() => submitting = false);
     }
+  }
+
+  Future<void> _showChangeServerDialog() async {
+    final controller = TextEditingController(
+      text: widget.session.serverUri?.toString() ?? '',
+    );
+    final formKey = GlobalKey<FormState>();
+    final newUriString = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Home Server URL'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Enter the web or LAN address of your HomeSpace server:',
+                style: TextStyle(fontSize: 13, color: Color(0xFF5A5C70)),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: controller,
+                keyboardType: TextInputType.url,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'https://... or http://192.168.x.x:8888',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                validator: (val) {
+                  if (val == null || val.trim().isEmpty) {
+                    return 'Please enter a server URL';
+                  }
+                  final uri = Uri.tryParse(val.trim());
+                  if (uri == null || (!uri.hasScheme || !uri.hasAuthority)) {
+                    return 'Enter a valid URL (with http:// or https://)';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(context, controller.text.trim());
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (newUriString != null && mounted) {
+      final uri = Uri.parse(newUriString);
+      await widget.session.updateServerUri(uri);
+      if (!mounted) return;
+      try {
+        final repo = HomeScope.of(context);
+        unawaited(repo.connection.connect(uri));
+      } catch (_) {}
+      setState(() {});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Server address updated to $newUriString'),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _serverPill() {
+    final uri = widget.session.serverUri;
+    final display = uri != null
+        ? (uri.host.isNotEmpty
+            ? '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}'
+            : uri.toString())
+        : 'Tap to configure server';
+    return Center(
+      child: InkWell(
+        key: const ValueKey('auth-server-pill'),
+        onTap: _showChangeServerDialog,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0F4EC),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFD4E5C8)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_outlined, size: 15, color: Color(0xFF287000)),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  display,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF287000),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.edit_outlined, size: 13, color: Color(0xFF287000)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -262,7 +399,9 @@ class _AuthPageState extends State<AuthPage> {
                                     color: Color(0xFF77798E),
                                   ),
                                 ),
-                                SizedBox(height: register ? 22 : 34),
+                                const SizedBox(height: 12),
+                                _serverPill(),
+                                SizedBox(height: register ? 16 : 24),
                                 if (register) ...[
                                   _field(
                                     'Full name',

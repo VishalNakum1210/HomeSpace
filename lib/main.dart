@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,8 +16,18 @@ const String defaultServerUrl = String.fromEnvironment(
   defaultValue: 'https://vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net:8443',
 );
 
+class HomeSpaceHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) => true;
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  HttpOverrides.global = HomeSpaceHttpOverrides();
   PaintingBinding.instance.imageCache.maximumSize = 2500;
   PaintingBinding.instance.imageCache.maximumSizeBytes = 256 * 1024 * 1024;
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -27,12 +38,18 @@ Future<void> main() async {
   });
 
   final serverUri = Uri.tryParse(defaultServerUrl);
-  final session = FrontendSession(serverUri: serverUri);
-  final connectionRepo = HttpConnectionRepository(initialAddress: serverUri);
+  final session = FrontendSession(
+    serverUri: serverUri,
+    store: FileSessionStore.android(),
+  );
+  final hasSession = await session.restoreSession();
+  final activeServerUri = session.serverUri ?? serverUri;
+  final connectionRepo = HttpConnectionRepository(initialAddress: activeServerUri);
 
   late final LocalHomeRepository repository;
   final uploadRepo = HttpUploadRepository(
-    getServerAddress: () => connectionRepo.status.address ?? serverUri,
+    getServerAddress: () =>
+        connectionRepo.status.address ?? session.serverUri ?? activeServerUri,
     getAuthToken: () => session.authToken,
     onMediaUploaded: (item, targetAlbumId) async {
       await repository.addMedia(item);
@@ -46,7 +63,8 @@ Future<void> main() async {
     store: FileSnapshotStore.android(),
     customConnection: connectionRepo,
     customUploads: uploadRepo,
-    getServerAddress: () => connectionRepo.status.address ?? session.serverUri,
+    getServerAddress: () =>
+        connectionRepo.status.address ?? session.serverUri ?? activeServerUri,
     getAuthToken: () => session.authToken,
     scenario: DemoScenario.parse(
       const String.fromEnvironment(
@@ -56,8 +74,20 @@ Future<void> main() async {
     ),
   );
 
-  if (serverUri != null) {
-    unawaited(connectionRepo.connect(serverUri));
+  if (activeServerUri != null) {
+    unawaited(connectionRepo.connect(activeServerUri));
+  }
+
+  if (hasSession && session.isAuthenticated && activeServerUri != null) {
+    unawaited(
+      repository.initialize().then((_) {
+        return repository.syncWithServer(
+          serverUri: activeServerUri,
+          token: session.authToken!,
+          clearLocalFirst: false,
+        );
+      }).catchError((_) {}),
+    );
   }
 
   runApp(

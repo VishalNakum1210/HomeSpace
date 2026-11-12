@@ -270,6 +270,17 @@ class LocalHomeRepository extends HomeRepository {
     );
   }
 
+  Future<void> clearUserData() async {
+    await _commit((state) {
+      return state.copyWith(
+        media: [],
+        albums: [],
+        favorites: {},
+        trash: [],
+      );
+    });
+  }
+
   Future<void> syncWithServer({
     required Uri serverUri,
     required String token,
