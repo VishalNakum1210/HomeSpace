@@ -23,6 +23,7 @@ export function getUserDirs(dataDir, userId) {
   const userBase = path.join(dataDir, 'users', safeId);
   const originals = path.join(userBase, 'originals');
   const thumbnails = path.join(userBase, 'thumbnails');
+  const previews = path.join(userBase, 'previews');
 
   // Ensure directories exist
   if (!fs.existsSync(originals)) {
@@ -31,11 +32,15 @@ export function getUserDirs(dataDir, userId) {
   if (!fs.existsSync(thumbnails)) {
     fs.mkdirSync(thumbnails, { recursive: true });
   }
+  if (!fs.existsSync(previews)) {
+    fs.mkdirSync(previews, { recursive: true });
+  }
 
   return {
     base: userBase,
     originals,
     thumbnails,
+    previews,
   };
 }
 
@@ -47,6 +52,7 @@ export function getMediaPaths(dataDir, userId, mediaId, ext = 'jpg') {
   return {
     original: path.join(dirs.originals, `${safeMid}.${cleanExt}`),
     thumbnail: path.join(dirs.thumbnails, `${safeMid}.webp`),
+    preview: path.join(dirs.previews, `${safeMid}.webp`),
   };
 }
 
@@ -57,6 +63,9 @@ export function deleteMediaFiles(dataDir, userId, mediaId, ext = 'jpg') {
   }
   if (fs.existsSync(paths.thumbnail)) {
     fs.unlinkSync(paths.thumbnail);
+  }
+  if (fs.existsSync(paths.preview)) {
+    fs.unlinkSync(paths.preview);
   }
 }
 

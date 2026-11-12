@@ -113,17 +113,25 @@ export async function mediaRoutes(fastify, options) {
       height = metadata.height || 0;
 
       // Generate compressed mobile thumbnail (400px width/height bounding box, webp format)
-      await image
+      await sharp(fileBuffer)
         .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
         .webp({ quality: 80 })
         .toFile(paths.thumbnail);
 
+      // Generate sharp screen-fit preview (1600px bounding box, webp format, quality 85)
+      await sharp(fileBuffer)
+        .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 85 })
+        .toFile(paths.preview);
+
       const thumbStat = fs.statSync(paths.thumbnail);
-      thumbSize = thumbStat.size;
+      const prevStat = fs.statSync(paths.preview);
+      thumbSize = thumbStat.size + prevStat.size;
     } catch (err) {
       // Cleanup on failure
       if (fs.existsSync(paths.original)) fs.unlinkSync(paths.original);
       if (fs.existsSync(paths.thumbnail)) fs.unlinkSync(paths.thumbnail);
+      if (fs.existsSync(paths.preview)) fs.unlinkSync(paths.preview);
       throw err;
     }
 
@@ -250,6 +258,48 @@ export async function mediaRoutes(fastify, options) {
     reply.header('Content-Type', 'image/webp');
     reply.header('Cache-Control', 'private, max-age=86400');
     return reply.send(fs.createReadStream(paths.thumbnail));
+  });
+
+  // 4b. Stream preview (fast 1600px screen-fit WebP image, Google Photos technique)
+  fastify.get('/media/:id/preview', async (req, reply) => {
+    const media = canAccessMedia(db, req.user.id, req.params.id);
+    if (!media) {
+      return reply.code(404).send({
+        error: { code: 'NOT_FOUND', message: 'Media item not found or access denied' },
+      });
+    }
+
+    const ext = EXTENSION_MAP[media.mime_type] || 'jpg';
+    const paths = getMediaPaths(dataDir, media.user_id, media.id, ext);
+
+    // If preview already generated, stream directly
+    if (fs.existsSync(paths.preview)) {
+      reply.header('Content-Type', 'image/webp');
+      reply.header('Cache-Control', 'private, max-age=604800'); // Cache for 7 days
+      return reply.send(fs.createReadStream(paths.preview));
+    }
+
+    // On-the-fly generation fallback if preview does not exist yet but original exists
+    if (fs.existsSync(paths.original)) {
+      try {
+        await sharp(paths.original)
+          .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+          .webp({ quality: 85 })
+          .toFile(paths.preview);
+
+        reply.header('Content-Type', 'image/webp');
+        reply.header('Cache-Control', 'private, max-age=604800');
+        return reply.send(fs.createReadStream(paths.preview));
+      } catch (err) {
+        // Fallback to original if sharp fails
+        reply.header('Content-Type', media.mime_type);
+        return reply.send(fs.createReadStream(paths.original));
+      }
+    }
+
+    return reply.code(404).send({
+      error: { code: 'NOT_FOUND', message: 'Media file missing' },
+    });
   });
 
   // 5. Stream full original file

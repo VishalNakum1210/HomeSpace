@@ -95,6 +95,46 @@ class _MediaViewerState extends State<MediaViewer> {
   Drag? pageDrag;
   int? dragOrigin;
   bool zoomed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _prefetchNeighbors(index);
+    });
+  }
+
+  void _prefetchNeighbors(int currentIndex) {
+    if (!mounted || widget.mediaIds.isEmpty) return;
+    try {
+      final repository = HomeScope.of(context);
+      final token = FrontendSessionScope.maybeOf(context)?.authToken;
+      final authHeaders = token != null ? {'Authorization': 'Bearer $token'} : null;
+
+      // Prefetch current and neighboring photos (Google Photos predictive pre-caching)
+      final offsets = [0, 1, -1, 2, -2];
+      for (final offset in offsets) {
+        final targetIndex = currentIndex + offset;
+        if (targetIndex >= 0 && targetIndex < widget.mediaIds.length) {
+          final id = widget.mediaIds[targetIndex];
+          final item = repository.mediaById(id);
+          if (item != null &&
+              (item.asset.startsWith('http://') || item.asset.startsWith('https://'))) {
+            final previewUrl = item.asset.endsWith('/thumb')
+                ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/preview')
+                : item.asset;
+            precacheImage(
+              NetworkImage(previewUrl, headers: authHeaders),
+              context,
+            );
+          }
+        }
+      }
+    } catch (_) {
+      // In case context is unmounted or repository is not available in unit tests
+    }
+  }
+
   @override
   void dispose() {
     pageDrag?.cancel();
@@ -137,6 +177,7 @@ class _MediaViewerState extends State<MediaViewer> {
       index = next;
       zoomed = false;
     });
+    _prefetchNeighbors(next);
   }
 
   void step(int amount) {
@@ -265,22 +306,30 @@ class _MediaViewerState extends State<MediaViewer> {
                                           item.asset.startsWith('https://')) {
                                         final token = FrontendSessionScope.maybeOf(context)?.authToken;
                                         final authHeaders = token != null ? {'Authorization': 'Bearer $token'} : null;
+                                        final thumbUrl = item.asset;
+                                        final previewUrl = item.asset.endsWith('/thumb')
+                                            ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/preview')
+                                            : item.asset;
                                         final fullFileUrl = item.asset.endsWith('/thumb')
                                             ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/file')
                                             : item.asset;
+                                        final isCurrent = page == index;
+                                        final showOriginal = isCurrent && zoomed;
 
                                         return Stack(
                                           fit: StackFit.expand,
                                           children: [
+                                            // Base layer: Instant 400px thumbnail (already in cache from grid view)
                                             Image.network(
-                                              item.asset,
+                                              thumbUrl,
                                               headers: authHeaders,
                                               fit: BoxFit.contain,
                                               gaplessPlayback: true,
                                               errorBuilder: (_, _, _) => const SizedBox.shrink(),
                                             ),
+                                            // High-performance screen-fit preview (1600px WebP, precached for instant rendering)
                                             Image.network(
-                                              fullFileUrl,
+                                              previewUrl,
                                               headers: authHeaders,
                                               fit: BoxFit.contain,
                                               gaplessPlayback: true,
@@ -289,13 +338,32 @@ class _MediaViewerState extends State<MediaViewer> {
                                                 if (wasSynchronouslyLoaded) return child;
                                                 return AnimatedOpacity(
                                                   opacity: frame == null ? 0 : 1,
-                                                  duration: const Duration(milliseconds: 200),
+                                                  duration: const Duration(milliseconds: 180),
                                                   curve: Curves.easeOut,
                                                   child: child,
                                                 );
                                               },
                                               errorBuilder: (_, _, _) => const SizedBox.shrink(),
                                             ),
+                                            // Full uncompressed original layer: only loaded on demand when user zooms in
+                                            if (showOriginal)
+                                              Image.network(
+                                                fullFileUrl,
+                                                headers: authHeaders,
+                                                fit: BoxFit.contain,
+                                                gaplessPlayback: true,
+                                                semanticLabel: item.title,
+                                                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                                                  if (wasSynchronouslyLoaded) return child;
+                                                  return AnimatedOpacity(
+                                                    opacity: frame == null ? 0 : 1,
+                                                    duration: const Duration(milliseconds: 180),
+                                                    curve: Curves.easeOut,
+                                                    child: child,
+                                                  );
+                                                },
+                                                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                                              ),
                                           ],
                                         );
                                       }
