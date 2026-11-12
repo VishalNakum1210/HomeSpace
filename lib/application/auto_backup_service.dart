@@ -180,6 +180,49 @@ class AutoBackupService {
         lower.endsWith('.mkv');
   }
 
+  /// Categorizes a file path into its specific backup folder ID (e.g. 'camera', 'whatsapp', 'screenshots', 'downloads', 'pictures'),
+  /// or null if it does not belong to any recognized backup folder or is an app-internal path.
+  static String? classifyMediaFolder(String filePath) {
+    final lower = filePath.toLowerCase().replaceAll('\\', '/');
+
+    // Never backup HomeSpace downloaded photos/videos to prevent re-upload loops
+    if (lower.contains('/pictures/homespace') || lower.contains('/movies/homespace')) {
+      return null;
+    }
+
+    // 1. Screenshots (takes precedence over DCIM or Pictures)
+    if (lower.contains('/screenshots') ||
+        lower.contains('/screenshot') ||
+        lower.split('/').last.startsWith('screenshot')) {
+      return 'screenshots';
+    }
+
+    // 2. WhatsApp Images and Videos
+    if (lower.contains('whatsapp')) {
+      return 'whatsapp';
+    }
+
+    // 3. Downloads
+    if (lower.contains('/download') || lower.contains('/downloads')) {
+      return 'downloads';
+    }
+
+    // 4. Camera (DCIM)
+    if (lower.contains('/dcim/camera') ||
+        lower.contains('/dcim/100andro') ||
+        lower.contains('/dcim/100media') ||
+        (lower.contains('/dcim') && !lower.contains('/dcim/facebook') && !lower.contains('/dcim/restored'))) {
+      return 'camera';
+    }
+
+    // 5. Pictures
+    if (lower.contains('/pictures')) {
+      return 'pictures';
+    }
+
+    return null;
+  }
+
   static Future<int> scanAndQueueBackup({
     required List<BackupFolderConfig> folders,
     required HomeRepository repository,
@@ -194,6 +237,13 @@ class AutoBackupService {
       if (!granted) return 0;
     }
 
+    final enabledFolderIds = folders
+        .where((f) => f.enabled)
+        .map((f) => f.id)
+        .toSet();
+
+    if (enabledFolderIds.isEmpty) return 0;
+
     final existingTitles = {
       ...repository.media.map((m) => m.title.toLowerCase()),
       ...repository.uploads.items.map((u) => (u.title ?? '').toLowerCase()),
@@ -201,43 +251,46 @@ class AutoBackupService {
 
     int queuedCount = 0;
 
-    // 1. If Camera folder is enabled, query native Android MediaStore
-    final cameraEnabled = folders.any((f) => f.id == 'camera' && f.enabled);
-    if (cameraEnabled) {
-      try {
-        final cameraMedia = await DeviceMediaService.queryCameraMedia();
-        for (final item in cameraMedia) {
-          final path = item['path'] as String?;
-          final filename = item['name'] as String? ?? 'media.jpg';
-          final mimeType = item['mimeType'] as String? ?? 'image/jpeg';
-          if (path == null) continue;
-          if (existingTitles.contains(filename.toLowerCase())) continue;
+    // 1. Query native Android MediaStore
+    try {
+      final cameraMedia = await DeviceMediaService.queryCameraMedia();
+      for (final item in cameraMedia) {
+        final path = item['path'] as String?;
+        final filename = item['name'] as String? ?? 'media.jpg';
+        final mimeType = item['mimeType'] as String? ?? 'image/jpeg';
+        if (path == null) continue;
 
-          final file = File(path);
-          if (!file.existsSync()) continue;
-          final bytes = await file.readAsBytes();
-          if (bytes.isEmpty) continue;
-
-          final uploadId = 'backup-${DateTime.now().microsecondsSinceEpoch}-$queuedCount';
-          uploadRepo.queueUpload(
-            id: uploadId,
-            mediaId: uploadId,
-            totalBytes: bytes.length,
-            bytes: bytes,
-            filename: filename,
-            mimeType: mimeType,
-          );
-
-          existingTitles.add(filename.toLowerCase());
-          queuedCount++;
+        // Strictly verify that this file belongs to an enabled folder
+        final folderId = classifyMediaFolder(path);
+        if (folderId == null || !enabledFolderIds.contains(folderId)) {
+          continue;
         }
-      } catch (_) {}
-    }
 
-    // 2. Scan specific folders (WhatsApp, Screenshots, Downloads, Pictures, etc.)
+        if (existingTitles.contains(filename.toLowerCase())) continue;
+
+        final file = File(path);
+        if (!file.existsSync()) continue;
+        final bytes = await file.readAsBytes();
+        if (bytes.isEmpty) continue;
+
+        final uploadId = 'backup-${DateTime.now().microsecondsSinceEpoch}-$queuedCount';
+        uploadRepo.queueUpload(
+          id: uploadId,
+          mediaId: uploadId,
+          totalBytes: bytes.length,
+          bytes: bytes,
+          filename: filename,
+          mimeType: mimeType,
+        );
+
+        existingTitles.add(filename.toLowerCase());
+        queuedCount++;
+      }
+    } catch (_) {}
+
+    // 2. Scan specific folders (for non-Android or folders with direct filesystem access)
     for (final config in folders) {
       if (!config.enabled) continue;
-      if (config.id == 'camera' && queuedCount > 0) continue;
 
       final dir = findActiveFolder(config);
       if (dir == null) continue;
@@ -247,6 +300,9 @@ class AutoBackupService {
         for (final entity in entities) {
           if (entity is! File) continue;
           if (!_isSupportedMedia(entity.path)) continue;
+
+          final folderId = classifyMediaFolder(entity.path) ?? config.id;
+          if (!enabledFolderIds.contains(folderId)) continue;
 
           final filename = entity.uri.pathSegments.lastWhere(
             (p) => p.isNotEmpty,
