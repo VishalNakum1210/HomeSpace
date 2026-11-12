@@ -11,6 +11,13 @@ export function sanitizeUserId(userId) {
   return userId;
 }
 
+export function sanitizeMediaId(mediaId) {
+  if (!mediaId || typeof mediaId !== 'string' || !SAFE_ID_REGEX.test(mediaId)) {
+    throw new Error('Invalid media ID');
+  }
+  return mediaId;
+}
+
 export function getUserDirs(dataDir, userId) {
   const safeId = sanitizeUserId(userId);
   const userBase = path.join(dataDir, 'users', safeId);
@@ -30,6 +37,27 @@ export function getUserDirs(dataDir, userId) {
     originals,
     thumbnails,
   };
+}
+
+export function getMediaPaths(dataDir, userId, mediaId, ext = 'jpg') {
+  const dirs = getUserDirs(dataDir, userId);
+  const safeMid = sanitizeMediaId(mediaId);
+  const cleanExt = ext.replace(/^\./, '');
+  
+  return {
+    original: path.join(dirs.originals, `${safeMid}.${cleanExt}`),
+    thumbnail: path.join(dirs.thumbnails, `${safeMid}.webp`),
+  };
+}
+
+export function deleteMediaFiles(dataDir, userId, mediaId, ext = 'jpg') {
+  const paths = getMediaPaths(dataDir, userId, mediaId, ext);
+  if (fs.existsSync(paths.original)) {
+    fs.unlinkSync(paths.original);
+  }
+  if (fs.existsSync(paths.thumbnail)) {
+    fs.unlinkSync(paths.thumbnail);
+  }
 }
 
 export function checkQuota(db, userId, incomingBytes = 0) {
