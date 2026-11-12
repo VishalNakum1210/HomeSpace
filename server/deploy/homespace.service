@@ -1,0 +1,22 @@
+[Unit]
+Description=HomeSpace private family photo service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vishal
+Group=vishal
+WorkingDirectory=/opt/homespace/server
+EnvironmentFile=-/etc/homespace.env
+Environment=NODE_ENV=production DATA_DIR=/var/lib/homespace HOST=0.0.0.0 PORT=8888
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
