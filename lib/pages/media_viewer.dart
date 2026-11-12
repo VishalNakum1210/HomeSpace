@@ -1306,7 +1306,10 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
       }
 
       await _controller!.initialize();
-      if (!mounted) return;
+      if (!mounted) {
+        _controller?.dispose();
+        return;
+      }
       setState(() {
         _initialized = true;
       });

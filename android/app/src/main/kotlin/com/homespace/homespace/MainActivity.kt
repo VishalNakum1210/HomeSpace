@@ -2,20 +2,27 @@ package com.homespace.homespace
 
 import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.database.ContentObserver
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val MEDIA_CHANNEL = "com.homespace.homespace/media_saver"
     private val PERMISSION_CHANNEL = "com.homespace.homespace/permissions"
+    private val OBSERVER_CHANNEL = "com.homespace.homespace/media_observer"
     private var permissionResult: MethodChannel.Result? = null
+    private var mediaObserver: ContentObserver? = null
+    private var eventSink: EventChannel.EventSink? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -109,6 +116,57 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // 3. Media Observer Channel (Real-time auto backup on camera capture)
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, OBSERVER_CHANNEL).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    eventSink = events
+                    registerMediaObserver()
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    unregisterMediaObserver()
+                    eventSink = null
+                }
+            }
+        )
+    }
+
+    private fun registerMediaObserver() {
+        if (mediaObserver != null) return
+        mediaObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                super.onChange(selfChange)
+                eventSink?.success("media_changed")
+            }
+        }
+        try {
+            contentResolver.registerContentObserver(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                true,
+                mediaObserver!!
+            )
+            contentResolver.registerContentObserver(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                true,
+                mediaObserver!!
+            )
+        } catch (_: Exception) {}
+    }
+
+    private fun unregisterMediaObserver() {
+        mediaObserver?.let {
+            try {
+                contentResolver.unregisterContentObserver(it)
+            } catch (_: Exception) {}
+            mediaObserver = null
+        }
+    }
+
+    override fun onDestroy() {
+        unregisterMediaObserver()
+        super.onDestroy()
     }
 
     private fun checkStoragePermission(): Boolean {

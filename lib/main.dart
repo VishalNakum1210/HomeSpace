@@ -27,6 +27,14 @@ class HomeSpaceHttpOverrides extends HttpOverrides {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('HomeSpace FlutterError: ${details.exceptionAsString()}');
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('HomeSpace AsyncError: $error');
+    return true;
+  };
   HttpOverrides.global = HomeSpaceHttpOverrides();
   PaintingBinding.instance.imageCache.maximumSize = 2500;
   PaintingBinding.instance.imageCache.maximumSizeBytes = 256 * 1024 * 1024;

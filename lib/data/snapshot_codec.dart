@@ -142,7 +142,7 @@ class SnapshotCodec {
     title: _text(value['title']),
     category: _text(value['category']),
     takenAt: _date(value['takenAt']),
-    kind: _enum(MediaKind.values, value['kind']),
+    kind: _enum(MediaKind.values, value['kind'], MediaKind.photo),
   );
   static Album _album(Map<String, Object?> value) => Album(
     id: _text(value['id']),
@@ -196,10 +196,10 @@ class SnapshotCodec {
     return parsed;
   }
 
-  static T _enum<T extends Enum>(List<T> values, Object? value) =>
+  static T _enum<T extends Enum>(List<T> values, Object? value, [T? fallback]) =>
       values.firstWhere(
         (item) => item.name == value,
-        orElse: () => throw const FormatException('Invalid enum value.'),
+        orElse: () => fallback ?? (throw const FormatException('Invalid enum value.')),
       );
   static Set<String> _unique(Iterable<String> ids) {
     final result = <String>{};

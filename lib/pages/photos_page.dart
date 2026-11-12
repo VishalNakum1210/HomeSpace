@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../application/auto_backup_service.dart';
+import '../application/device_media_service.dart';
 import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
 import '../application/photo_picker_service.dart';
@@ -100,7 +101,7 @@ class _EmptyPhotoLibrary extends StatelessWidget {
   }
 }
 
-class _PhotosPageState extends State<PhotosPage> {
+class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
   final search = TextEditingController();
   String filter = 'All';
   bool selecting = false;
@@ -108,37 +109,75 @@ class _PhotosPageState extends State<PhotosPage> {
   final selected = <String>{};
   int selectionRevision = 0;
 
-  bool _backupTriggered = false;
+  StreamSubscription<void>? _mediaChangeSubscription;
+  Timer? _mediaChangeDebounceTimer;
+  bool _isAutoBackingUp = false;
 
-  void _triggerSyncAndBackupIfReady() {
-    if (_backupTriggered) return;
+  Future<void> _triggerSyncAndBackup() async {
+    if (_isAutoBackingUp) return;
     final session = FrontendSessionScope.maybeOf(context);
     final repo = HomeScope.of(context);
     if (session?.serverUri != null &&
         session?.authToken != null &&
         repo is LocalHomeRepository) {
-      _backupTriggered = true;
-      repo.syncWithServer(
-        serverUri: session!.serverUri!,
-        token: session.authToken!,
-      );
-      unawaited(AutoBackupService.triggerAutoBackupIfEnabled(repository: repo));
+      _isAutoBackingUp = true;
+      try {
+        await repo.syncWithServer(
+          serverUri: session!.serverUri!,
+          token: session.authToken!,
+        );
+        await AutoBackupService.triggerAutoBackupIfEnabled(repository: repo);
+      } catch (_) {
+      } finally {
+        if (mounted) {
+          _isAutoBackingUp = false;
+        }
+      }
     }
+  }
+
+  void _debounceAndTriggerBackup() {
+    _mediaChangeDebounceTimer?.cancel();
+    _mediaChangeDebounceTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (!mounted) return;
+      _triggerSyncAndBackup();
+    });
   }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _triggerSyncAndBackupIfReady();
+      _triggerSyncAndBackup();
+    });
+
+    _mediaChangeSubscription = DeviceMediaService.onMediaChanged.listen((_) {
+      _debounceAndTriggerBackup();
     });
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _triggerSyncAndBackupIfReady();
+    _triggerSyncAndBackup();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _debounceAndTriggerBackup();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _mediaChangeSubscription?.cancel();
+    _mediaChangeDebounceTimer?.cancel();
+    search.dispose();
+    super.dispose();
   }
   void changeMode(VoidCallback update) {
     setState(update);
@@ -163,11 +202,6 @@ class _PhotosPageState extends State<PhotosPage> {
     selecting = true;
     selected.contains(id) ? selected.remove(id) : selected.add(id);
   });
-  @override
-  void dispose() {
-    search.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {

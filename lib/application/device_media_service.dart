@@ -6,9 +6,29 @@ import 'package:path_provider/path_provider.dart';
 class DeviceMediaService {
   static const _mediaChannel = MethodChannel('com.homespace.homespace/media_saver');
   static const _permissionChannel = MethodChannel('com.homespace.homespace/permissions');
+  static const _observerChannel = EventChannel('com.homespace.homespace/media_observer');
 
   @visibleForTesting
   static bool debugOverrideIsAndroid = false;
+
+  @visibleForTesting
+  static Stream<void>? mockMediaChangedStream;
+
+  /// Stream of real-time notifications when a new photo or video is created on the device.
+  static Stream<void> get onMediaChanged {
+    if (mockMediaChangedStream != null) return mockMediaChangedStream!;
+    if (kIsWeb || !Platform.isAndroid) {
+      return const Stream.empty();
+    }
+    try {
+      return _observerChannel
+          .receiveBroadcastStream()
+          .handleError((_) {})
+          .map((_) {});
+    } catch (_) {
+      return const Stream.empty();
+    }
+  }
 
   /// Saves photo or video bytes directly into the public Android MediaStore (Pictures/HomeSpace or Movies/HomeSpace),
   /// or Downloads folder on Desktop.
