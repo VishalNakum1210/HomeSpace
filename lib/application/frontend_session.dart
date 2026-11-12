@@ -7,6 +7,10 @@ class FrontendSession extends ChangeNotifier {
   String? _userId;
   String? _userEmail;
 
+  FrontendSession({Uri? serverUri})
+      // ignore: prefer_initializing_formals
+      : _serverUri = serverUri;
+
   bool get isOpen => _open;
   Uri? get serverUri => _serverUri;
   String? get authToken => _authToken;

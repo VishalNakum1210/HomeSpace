@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../application/frontend_session.dart';
+import '../application/home_scope.dart';
+import '../data/homespace_api_client.dart';
 import '../design/space_symbols.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
@@ -54,34 +57,99 @@ class _AuthPageState extends State<AuthPage> {
     if (submitting) return;
     if (!form.currentState!.validate()) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    setState(() => submitting = true);
-    final proceed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Explore HomeSpace'),
-        content: const Text(
-          'Accounts aren’t connected to your home server yet. Continue to the '
-          'local preview. No account is created and your password isn’t saved.',
+
+    final targetUri = widget.session.serverUri;
+    if (targetUri == null) {
+      setState(() => submitting = true);
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Explore HomeSpace'),
+          content: const Text(
+            'Accounts aren’t connected to your home server yet. Continue to the '
+            'local preview. No account is created and your password isn’t saved.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Continue to preview'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Continue to preview'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted) return;
-    setState(() => submitting = false);
-    if (proceed != true) return;
-    TextInput.finishAutofillContext(shouldSave: false);
-    password.clear();
-    confirmation.clear();
-    widget.session.enterPreview();
+      );
+      if (!mounted) return;
+      setState(() => submitting = false);
+      if (proceed != true) return;
+      TextInput.finishAutofillContext(shouldSave: false);
+      password.clear();
+      confirmation.clear();
+      widget.session.enterPreview();
+      return;
+    }
+
+    setState(() => submitting = true);
+    final client = HomeSpaceApiClient();
+    try {
+      if (register) {
+        final result = await client.register(
+          baseUri: targetUri,
+          email: email.text.trim(),
+          password: password.text,
+          name: name.text.trim(),
+        );
+        if (!mounted) return;
+        widget.session.setAuthenticated(
+          serverUri: targetUri,
+          token: result.token,
+          userId: result.userId,
+          email: result.email,
+        );
+        try {
+          unawaited(HomeScope.of(context).updateProfile(result.name, result.avatarTone));
+        } catch (_) {}
+      } else {
+        final result = await client.login(
+          baseUri: targetUri,
+          email: email.text.trim(),
+          password: password.text,
+        );
+        if (!mounted) return;
+        widget.session.setAuthenticated(
+          serverUri: targetUri,
+          token: result.token,
+          userId: result.userId,
+          email: result.email,
+        );
+        try {
+          unawaited(HomeScope.of(context).updateProfile(result.name, result.avatarTone));
+        } catch (_) {}
+      }
+      TextInput.finishAutofillContext(shouldSave: false);
+      password.clear();
+      confirmation.clear();
+    } on HomeSpaceServerException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Cannot connect to home server: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
   }
 
   @override
@@ -282,10 +350,12 @@ class _AuthPageState extends State<AuthPage> {
                                 SizedBox(height: register ? 18 : 20),
                                 SpaceButton(
                                   key: const ValueKey('auth-submit'),
-                                  label: register ? 'Create account' : 'Log in',
+                                  label: submitting
+                                      ? (register ? 'Creating account…' : 'Logging in…')
+                                      : (register ? 'Create account' : 'Log in'),
                                   backgroundColor: const Color(0xFF49A91D),
                                   foregroundColor: Colors.white,
-                                  onPressed: submit,
+                                  onPressed: submitting ? () {} : submit,
                                 ),
                                 SizedBox(height: register ? 8 : 28),
                                 Wrap(

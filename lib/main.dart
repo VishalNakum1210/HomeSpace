@@ -24,8 +24,8 @@ Future<void> main() async {
     ], await rootBundle.loadString('assets/fonts/OFL.txt'));
   });
 
-  final session = FrontendSession();
   final serverUri = Uri.tryParse(defaultServerUrl);
+  final session = FrontendSession(serverUri: serverUri);
   final connectionRepo = HttpConnectionRepository(initialAddress: serverUri);
 
   final uploadRepo = HttpUploadRepository(
