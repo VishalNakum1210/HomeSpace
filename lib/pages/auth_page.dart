@@ -186,65 +186,12 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   Future<void> _showChangeServerDialog() async {
-    final controller = TextEditingController(
-      text: widget.session.serverUri?.toString() ?? '',
-    );
-    final formKey = GlobalKey<FormState>();
     final newUriString = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Home Server URL'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Enter the web or LAN address of your HomeSpace server:',
-                style: TextStyle(fontSize: 13, color: Color(0xFF5A5C70)),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: controller,
-                keyboardType: TextInputType.url,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: 'https://... or http://192.168.x.x:8888',
-                  isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Please enter a server URL';
-                  }
-                  final uri = Uri.tryParse(val.trim());
-                  if (uri == null || (!uri.hasScheme || !uri.hasAuthority)) {
-                    return 'Enter a valid URL (with http:// or https://)';
-                  }
-                  return null;
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (formKey.currentState!.validate()) {
-                Navigator.pop(context, controller.text.trim());
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
+      builder: (context) => _ServerAddressDialog(
+        initialValue: widget.session.serverUri?.toString() ?? '',
       ),
     );
-    controller.dispose();
 
     if (newUriString != null && mounted) {
       final uri = Uri.parse(newUriString);
@@ -676,6 +623,86 @@ class _ApprovedAuthArt extends StatelessWidget {
           },
         ),
       ),
+    );
+  }
+}
+
+class _ServerAddressDialog extends StatefulWidget {
+  final String initialValue;
+  const _ServerAddressDialog({required this.initialValue});
+
+  @override
+  State<_ServerAddressDialog> createState() => _ServerAddressDialogState();
+}
+
+class _ServerAddressDialogState extends State<_ServerAddressDialog> {
+  late final TextEditingController controller;
+  final formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Home Server URL'),
+      content: Form(
+        key: formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter the web or LAN address of your HomeSpace server:',
+              style: TextStyle(fontSize: 13, color: Color(0xFF5A5C70)),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: controller,
+              keyboardType: TextInputType.url,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'https://... or http://192.168.x.x:8888',
+                isDense: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              validator: (val) {
+                if (val == null || val.trim().isEmpty) {
+                  return 'Please enter a server URL';
+                }
+                final uri = Uri.tryParse(val.trim());
+                if (uri == null || (!uri.hasScheme || !uri.hasAuthority)) {
+                  return 'Enter a valid URL (with http:// or https://)';
+                }
+                return null;
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (formKey.currentState!.validate()) {
+              Navigator.pop(context, controller.text.trim());
+            }
+          },
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

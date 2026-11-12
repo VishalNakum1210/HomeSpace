@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:homespace/application/frontend_session.dart';
 import 'package:homespace/data/homespace_api_client.dart';
 import 'package:homespace/domain/models.dart';
-import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
