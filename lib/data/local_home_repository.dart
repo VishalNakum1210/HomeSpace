@@ -298,17 +298,37 @@ class LocalHomeRepository extends HomeRepository {
             albums: remoteAlbums,
           );
         }
+        final remoteMap = {for (final m in remoteMedia) m.id: m};
+        final updatedExistingMedia = state.media.map((m) {
+          final remote = remoteMap[m.id];
+          if (remote != null) {
+            return m.copyWith(
+              kind: remote.kind,
+              asset: remote.asset,
+              title: remote.title,
+              takenAt: remote.takenAt,
+            );
+          }
+          return m;
+        }).toList();
+
         final existingMediaIds = state.media.map((m) => m.id).toSet();
         final newMedia =
             remoteMedia.where((m) => !existingMediaIds.contains(m.id)).toList();
+
+        final remoteAlbumMap = {for (final a in remoteAlbums) a.id: a};
+        final updatedExistingAlbums = state.albums.map((a) {
+          final remote = remoteAlbumMap[a.id];
+          return remote ?? a;
+        }).toList();
 
         final existingAlbumIds = state.albums.map((a) => a.id).toSet();
         final newAlbums =
             remoteAlbums.where((a) => !existingAlbumIds.contains(a.id)).toList();
 
         return state.copyWith(
-          media: [...newMedia, ...state.media],
-          albums: [...newAlbums, ...state.albums],
+          media: [...newMedia, ...updatedExistingMedia],
+          albums: [...newAlbums, ...updatedExistingAlbums],
         );
       });
     } catch (_) {

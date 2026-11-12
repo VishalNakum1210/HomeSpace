@@ -104,6 +104,24 @@ class _PhotosPageState extends State<PhotosPage> {
   bool searching = false;
   final selected = <String>{};
   int selectionRevision = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final session = FrontendSessionScope.maybeOf(context);
+      final repo = HomeScope.of(context);
+      if (session?.serverUri != null &&
+          session?.authToken != null &&
+          repo is LocalHomeRepository) {
+        repo.syncWithServer(
+          serverUri: session!.serverUri!,
+          token: session.authToken!,
+        );
+      }
+    });
+  }
   void changeMode(VoidCallback update) {
     setState(update);
     widget.onFocusChanged?.call(selecting || searching);

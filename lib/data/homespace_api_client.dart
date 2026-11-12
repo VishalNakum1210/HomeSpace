@@ -295,13 +295,24 @@ class HomeSpaceApiClient {
       final id = map['id'] as String;
       final thumbUrl = _resolve(baseUri, 'api/media/$id/thumb').toString();
       final takenAtIso = map['takenAt'] as String? ?? map['createdAt'] as String;
+      final mime = (map['mimeType'] as String?) ?? '';
+      final fileName = (map['fileName'] as String?) ?? '';
+      final lowerName = fileName.toLowerCase();
+      final isVideo = mime.startsWith('video/') ||
+          lowerName.endsWith('.mp4') ||
+          lowerName.endsWith('.mov') ||
+          lowerName.endsWith('.webm') ||
+          lowerName.endsWith('.mkv') ||
+          lowerName.endsWith('.3gp') ||
+          lowerName.endsWith('.avi');
 
       return MediaItem(
         id: id,
         asset: thumbUrl,
-        title: map['fileName'] as String? ?? 'Photo',
+        title: fileName.isNotEmpty ? fileName : (isVideo ? 'Video' : 'Photo'),
         category: 'Library',
         takenAt: DateTime.tryParse(takenAtIso) ?? DateTime.now(),
+        kind: isVideo ? MediaKind.video : MediaKind.photo,
       );
     }).toList();
   });

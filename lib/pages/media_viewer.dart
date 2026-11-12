@@ -120,6 +120,7 @@ class _MediaViewerState extends State<MediaViewer> {
           final id = widget.mediaIds[targetIndex];
           final item = repository.mediaById(id);
           if (item != null &&
+              item.kind == MediaKind.photo &&
               (item.asset.startsWith('http://') || item.asset.startsWith('https://'))) {
             final fullFileUrl = item.asset.endsWith('/thumb')
                 ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/file')
@@ -1111,9 +1112,17 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
       if (asset.startsWith('http://') || asset.startsWith('https://')) {
         final videoUrl = asset.endsWith('/thumb')
             ? asset.replaceRange(asset.length - 6, asset.length, '/file')
-            : asset;
+            : (asset.endsWith('/preview')
+                ? asset.replaceRange(asset.length - 8, asset.length, '/file')
+                : asset);
+        var videoUri = Uri.parse(videoUrl);
+        if (token != null && !videoUri.queryParameters.containsKey('token')) {
+          final query = Map<String, String>.from(videoUri.queryParameters);
+          query['token'] = token;
+          videoUri = videoUri.replace(queryParameters: query);
+        }
         _controller = VideoPlayerController.networkUrl(
-          Uri.parse(videoUrl),
+          videoUri,
           httpHeaders: authHeaders ?? const {},
         );
       } else if (!kIsWeb && File(asset).existsSync()) {

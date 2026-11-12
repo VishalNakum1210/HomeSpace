@@ -40,6 +40,22 @@ class MediaItem {
     this.kind = MediaKind.photo,
   });
 
+  MediaItem copyWith({
+    String? id,
+    String? asset,
+    String? title,
+    String? category,
+    DateTime? takenAt,
+    MediaKind? kind,
+  }) => MediaItem(
+    id: id ?? this.id,
+    asset: asset ?? this.asset,
+    title: title ?? this.title,
+    category: category ?? this.category,
+    takenAt: takenAt ?? this.takenAt,
+    kind: kind ?? this.kind,
+  );
+
   String dateLabel(DateTime now) {
     final local = takenAt.toLocal();
     final days = DateTime.utc(

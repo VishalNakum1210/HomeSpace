@@ -135,10 +135,51 @@ void main() {
       expect(items.length, 1);
       expect(items.first.id, 'm_photo_1');
       expect(items.first.title, 'vacation.jpg');
+      expect(items.first.kind, MediaKind.photo);
       expect(
         items.first.asset,
         'http://192.168.0.108:8888/api/media/m_photo_1/thumb',
       );
+    });
+
+    test('fetchMedia identifies video items properly', () async {
+      final mockClient = MockClient((request) async {
+        if (request.url.path == '/api/media') {
+          return http.Response(
+            jsonEncode({
+              'items': [
+                {
+                  'id': 'm_video_1',
+                  'userId': 'u_alice',
+                  'fileName': 'clip.mp4',
+                  'mimeType': 'video/mp4',
+                  'byteSize': 5000000,
+                  'width': 1920,
+                  'height': 1080,
+                  'takenAt': '2026-11-12T10:00:00.000Z',
+                  'createdAt': '2026-11-12T10:00:00.000Z',
+                  'isFavorite': false,
+                  'isTrashed': false,
+                }
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('Not found', 404);
+      });
+
+      final client = HomeSpaceApiClient(client: mockClient);
+      final items = await client.fetchMedia(
+        Uri.parse('http://192.168.0.108:8888'),
+        'token',
+      );
+
+      expect(items.length, 1);
+      expect(items.first.id, 'm_video_1');
+      expect(items.first.title, 'clip.mp4');
+      expect(items.first.kind, MediaKind.video);
     });
 
     test('throws HomeSpaceServerException on API error', () async {
