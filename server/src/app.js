@@ -20,10 +20,10 @@ export async function buildApp({ db, dataDir, config }) {
     timeWindow: '1 minute',
   });
 
-  // Multipart file upload support for media uploads
+  // Multipart file upload support for media uploads (1GB max for high-res videos & photos)
   await fastify.register(multipart, {
     limits: {
-      fileSize: 100 * 1024 * 1024, // 100MB max per photo/video
+      fileSize: 1024 * 1024 * 1024, // 1GB max per photo/video
     },
   });
 

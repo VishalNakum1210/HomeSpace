@@ -325,7 +325,7 @@ class _UploadCard extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) {
-    final title = media?.title ?? 'Unavailable memory';
+    final title = item.title ?? media?.title ?? 'Unavailable memory';
     final text = Theme.of(context).textTheme;
     final active = activeUpload(item);
     return SpaceCard(
@@ -366,14 +366,33 @@ class _UploadCard extends StatelessWidget {
           ),
           if (active) ...[
             const SizedBox(height: 14),
-            LinearProgressIndicator(
-              value: item.progress.clamp(0, 1),
-              semanticsLabel: '$title sample progress',
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: item.progress.clamp(0, 1),
+                minHeight: 6,
+                semanticsLabel: '$title upload progress',
+              ),
             ),
             const SizedBox(height: 6),
-            Text(
-              '${(item.progress * 100).round()}% · sample progress',
-              style: text.bodyMedium,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  item.totalBytes > 0
+                      ? '${formatBytes(item.bytesSent)} of ${formatBytes(item.totalBytes)}'
+                      : 'Uploading…',
+                  style: text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  '${(item.progress * 100).round()}%',
+                  style: text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
           ],
           if (active) ...[

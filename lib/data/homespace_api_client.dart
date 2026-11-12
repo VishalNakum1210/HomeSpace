@@ -8,6 +8,35 @@ import 'package:mime/mime.dart';
 
 import '../domain/models.dart';
 
+class _MultipartRequestWithProgress extends http.MultipartRequest {
+  final void Function(int bytesSent, int totalBytes)? onProgress;
+
+  _MultipartRequestWithProgress(
+    super.method,
+    super.url, {
+    this.onProgress,
+  });
+
+  @override
+  http.ByteStream finalize() {
+    final byteStream = super.finalize();
+    final total = contentLength;
+    int sent = 0;
+
+    final transformer = StreamTransformer<List<int>, List<int>>.fromHandlers(
+      handleData: (chunk, sink) {
+        sent += chunk.length;
+        sink.add(chunk);
+        if (onProgress != null && total > 0) {
+          onProgress!(sent, total);
+        }
+      },
+    );
+
+    return http.ByteStream(byteStream.transform(transformer));
+  }
+}
+
 class HomeSpaceServerException implements Exception {
   final String code;
   final String message;
@@ -277,13 +306,14 @@ class HomeSpaceApiClient {
     }).toList();
   });
 
-  // 5. Upload media
+  // 5. Upload media (Supports photos & videos with live progress tracking)
   Future<MediaItem> uploadMedia({
     required Uri baseUri,
     required String token,
     required List<int> fileBytes,
     required String filename,
     String? mimeType,
+    void Function(int bytesSent, int totalBytes)? onProgress,
   }) => _guard(() async {
     final url = _resolve(baseUri, 'api/media/upload');
     final resolvedMime = mimeType ?? lookupMimeType(filename) ?? 'image/jpeg';
@@ -294,7 +324,11 @@ class HomeSpaceApiClient {
       mediaType = MediaType('image', 'jpeg');
     }
 
-    final request = http.MultipartRequest('POST', url)
+    final request = _MultipartRequestWithProgress(
+      'POST',
+      url,
+      onProgress: onProgress,
+    )
       ..headers['Authorization'] = 'Bearer $token'
       ..files.add(
         http.MultipartFile.fromBytes(
@@ -305,7 +339,8 @@ class HomeSpaceApiClient {
         ),
       );
 
-    final streamedResponse = await _client.send(request).timeout(const Duration(seconds: 60));
+    // Allow up to 10 minutes for large videos or slower mobile uploads
+    final streamedResponse = await _client.send(request).timeout(const Duration(minutes: 10));
     final response = await http.Response.fromStream(streamedResponse);
 
     if (response.statusCode != 201) _handleError(response);
@@ -314,6 +349,8 @@ class HomeSpaceApiClient {
     final id = map['id'] as String;
     final thumbUrl = _resolve(baseUri, 'api/media/$id/thumb').toString();
     final takenAtIso = map['takenAt'] as String? ?? map['createdAt'] as String;
+    final mime = map['mimeType'] as String? ?? resolvedMime;
+    final isVideo = mime.startsWith('video/');
 
     return MediaItem(
       id: id,
@@ -321,6 +358,7 @@ class HomeSpaceApiClient {
       title: map['fileName'] as String? ?? filename,
       category: 'Uploads',
       takenAt: DateTime.tryParse(takenAtIso) ?? DateTime.now(),
+      kind: isVideo ? MediaKind.video : MediaKind.photo,
     );
   });
 

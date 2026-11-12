@@ -219,21 +219,29 @@ enum UploadPhase { queued, uploading, paused, failed, completed, canceled }
 class UploadItem {
   final String id;
   final String mediaId;
+  final String? title;
   final int bytesSent;
   final int totalBytes;
   final UploadPhase phase;
   const UploadItem({
     required this.id,
     required this.mediaId,
+    this.title,
     required this.totalBytes,
     this.bytesSent = 0,
     this.phase = UploadPhase.queued,
   });
-  double get progress => totalBytes == 0 ? 0 : bytesSent / totalBytes;
-  UploadItem copyWith({int? bytesSent, UploadPhase? phase}) => UploadItem(
+  double get progress => totalBytes == 0 ? 0 : (bytesSent / totalBytes).clamp(0.0, 1.0);
+  UploadItem copyWith({
+    String? title,
+    int? bytesSent,
+    int? totalBytes,
+    UploadPhase? phase,
+  }) => UploadItem(
     id: id,
     mediaId: mediaId,
-    totalBytes: totalBytes,
+    title: title ?? this.title,
+    totalBytes: totalBytes ?? this.totalBytes,
     bytesSent: bytesSent ?? this.bytesSent,
     phase: phase ?? this.phase,
   );

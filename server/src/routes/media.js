@@ -11,6 +11,12 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/gif',
   'image/heic',
   'image/avif',
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'video/x-matroska',
+  'video/3gpp',
+  'video/x-msvideo',
 ]);
 
 const EXTENSION_MAP = {
@@ -20,6 +26,12 @@ const EXTENSION_MAP = {
   'image/gif': 'gif',
   'image/heic': 'heic',
   'image/avif': 'avif',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+  'video/x-matroska': 'mkv',
+  'video/3gpp': '3gp',
+  'video/x-msvideo': 'avi',
 };
 
 // Check if user has permission to access a media item (owner OR shared album member)
@@ -67,6 +79,12 @@ export async function mediaRoutes(fastify, options) {
         gif: 'image/gif',
         heic: 'image/heic',
         avif: 'image/avif',
+        mp4: 'video/mp4',
+        mov: 'video/quicktime',
+        webm: 'video/webm',
+        mkv: 'video/x-matroska',
+        '3gp': 'video/3gpp',
+        avi: 'video/x-msvideo',
       };
       if (reverseMap[fileExt]) mimeType = reverseMap[fileExt];
     }
@@ -74,7 +92,7 @@ export async function mediaRoutes(fastify, options) {
       return reply.code(415).send({
         error: {
           code: 'UNSUPPORTED_MEDIA_TYPE',
-          message: `Unsupported media format: ${mimeType}. Supported: JPEG, PNG, WebP, GIF, HEIC, AVIF`,
+          message: `Unsupported media format: ${mimeType}. Supported: JPEG, PNG, WebP, GIF, HEIC, AVIF, MP4, MOV, WebM, MKV`,
         },
       });
     }
@@ -98,39 +116,63 @@ export async function mediaRoutes(fastify, options) {
     const ext = EXTENSION_MAP[mimeType] || 'jpg';
     const paths = getMediaPaths(dataDir, req.user.id, mediaId, ext);
 
-    // Save original image to user's isolated folder
+    // Save original image/video to user's isolated folder
     fs.writeFileSync(paths.original, fileBuffer);
 
+    const isVideo = mimeType.startsWith('video/');
     let width = 0;
     let height = 0;
     let thumbSize = 0;
 
     try {
-      // Process with Sharp for metadata & thumbnail
-      const image = sharp(fileBuffer);
-      const metadata = await image.metadata();
-      width = metadata.width || 0;
-      height = metadata.height || 0;
+      if (isVideo) {
+        // High quality video card poster for thumbnail & preview
+        const svgPoster = `<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#101820"/>
+              <stop offset="100%" stop-color="#1E2A38"/>
+            </linearGradient>
+          </defs>
+          <rect width="400" height="400" fill="url(#g)"/>
+          <circle cx="200" cy="200" r="46" fill="#ffffff" fill-opacity="0.85"/>
+          <polygon points="190,178 226,200 190,222" fill="#101820"/>
+        </svg>`;
+        await sharp(Buffer.from(svgPoster)).webp({ quality: 90 }).toFile(paths.thumbnail);
+        await sharp(Buffer.from(svgPoster)).webp({ quality: 90 }).toFile(paths.preview);
+      } else {
+        // Process with Sharp for metadata & fast 400px thumbnail
+        const image = sharp(fileBuffer);
+        const metadata = await image.metadata();
+        width = metadata.width || 0;
+        height = metadata.height || 0;
 
-      // Generate compressed mobile thumbnail (400px width/height bounding box, webp format)
-      await sharp(fileBuffer)
-        .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: 80 })
-        .toFile(paths.thumbnail);
+        // Generate compressed mobile thumbnail (400px width/height bounding box, webp format)
+        await image
+          .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toFile(paths.thumbnail);
 
-      // Generate sharp screen-fit preview (1600px bounding box, webp format, quality 85)
-      await sharp(fileBuffer)
-        .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: 85 })
-        .toFile(paths.preview);
+        // Generate sharp screen-fit preview asynchronously in background for blazing fast upload response
+        setImmediate(async () => {
+          try {
+            await sharp(fileBuffer)
+              .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+              .webp({ quality: 85 })
+              .toFile(paths.preview);
+          } catch (_) {}
+        });
+      }
 
       const thumbStat = fs.statSync(paths.thumbnail);
-      const prevStat = fs.statSync(paths.preview);
-      thumbSize = thumbStat.size + prevStat.size;
+      thumbSize = thumbStat.size;
     } catch (err) {
       // Cleanup on failure
       if (fs.existsSync(paths.original)) fs.unlinkSync(paths.original);
       if (fs.existsSync(paths.thumbnail)) fs.unlinkSync(paths.thumbnail);
+      if (fs.existsSync(paths.preview)) fs.unlinkSync(paths.preview);
+      throw err;
+    }
       if (fs.existsSync(paths.preview)) fs.unlinkSync(paths.preview);
       throw err;
     }

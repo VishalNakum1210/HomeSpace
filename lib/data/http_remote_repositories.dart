@@ -133,6 +133,7 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     final item = UploadItem(
       id: id,
       mediaId: mediaId,
+      title: filename,
       totalBytes: totalBytes,
       phase: UploadPhase.queued,
     );
@@ -171,6 +172,17 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
         fileBytes: bytes,
         filename: filename,
         mimeType: mimeType,
+        onProgress: (sent, total) {
+          final currentIdx = _items.indexWhere((e) => e.id == item.id);
+          if (currentIdx != -1) {
+            _items[currentIdx] = _items[currentIdx].copyWith(
+              bytesSent: sent,
+              totalBytes: total,
+              phase: UploadPhase.uploading,
+            );
+            notifyListeners();
+          }
+        },
       );
 
       final currentIdx = _items.indexWhere((e) => e.id == item.id);
