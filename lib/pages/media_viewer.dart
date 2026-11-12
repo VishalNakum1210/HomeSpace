@@ -264,16 +264,39 @@ class _MediaViewerState extends State<MediaViewer> {
                                       if (item.asset.startsWith('http://') ||
                                           item.asset.startsWith('https://')) {
                                         final token = FrontendSessionScope.maybeOf(context)?.authToken;
-                                        return Image.network(
-                                          item.asset,
-                                          headers: token != null ? {'Authorization': 'Bearer $token'} : null,
-                                          fit: BoxFit.contain,
-                                          semanticLabel: item.title,
-                                          errorBuilder: (_, _, _) => const Center(
-                                            child: Text(
-                                              'Couldn’t open this photo',
+                                        final authHeaders = token != null ? {'Authorization': 'Bearer $token'} : null;
+                                        final fullFileUrl = item.asset.endsWith('/thumb')
+                                            ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/file')
+                                            : item.asset;
+
+                                        return Stack(
+                                          fit: StackFit.expand,
+                                          children: [
+                                            Image.network(
+                                              item.asset,
+                                              headers: authHeaders,
+                                              fit: BoxFit.contain,
+                                              gaplessPlayback: true,
+                                              errorBuilder: (_, _, _) => const SizedBox.shrink(),
                                             ),
-                                          ),
+                                            Image.network(
+                                              fullFileUrl,
+                                              headers: authHeaders,
+                                              fit: BoxFit.contain,
+                                              gaplessPlayback: true,
+                                              semanticLabel: item.title,
+                                              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                                                if (wasSynchronouslyLoaded) return child;
+                                                return AnimatedOpacity(
+                                                  opacity: frame == null ? 0 : 1,
+                                                  duration: const Duration(milliseconds: 200),
+                                                  curve: Curves.easeOut,
+                                                  child: child,
+                                                );
+                                              },
+                                              errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                                            ),
+                                          ],
                                         );
                                       }
                                       if (!kIsWeb && File(item.asset).existsSync()) {

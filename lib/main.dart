@@ -17,6 +17,8 @@ const String defaultServerUrl = String.fromEnvironment(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  PaintingBinding.instance.imageCache.maximumSize = 2500;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 256 * 1024 * 1024;
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks([

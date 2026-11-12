@@ -87,4 +87,5 @@ abstract interface class UploadRepository implements Listenable {
   void resume(String id);
   void retry(String id);
   void cancel(String id);
+  void clearCompleted();
 }

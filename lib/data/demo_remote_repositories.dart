@@ -167,6 +167,16 @@ class DemoUploadRepository extends ChangeNotifier implements UploadRepository {
         : item.copyWith(phase: UploadPhase.canceled),
   );
 
+  @override
+  void clearCompleted() {
+    _items = _items
+        .where((item) =>
+            item.phase != UploadPhase.completed &&
+            item.phase != UploadPhase.canceled)
+        .toList();
+    notifyListeners();
+  }
+
   // Explicit fixture controls. No clock or timer invents background uploads.
   void simulateProgress(String id, int bytesSent) => _change(id, (item) {
     if (bytesSent < item.bytesSent || bytesSent > item.totalBytes) {

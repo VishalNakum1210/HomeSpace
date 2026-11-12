@@ -227,4 +227,12 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
       notifyListeners();
     }
   }
+
+  @override
+  void clearCompleted() {
+    _items.removeWhere((item) =>
+        item.phase == UploadPhase.completed ||
+        item.phase == UploadPhase.canceled);
+    notifyListeners();
+  }
 }

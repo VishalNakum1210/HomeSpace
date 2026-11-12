@@ -31,7 +31,15 @@ class UploadsPage extends StatefulWidget {
 }
 
 class _UploadsPageState extends State<UploadsPage> {
-  QueueFilter filter = QueueFilter.all;
+  QueueFilter? _selectedFilter;
+
+  QueueFilter _effectiveFilter(UploadRepository queue) {
+    if (_selectedFilter != null) return _selectedFilter!;
+    if (queue is! DemoUploadRepository && queue.items.any(activeUpload)) {
+      return QueueFilter.active;
+    }
+    return QueueFilter.all;
+  }
 
   @override
   Widget build(BuildContext context) => Theme(
@@ -43,6 +51,7 @@ class _UploadsPageState extends State<UploadsPage> {
         return ListenableBuilder(
           listenable: queue,
           builder: (context, _) {
+            final filter = _effectiveFilter(queue);
             final items = queue.items;
             final completed = items
                 .where((item) => item.phase == UploadPhase.completed)
@@ -61,6 +70,17 @@ class _UploadsPageState extends State<UploadsPage> {
               appBar: AppBar(
                 title: const Text('Upload queue'),
                 centerTitle: true,
+                actions: [
+                  if (items.any((item) =>
+                      item.phase == UploadPhase.completed ||
+                      item.phase == UploadPhase.canceled))
+                    IconButton(
+                      key: const ValueKey('clear-completed'),
+                      tooltip: 'Clear completed',
+                      icon: const Icon(Icons.cleaning_services_rounded),
+                      onPressed: () => queue.clearCompleted(),
+                    ),
+                ],
               ),
               body: SafeArea(
                 top: false,
@@ -108,6 +128,18 @@ class _UploadsPageState extends State<UploadsPage> {
                                         : completed / items.length,
                                     semanticsLabel: 'Completed items',
                                   ),
+                                  if (completed > 0) ...[
+                                    const SizedBox(height: 10),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton.icon(
+                                        key: const ValueKey('clear-completed-button'),
+                                        icon: const Icon(Icons.done_all_rounded, size: 18),
+                                        label: Text('Clear $completed completed'),
+                                        onPressed: () => queue.clearCompleted(),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -139,7 +171,7 @@ class _UploadsPageState extends State<UploadsPage> {
                                     }),
                                     selected: filter == option,
                                     onSelected: (_) =>
-                                        setState(() => filter = option),
+                                        setState(() => _selectedFilter = option),
                                   ),
                               ],
                             ),

@@ -61,7 +61,17 @@ class MediaThumbnail extends StatelessWidget {
         media.asset,
         headers: token != null ? {'Authorization': 'Bearer $token'} : null,
         fit: BoxFit.cover,
-        cacheWidth: 600,
+        cacheWidth: 360,
+        gaplessPlayback: true,
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded) return child;
+          return AnimatedOpacity(
+            opacity: frame == null ? 0 : 1,
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOut,
+            child: child,
+          );
+        },
         errorBuilder: (_, _, _) =>
             const Center(child: Icon(Icons.broken_image_outlined)),
       );
@@ -70,7 +80,8 @@ class MediaThumbnail extends StatelessWidget {
       return Image.file(
         File(media.asset),
         fit: BoxFit.cover,
-        cacheWidth: 600,
+        cacheWidth: 360,
+        gaplessPlayback: true,
         errorBuilder: (_, _, _) =>
             const Center(child: Icon(Icons.broken_image_outlined)),
       );
@@ -78,7 +89,8 @@ class MediaThumbnail extends StatelessWidget {
     return Image.asset(
       media.asset,
       fit: BoxFit.cover,
-      cacheWidth: 600,
+      cacheWidth: 360,
+      gaplessPlayback: true,
       errorBuilder: (_, _, _) =>
           const Center(child: Icon(Icons.broken_image_outlined)),
     );
@@ -111,26 +123,27 @@ class MemoryTile extends StatelessWidget {
       selected: selected,
       label:
           '${media.title}${favorite ? ', favorite' : ''}${subtitle == null ? '' : ', $subtitle'}',
-      child: Material(
-        color: style.accentSoft,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(
-            color: selected == true
-                ? const Color(0xFF1677E8)
-                : Colors.transparent,
-            width: 3,
+      child: RepaintBoundary(
+        child: Material(
+          color: style.accentSoft,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: selected == true
+                  ? const Color(0xFF1677E8)
+                  : Colors.transparent,
+              width: 3,
+            ),
           ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          onLongPress: onLongPress,
-          child: ExcludeSemantics(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                MediaThumbnail(media: media),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: ExcludeSemantics(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  MediaThumbnail(media: media),
                 if (selected != null || favorite)
                   Positioned(
                     right: 7,
@@ -167,8 +180,9 @@ class MemoryTile extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class SelectionActions extends StatelessWidget implements PreferredSizeWidget {
