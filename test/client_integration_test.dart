@@ -304,5 +304,57 @@ void main() {
       repo.cancel('upload-2');
       expect(repo.items.first.phase, UploadPhase.canceled);
     });
+
+    test('retry re-queues failed upload task and completes on recovery', () async {
+      int attempts = 0;
+      final mockClient = MockClient((request) async {
+        attempts++;
+        if (attempts == 1) {
+          return http.Response('Server error', 500);
+        }
+        return http.Response(
+          jsonEncode({
+            'id': 'm_up_retry',
+            'fileName': 'retry.jpg',
+            'takenAt': '2026-11-12T10:00:00.000Z',
+          }),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final repo = HttpUploadRepository(
+        apiClient: HomeSpaceApiClient(client: mockClient),
+        getServerAddress: () => Uri.parse('http://192.168.0.108:8888'),
+        getAuthToken: () => 'valid_token',
+      );
+
+      repo.queueUpload(
+        id: 'upload-fail-retry',
+        mediaId: 'm-retry',
+        totalBytes: 500,
+        bytes: [1, 2, 3],
+        filename: 'retry.jpg',
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(repo.items.first.phase, UploadPhase.failed);
+      expect(attempts, 1);
+
+      // Now retry
+      repo.retry('upload-fail-retry');
+      expect(
+        repo.items.first.phase,
+        anyOf(UploadPhase.queued, UploadPhase.uploading),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(attempts, 2);
+      expect(repo.items.first.phase, UploadPhase.completed);
+
+      // Clear completed
+      repo.clearCompleted();
+      expect(repo.items, isEmpty);
+    });
   });
 }

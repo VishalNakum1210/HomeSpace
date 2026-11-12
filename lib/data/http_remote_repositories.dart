@@ -119,6 +119,7 @@ class _PendingUploadTask {
 class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
   final List<UploadItem> _items = [];
   final List<_PendingUploadTask> _pendingQueue = [];
+  final Map<String, _PendingUploadTask> _taskRegistry = {};
   bool _isProcessing = false;
   final HomeSpaceApiClient _apiClient;
   final Uri? Function() _getServerAddress;
@@ -156,13 +157,15 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
       phase: UploadPhase.queued,
     );
     _items.add(item);
-    _pendingQueue.add(_PendingUploadTask(
+    final task = _PendingUploadTask(
       item: item,
       bytes: bytes,
       filename: filename,
       mimeType: mimeType,
       targetAlbumId: targetAlbumId,
-    ));
+    );
+    _taskRegistry[id] = task;
+    _pendingQueue.add(task);
     notifyListeners();
 
     _processQueue();
@@ -242,6 +245,7 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
           bytesSent: item.totalBytes,
           phase: UploadPhase.completed,
         );
+        _taskRegistry.remove(item.id);
         notifyListeners();
       }
 
@@ -270,6 +274,11 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     if (idx != -1 && _items[idx].phase == UploadPhase.paused) {
       _items[idx] = _items[idx].copyWith(phase: UploadPhase.queued);
       notifyListeners();
+      final task = _taskRegistry[id];
+      if (task != null && !_pendingQueue.any((t) => t.item.id == id)) {
+        _pendingQueue.add(task);
+        _processQueue();
+      }
     }
   }
 
@@ -279,6 +288,11 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     if (idx != -1 && _items[idx].phase == UploadPhase.failed) {
       _items[idx] = _items[idx].copyWith(phase: UploadPhase.queued);
       notifyListeners();
+      final task = _taskRegistry[id];
+      if (task != null && !_pendingQueue.any((t) => t.item.id == id)) {
+        _pendingQueue.add(task);
+        _processQueue();
+      }
     }
   }
 
@@ -288,12 +302,19 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     if (idx != -1) {
       _items[idx] = _items[idx].copyWith(phase: UploadPhase.canceled);
       _pendingQueue.removeWhere((task) => task.item.id == id);
+      _taskRegistry.remove(id);
       notifyListeners();
     }
   }
 
   @override
   void clearCompleted() {
+    for (final item in _items) {
+      if (item.phase == UploadPhase.completed ||
+          item.phase == UploadPhase.canceled) {
+        _taskRegistry.remove(item.id);
+      }
+    }
     _items.removeWhere((item) =>
         item.phase == UploadPhase.completed ||
         item.phase == UploadPhase.canceled);
