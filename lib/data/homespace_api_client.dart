@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 
 import '../domain/models.dart';
 
@@ -205,9 +207,17 @@ class HomeSpaceApiClient {
     required String token,
     required List<int> fileBytes,
     required String filename,
-    String mimeType = 'image/jpeg',
+    String? mimeType,
   }) async {
     final url = _resolve(baseUri, 'api/media/upload');
+    final resolvedMime = mimeType ?? lookupMimeType(filename) ?? 'image/jpeg';
+    MediaType? mediaType;
+    try {
+      mediaType = MediaType.parse(resolvedMime);
+    } catch (_) {
+      mediaType = MediaType('image', 'jpeg');
+    }
+
     final request = http.MultipartRequest('POST', url)
       ..headers['Authorization'] = 'Bearer $token'
       ..files.add(
@@ -215,6 +225,7 @@ class HomeSpaceApiClient {
           'file',
           fileBytes,
           filename: filename,
+          contentType: mediaType,
         ),
       );
 

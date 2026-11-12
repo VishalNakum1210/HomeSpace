@@ -14,6 +14,8 @@ abstract interface class LibraryRepository {
   Set<String> get favorites;
   List<TrashEntry> get trash;
   MediaItem? mediaById(String id);
+  Future<void> addMedia(MediaItem item);
+  Future<void> addMediaItems(List<MediaItem> items);
   Future<void> toggleFavorite(String id);
   Future<void> setFavorites(List<String> ids, bool favorite);
   Future<void> moveToTrash(String id);

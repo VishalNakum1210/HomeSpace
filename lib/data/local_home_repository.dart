@@ -3,6 +3,7 @@ import 'dart:async';
 import '../domain/models.dart';
 import '../domain/repositories.dart';
 import 'demo_remote_repositories.dart';
+import 'homespace_api_client.dart';
 import 'seed_library.dart';
 import 'snapshot_codec.dart';
 import 'snapshot_store.dart';
@@ -214,6 +215,52 @@ class LocalHomeRepository extends HomeRepository {
           for (final item in state.albums) item.id == album.id ? album : item,
         ],
       );
+
+  @override
+  Future<void> addMedia(MediaItem item) => _commit((state) {
+    if (state.media.any((m) => m.id == item.id)) {
+      return state.copyWith(
+        media: state.media.map((m) => m.id == item.id ? item : m).toList(),
+      );
+    }
+    return state.copyWith(media: [item, ...state.media]);
+  });
+
+  @override
+  Future<void> addMediaItems(List<MediaItem> items) => _commit((state) {
+    final existingIds = state.media.map((m) => m.id).toSet();
+    final newItems = items.where((m) => !existingIds.contains(m.id)).toList();
+    if (newItems.isEmpty) return state;
+    return state.copyWith(media: [...newItems, ...state.media]);
+  });
+
+  Future<void> syncWithServer({
+    required Uri serverUri,
+    required String token,
+    HomeSpaceApiClient? apiClient,
+  }) async {
+    final client = apiClient ?? HomeSpaceApiClient();
+    try {
+      final remoteMedia = await client.fetchMedia(serverUri, token);
+      final remoteAlbums = await client.fetchAlbums(serverUri, token);
+      await _commit((state) {
+        final existingMediaIds = state.media.map((m) => m.id).toSet();
+        final newMedia =
+            remoteMedia.where((m) => !existingMediaIds.contains(m.id)).toList();
+
+        final existingAlbumIds = state.albums.map((a) => a.id).toSet();
+        final newAlbums =
+            remoteAlbums.where((a) => !existingAlbumIds.contains(a.id)).toList();
+
+        return state.copyWith(
+          media: [...newMedia, ...state.media],
+          albums: [...newAlbums, ...state.albums],
+        );
+      });
+    } catch (_) {
+      // Offline fallback: keep local data
+    }
+  }
 
   @override
   Future<void> toggleFavorite(String id) => _commit((state) {

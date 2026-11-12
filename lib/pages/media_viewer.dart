@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
 import '../design/album_widgets.dart';
 import '../design/photo_action.dart';
@@ -258,28 +261,43 @@ class _MediaViewerState extends State<MediaViewer> {
                                           ),
                                         );
                                       }
-                                      return item.asset.startsWith('http://') ||
-                                              item.asset.startsWith('https://')
-                                          ? Image.network(
-                                              item.asset,
-                                              fit: BoxFit.contain,
-                                              semanticLabel: item.title,
-                                              errorBuilder: (_, _, _) => const Center(
-                                                child: Text(
-                                                  'Couldn’t open this photo',
-                                                ),
-                                              ),
-                                            )
-                                          : Image.asset(
-                                              item.asset,
-                                              fit: BoxFit.contain,
-                                              semanticLabel: item.title,
-                                              errorBuilder: (_, _, _) => const Center(
-                                                child: Text(
-                                                  'Couldn’t open this photo',
-                                                ),
-                                              ),
-                                            );
+                                      if (item.asset.startsWith('http://') ||
+                                          item.asset.startsWith('https://')) {
+                                        final token = FrontendSessionScope.maybeOf(context)?.authToken;
+                                        return Image.network(
+                                          item.asset,
+                                          headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+                                          fit: BoxFit.contain,
+                                          semanticLabel: item.title,
+                                          errorBuilder: (_, _, _) => const Center(
+                                            child: Text(
+                                              'Couldn’t open this photo',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                      if (!kIsWeb && File(item.asset).existsSync()) {
+                                        return Image.file(
+                                          File(item.asset),
+                                          fit: BoxFit.contain,
+                                          semanticLabel: item.title,
+                                          errorBuilder: (_, _, _) => const Center(
+                                            child: Text(
+                                              'Couldn’t open this photo',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                      return Image.asset(
+                                        item.asset,
+                                        fit: BoxFit.contain,
+                                        semanticLabel: item.title,
+                                        errorBuilder: (_, _, _) => const Center(
+                                          child: Text(
+                                            'Couldn’t open this photo',
+                                          ),
+                                        ),
+                                      );
                                     },
                                   ),
                           ),

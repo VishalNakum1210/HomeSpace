@@ -105,12 +105,16 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
   final HomeSpaceApiClient _apiClient;
   final Uri? Function() _getServerAddress;
   final String? Function() _getAuthToken;
+  final void Function(MediaItem item, String? targetAlbumId)? onMediaUploaded;
 
   HttpUploadRepository({
     HomeSpaceApiClient? apiClient,
-    required this._getServerAddress,
-    required this._getAuthToken,
-  })  : _apiClient = apiClient ?? HomeSpaceApiClient();
+    required Uri? Function() getServerAddress,
+    required String? Function() getAuthToken,
+    this.onMediaUploaded,
+  })  : _apiClient = apiClient ?? HomeSpaceApiClient(),
+        _getServerAddress = getServerAddress,
+        _getAuthToken = getAuthToken;
 
   @override
   List<UploadItem> get items => List.unmodifiable(_items);
@@ -121,6 +125,8 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     required int totalBytes,
     required List<int> bytes,
     required String filename,
+    String? mimeType,
+    String? targetAlbumId,
   }) {
     final item = UploadItem(
       id: id,
@@ -131,10 +137,16 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     _items.add(item);
     notifyListeners();
 
-    _startUpload(item, bytes, filename);
+    _startUpload(item, bytes, filename, mimeType, targetAlbumId);
   }
 
-  Future<void> _startUpload(UploadItem item, List<int> bytes, String filename) async {
+  Future<void> _startUpload(
+    UploadItem item,
+    List<int> bytes,
+    String filename,
+    String? mimeType,
+    String? targetAlbumId,
+  ) async {
     final serverUri = _getServerAddress();
     final token = _getAuthToken();
 
@@ -151,11 +163,12 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     notifyListeners();
 
     try {
-      await _apiClient.uploadMedia(
+      final uploadedMedia = await _apiClient.uploadMedia(
         baseUri: serverUri,
         token: token,
         fileBytes: bytes,
         filename: filename,
+        mimeType: mimeType,
       );
 
       final currentIdx = _items.indexWhere((e) => e.id == item.id);
@@ -166,6 +179,8 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
         );
         notifyListeners();
       }
+
+      onMediaUploaded?.call(uploadedMedia, targetAlbumId);
     } catch (_) {
       final currentIdx = _items.indexWhere((e) => e.id == item.id);
       if (currentIdx != -1) {

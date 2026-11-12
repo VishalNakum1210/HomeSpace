@@ -56,7 +56,20 @@ export async function mediaRoutes(fastify, options) {
       });
     }
 
-    const mimeType = data.mimetype;
+    let mimeType = data.mimetype;
+    if ((!mimeType || mimeType === 'application/octet-stream') && data.filename) {
+      const fileExt = path.extname(data.filename).toLowerCase().replace('.', '');
+      const reverseMap = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        webp: 'image/webp',
+        gif: 'image/gif',
+        heic: 'image/heic',
+        avif: 'image/avif',
+      };
+      if (reverseMap[fileExt]) mimeType = reverseMap[fileExt];
+    }
     if (!ALLOWED_MIME_TYPES.has(mimeType)) {
       return reply.code(415).send({
         error: {

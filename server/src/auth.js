@@ -57,22 +57,19 @@ export function createSession(db, userId, expiryDays = 30) {
 
 export function authenticate(db) {
   return async function (req, reply) {
+    let token = null;
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return reply.code(401).send({
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Missing or malformed Authorization header',
-        },
-      });
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7).trim();
+    } else if (req.query && req.query.token) {
+      token = String(req.query.token).trim();
     }
 
-    const token = authHeader.substring(7).trim();
     if (!token) {
       return reply.code(401).send({
         error: {
           code: 'UNAUTHORIZED',
-          message: 'Empty bearer token',
+          message: 'Missing or malformed Authorization header or token query parameter',
         },
       });
     }

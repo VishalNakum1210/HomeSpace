@@ -28,12 +28,19 @@ Future<void> main() async {
   final session = FrontendSession(serverUri: serverUri);
   final connectionRepo = HttpConnectionRepository(initialAddress: serverUri);
 
+  late final LocalHomeRepository repository;
   final uploadRepo = HttpUploadRepository(
     getServerAddress: () => connectionRepo.status.address ?? serverUri,
     getAuthToken: () => session.authToken,
+    onMediaUploaded: (item, targetAlbumId) async {
+      await repository.addMedia(item);
+      if (targetAlbumId != null) {
+        await repository.addToAlbum(targetAlbumId, item.id);
+      }
+    },
   );
 
-  final repository = LocalHomeRepository(
+  repository = LocalHomeRepository(
     store: FileSnapshotStore.android(),
     customConnection: connectionRepo,
     customUploads: uploadRepo,

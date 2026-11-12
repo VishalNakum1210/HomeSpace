@@ -148,9 +148,7 @@ class _CollectionsPageState extends State<CollectionsPage> {
                   key: const ValueKey('new-album'),
                   label: 'Create album',
                   icon: Icons.add_photo_alternate_outlined,
-                  onPressed: repository.scenario == DemoScenario.empty
-                      ? null
-                      : () => openAlbumEditor(context),
+                  onPressed: () => openAlbumEditor(context),
                 ),
               ),
             ),

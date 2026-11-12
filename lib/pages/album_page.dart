@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
+import '../application/photo_picker_service.dart';
 import '../design/album_widgets.dart';
 import '../design/cartoon_artwork.dart';
 import '../design/space_theme.dart';
@@ -433,20 +435,32 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
           overflow: TextOverflow.ellipsis,
         ),
         centerTitle: true,
-        actions: MediaQuery.textScalerOf(context).scale(14) > 19
-            ? null
-            : [
-                Padding(
-                  padding: const EdgeInsets.only(right: 20),
-                  child: Center(
-                    child: Text(
-                      '${ids.length} selected',
-                      style: Theme.of(context).textTheme.labelMedium!
-                          .copyWith(color: SpaceStyle.of(context).accentInk),
-                    ),
-                  ),
+        actions: [
+          IconButton(
+            tooltip: 'Import from device gallery',
+            icon: const Icon(Icons.add_photo_alternate_rounded),
+            onPressed: () async {
+              await PhotoPickerHelper.pickFromGallery(
+                context,
+                repository: repository,
+                session: FrontendSessionScope.maybeOf(context),
+                targetAlbumId: widget.albumId,
+              );
+              if (context.mounted) Navigator.pop(context);
+            },
+          ),
+          if (MediaQuery.textScalerOf(context).scale(14) <= 19)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Center(
+                child: Text(
+                  '${ids.length} selected',
+                  style: Theme.of(context).textTheme.labelMedium!
+                      .copyWith(color: SpaceStyle.of(context).accentInk),
                 ),
-              ],
+              ),
+            ),
+        ],
       ),
       body: CustomScrollView(
         key: const ValueKey('album-picker-scroll'),

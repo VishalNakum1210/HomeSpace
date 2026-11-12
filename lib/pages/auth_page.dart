@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
 import '../data/homespace_api_client.dart';
+import '../data/local_home_repository.dart';
 import '../design/space_symbols.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
@@ -109,7 +110,11 @@ class _AuthPageState extends State<AuthPage> {
           email: result.email,
         );
         try {
-          unawaited(HomeScope.of(context).updateProfile(result.name, result.avatarTone));
+          final repo = HomeScope.of(context);
+          unawaited(repo.updateProfile(result.name, result.avatarTone));
+          if (repo is LocalHomeRepository) {
+            unawaited(repo.syncWithServer(serverUri: targetUri, token: result.token));
+          }
         } catch (_) {}
       } else {
         final result = await client.login(
@@ -125,7 +130,11 @@ class _AuthPageState extends State<AuthPage> {
           email: result.email,
         );
         try {
-          unawaited(HomeScope.of(context).updateProfile(result.name, result.avatarTone));
+          final repo = HomeScope.of(context);
+          unawaited(repo.updateProfile(result.name, result.avatarTone));
+          if (repo is LocalHomeRepository) {
+            unawaited(repo.syncWithServer(serverUri: targetUri, token: result.token));
+          }
         } catch (_) {}
       }
       TextInput.finishAutofillContext(shouldSave: false);

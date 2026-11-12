@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
+import '../application/photo_picker_service.dart';
+import '../data/local_home_repository.dart';
 import '../design/cartoon_artwork.dart';
 import '../design/cartoon_header.dart';
 import '../design/photo_action.dart';
@@ -67,35 +70,15 @@ class _EmptyPhotoLibrary extends StatelessWidget {
               icon: Icons.add_circle_outline_rounded,
               backgroundColor: const Color(0xFF1677E8),
               foregroundColor: Colors.white,
-              onPressed: () => showSpaceSheet<void>(
-                context,
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text('Add photos', style: text.titleLarge),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'This frontend preview uses sample photos. Device import and home-server uploads are not connected yet.',
-                    ),
-                    const SizedBox(height: 18),
-                    if (repository.scenario == DemoScenario.empty)
-                      SpaceButton(
-                        label: 'Explore sample library',
-                        onPressed: () {
-                          Navigator.pop(context);
-                          repository.setScenario(DemoScenario.populated);
-                        },
-                      )
-                    else
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Done'),
-                      ),
-                  ],
-                ),
-              ),
+              onPressed: () => PhotoPickerHelper.showAddOptions(context),
             ),
+            if (repository.scenario == DemoScenario.empty) ...[
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () => repository.setScenario(DemoScenario.populated),
+                child: const Text('Explore sample library'),
+              ),
+            ],
             const SizedBox(height: 14),
             MemoryStatusBanner(
               warning: true,
@@ -199,23 +182,48 @@ class _PhotosPageState extends State<PhotosPage> {
           bottom: false,
           child: Stack(
             children: [
-              CustomScrollView(
-                key: const PageStorageKey('photos-scroll'),
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                slivers: [
-                  SliverPadding(
-                    key: const ValueKey('photos-header'),
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                    sliver: SliverToBoxAdapter(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (!focused) ...[
-                            CartoonHeader(
-                              profile: repository.profile,
-                              onProfile: widget.onProfile,
-                            ),
+              RefreshIndicator(
+                onRefresh: () async {
+                  final session = FrontendSessionScope.maybeOf(context);
+                  final targetUri = session?.serverUri;
+                  final token = session?.authToken;
+                  if (targetUri != null &&
+                      token != null &&
+                      repository is LocalHomeRepository) {
+                    await (repository as LocalHomeRepository).syncWithServer(
+                      serverUri: targetUri,
+                      token: token,
+                    );
+                  }
+                },
+                child: CustomScrollView(
+                  key: const PageStorageKey('photos-scroll'),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  slivers: [
+                    SliverPadding(
+                      key: const ValueKey('photos-header'),
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (!focused) ...[
+                              CartoonHeader(
+                                profile: repository.profile,
+                                onProfile: widget.onProfile,
+                                action: IconButton(
+                                  key: const ValueKey('add-memories-header-btn'),
+                                  tooltip: 'Add memories from gallery',
+                                  icon: const Icon(
+                                    Icons.add_photo_alternate_rounded,
+                                    color: Color(0xFF49A91D),
+                                    size: 26,
+                                  ),
+                                  onPressed: () =>
+                                      PhotoPickerHelper.showAddOptions(context),
+                                ),
+                              ),
                             Text(
                               'Your happy place',
                               style: text.headlineMedium,
@@ -456,6 +464,7 @@ class _PhotosPageState extends State<PhotosPage> {
                   ),
                 ],
               ),
+            ),
               if (selecting)
                 Positioned(
                   left: 20,

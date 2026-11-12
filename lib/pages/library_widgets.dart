@@ -1,6 +1,9 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
 import '../design/album_widgets.dart';
 import '../design/space_theme.dart';
@@ -53,8 +56,19 @@ class MediaThumbnail extends StatelessWidget {
       return const Center(child: Icon(Icons.movie_outlined, size: 40));
     }
     if (media.asset.startsWith('http://') || media.asset.startsWith('https://')) {
+      final token = FrontendSessionScope.maybeOf(context)?.authToken;
       return Image.network(
         media.asset,
+        headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+        fit: BoxFit.cover,
+        cacheWidth: 600,
+        errorBuilder: (_, _, _) =>
+            const Center(child: Icon(Icons.broken_image_outlined)),
+      );
+    }
+    if (!kIsWeb && File(media.asset).existsSync()) {
+      return Image.file(
+        File(media.asset),
         fit: BoxFit.cover,
         cacheWidth: 600,
         errorBuilder: (_, _, _) =>
