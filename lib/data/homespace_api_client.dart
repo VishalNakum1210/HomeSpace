@@ -266,6 +266,20 @@ class HomeSpaceApiClient {
     if (response.statusCode != 200) _handleError(response);
   }
 
+  // 7b. Batch trash media
+  Future<int> batchTrashMedia(Uri baseUri, String token, List<String> ids) async {
+    if (ids.isEmpty) return 0;
+    final url = _resolve(baseUri, 'api/media/batch/trash');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'ids': ids}),
+    );
+    if (response.statusCode != 200) _handleError(response);
+    final data = jsonDecode(response.body);
+    return (data['trashedCount'] as num?)?.toInt() ?? 0;
+  }
+
   // 8. Restore media
   Future<void> restoreMedia(Uri baseUri, String token, String mediaId) async {
     final url = _resolve(baseUri, 'api/media/$mediaId/restore');
@@ -273,11 +287,53 @@ class HomeSpaceApiClient {
     if (response.statusCode != 200) _handleError(response);
   }
 
+  // 8b. Batch restore media
+  Future<int> batchRestoreMedia(Uri baseUri, String token, List<String> ids) async {
+    if (ids.isEmpty) return 0;
+    final url = _resolve(baseUri, 'api/media/batch/restore');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'ids': ids}),
+    );
+    if (response.statusCode != 200) _handleError(response);
+    final data = jsonDecode(response.body);
+    return (data['restoredCount'] as num?)?.toInt() ?? 0;
+  }
+
   // 9. Permanent delete
   Future<void> deleteMedia(Uri baseUri, String token, String mediaId) async {
     final url = _resolve(baseUri, 'api/media/$mediaId');
     final response = await _client.delete(url, headers: _headers(token));
     if (response.statusCode != 200) _handleError(response);
+  }
+
+  // 9b. Batch delete media
+  Future<int> batchDeleteMedia(Uri baseUri, String token, List<String> ids) async {
+    if (ids.isEmpty) return 0;
+    final url = _resolve(baseUri, 'api/media/batch/delete');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'ids': ids}),
+    );
+    if (response.statusCode != 200) _handleError(response);
+    final data = jsonDecode(response.body);
+    return (data['deletedCount'] as num?)?.toInt() ?? 0;
+  }
+
+  // 9c. Batch favorite media
+  Future<int> batchFavoriteMedia(Uri baseUri, String token, List<String> ids, bool favorite) async {
+    if (ids.isEmpty) return 0;
+    final url = _resolve(baseUri, 'api/media/batch/favorite');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'ids': ids, 'favorite': favorite}),
+    );
+    if (response.statusCode != 200) _handleError(response);
+    final data = jsonDecode(response.body);
+    return (data['updatedCount'] as num?)?.toInt() ?? 0;
   }
 
   // 10. Fetch albums

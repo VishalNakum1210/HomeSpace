@@ -113,7 +113,9 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     required String? Function() getAuthToken,
     this.onMediaUploaded,
   })  : _apiClient = apiClient ?? HomeSpaceApiClient(),
+        // ignore: prefer_initializing_formals
         _getServerAddress = getServerAddress,
+        // ignore: prefer_initializing_formals
         _getAuthToken = getAuthToken;
 
   @override

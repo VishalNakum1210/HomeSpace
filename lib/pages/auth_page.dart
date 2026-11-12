@@ -111,9 +111,16 @@ class _AuthPageState extends State<AuthPage> {
         );
         try {
           final repo = HomeScope.of(context);
-          unawaited(repo.updateProfile(result.name, result.avatarTone));
           if (repo is LocalHomeRepository) {
-            unawaited(repo.syncWithServer(serverUri: targetUri, token: result.token));
+            unawaited(repo.initForAuthenticatedUser(
+              userId: result.userId,
+              name: result.name,
+              avatarTone: result.avatarTone,
+              serverUri: targetUri,
+              token: result.token,
+            ));
+          } else {
+            unawaited(repo.updateProfile(result.name, result.avatarTone));
           }
         } catch (_) {}
       } else {
@@ -131,9 +138,16 @@ class _AuthPageState extends State<AuthPage> {
         );
         try {
           final repo = HomeScope.of(context);
-          unawaited(repo.updateProfile(result.name, result.avatarTone));
           if (repo is LocalHomeRepository) {
-            unawaited(repo.syncWithServer(serverUri: targetUri, token: result.token));
+            unawaited(repo.initForAuthenticatedUser(
+              userId: result.userId,
+              name: result.name,
+              avatarTone: result.avatarTone,
+              serverUri: targetUri,
+              token: result.token,
+            ));
+          } else {
+            unawaited(repo.updateProfile(result.name, result.avatarTone));
           }
         } catch (_) {}
       }

@@ -143,11 +143,12 @@ class ProfileSettings {
   });
   String get initial => FamilyMember(userId, name).initial;
   ProfileSettings copyWith({
+    String? userId,
     String? name,
     Appearance? appearance,
     AvatarTone? avatarTone,
   }) => ProfileSettings(
-    userId: userId,
+    userId: userId ?? this.userId,
     name: name ?? this.name,
     appearance: appearance ?? this.appearance,
     avatarTone: avatarTone ?? this.avatarTone,

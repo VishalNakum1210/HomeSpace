@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mime/mime.dart';
 
+import '../data/http_remote_repositories.dart';
 import '../domain/models.dart';
 import '../domain/repositories.dart';
-import '../data/http_remote_repositories.dart';
+import '../pages/library_widgets.dart';
+import '../pages/uploads_page.dart';
 import 'frontend_session.dart';
 import 'home_scope.dart';
 
@@ -218,14 +220,24 @@ class PhotoPickerHelper {
     final token = session?.authToken;
     final isOnlineServer = serverUri != null && token != null && repository.uploads is HttpUploadRepository;
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
       SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
         content: Text(
           isOnlineServer
-              ? 'Uploading ${files.length} memory to your home server…'
-              : 'Adding ${files.length} memory to your local preview…',
+              ? 'Uploading ${files.length} ${files.length == 1 ? 'memory' : 'memories'} to your home server…'
+              : 'Adding ${files.length} ${files.length == 1 ? 'memory' : 'memories'} to your library…',
         ),
-        duration: const Duration(seconds: 3),
+        action: SnackBarAction(
+          label: 'View Queue',
+          onPressed: () {
+            messenger.clearSnackBars();
+            openSpacePage<void>(context, const UploadsPage());
+          },
+        ),
       ),
     );
 

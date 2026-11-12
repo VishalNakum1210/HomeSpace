@@ -58,10 +58,23 @@ class _TrashPageState extends State<TrashPage> {
           ? null
           : () async {
               final revision = selectionRevision;
+              final messenger = ScaffoldMessenger.of(context);
+              messenger.clearSnackBars();
               final saved = await saveLocalChange(
                 context,
                 () => repository.restoreMany(ids),
               );
+              if (saved && mounted) {
+                messenger.showSnackBar(
+                  SnackBar(
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 3),
+                    content: Text(
+                      '${ids.length} ${ids.length == 1 ? 'memory' : 'memories'} restored to library',
+                    ),
+                  ),
+                );
+              }
               if (saved && mounted && revision == selectionRevision) clear();
             },
     );

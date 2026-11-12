@@ -284,8 +284,12 @@ Future<bool> trashMemories(BuildContext context, List<String> ids) async {
     () => repository.moveManyToTrash(ids),
   );
   if (saved && context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
       SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
         margin: EdgeInsets.fromLTRB(
           16,
           0,
@@ -298,6 +302,7 @@ Future<bool> trashMemories(BuildContext context, List<String> ids) async {
         action: SnackBarAction(
           label: 'Undo',
           onPressed: () {
+            messenger.clearSnackBars();
             if (actionContext.mounted) {
               saveLocalChange(actionContext, () => repository.restoreMany(ids));
             }
@@ -324,5 +329,25 @@ Future<bool> deleteTrashedMemories(
     destructive: true,
   );
   if (!confirmed || !context.mounted) return false;
-  return saveLocalChange(context, () => repository.deleteManyPermanently(ids));
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.clearSnackBars();
+  final saved = await saveLocalChange(context, () => repository.deleteManyPermanently(ids));
+  if (saved && context.mounted) {
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+        margin: EdgeInsets.fromLTRB(
+          16,
+          0,
+          16,
+          96 + MediaQuery.paddingOf(context).bottom,
+        ),
+        content: Text(
+          '${ids.length} ${ids.length == 1 ? 'memory' : 'memories'} permanently deleted',
+        ),
+      ),
+    );
+  }
+  return saved;
 }

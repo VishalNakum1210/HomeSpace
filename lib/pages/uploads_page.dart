@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
+import '../data/demo_remote_repositories.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
 import '../design/state_artwork.dart';
@@ -86,24 +88,41 @@ class _UploadsPageState extends State<UploadsPage> {
                                     style: text.titleLarge,
                                   ),
                                   const SizedBox(height: 6),
-                                  Text(
-                                    '$completed of ${items.length} sample items completed',
-                                    key: const ValueKey('queue-summary'),
-                                    style: text.bodyLarge,
+                                  Builder(
+                                    builder: (context) {
+                                      final session = FrontendSessionScope.maybeOf(context);
+                                      final isReal = session?.authToken != null || queue is! DemoUploadRepository;
+                                      return Text(
+                                        isReal
+                                            ? '$completed of ${items.length} items uploaded to HomeSpace'
+                                            : '$completed of ${items.length} sample items completed',
+                                        key: const ValueKey('queue-summary'),
+                                        style: text.bodyLarge,
+                                      );
+                                    },
                                   ),
                                   const SizedBox(height: 14),
                                   LinearProgressIndicator(
                                     value: items.isEmpty
                                         ? 0
                                         : completed / items.length,
-                                    semanticsLabel: 'Completed sample items',
+                                    semanticsLabel: 'Completed items',
                                   ),
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 14),
-                            const MemoryStatusBanner(
-                              message: 'Sample queue only. Controls change this session’s demo items. No files are uploaded or imported.',
+                            Builder(
+                              builder: (context) {
+                                final session = FrontendSessionScope.maybeOf(context);
+                                final isReal = session?.authToken != null || queue is! DemoUploadRepository;
+                                if (isReal) return const SizedBox(height: 14);
+                                return const Padding(
+                                  padding: EdgeInsets.only(top: 14),
+                                  child: MemoryStatusBanner(
+                                    message: 'Sample queue only. Controls change this session’s demo items. No files are uploaded or imported.',
+                                  ),
+                                );
+                              },
                             ),
                             const SizedBox(height: 18),
                             Wrap(

@@ -24,6 +24,10 @@ class LocalHomeRepository extends HomeRepository {
   Future<void> _tail = Future.value();
   final ConnectionRepository? customConnection;
   final UploadRepository? customUploads;
+  final Uri? Function()? getServerAddress;
+  final String? Function()? getAuthToken;
+  final HomeSpaceApiClient _apiClient;
+  final bool _ownsApiClient;
   late final ConnectionRepository _connection = customConnection ??
       DemoConnectionRepository(scenario: _scenario);
   late final UploadRepository _uploads = customUploads ??
@@ -34,9 +38,14 @@ class LocalHomeRepository extends HomeRepository {
     DateTime Function()? clock,
     this.customConnection,
     this.customUploads,
+    this.getServerAddress,
+    this.getAuthToken,
+    HomeSpaceApiClient? apiClient,
     this._scenario = DemoScenario.populated,
     this.initialAppearance = Appearance.system,
   }) : clock = clock ?? DateTime.now,
+       _ownsApiClient = apiClient == null,
+       _apiClient = apiClient ?? HomeSpaceApiClient(),
        _data = seedLibrary((clock ?? DateTime.now)());
 
   @override
@@ -234,16 +243,50 @@ class LocalHomeRepository extends HomeRepository {
     return state.copyWith(media: [...newItems, ...state.media]);
   });
 
+  Future<void> initForAuthenticatedUser({
+    required String userId,
+    required String name,
+    required AvatarTone avatarTone,
+    required Uri serverUri,
+    required String token,
+  }) async {
+    await _commit((state) {
+      return state.copyWith(
+        profile: state.profile.copyWith(
+          userId: userId,
+          name: name,
+          avatarTone: avatarTone,
+        ),
+        media: [],
+        albums: [],
+        favorites: {},
+        trash: [],
+      );
+    });
+    await syncWithServer(
+      serverUri: serverUri,
+      token: token,
+      clearLocalFirst: true,
+    );
+  }
+
   Future<void> syncWithServer({
     required Uri serverUri,
     required String token,
     HomeSpaceApiClient? apiClient,
+    bool clearLocalFirst = false,
   }) async {
-    final client = apiClient ?? HomeSpaceApiClient();
+    final client = apiClient ?? _apiClient;
     try {
       final remoteMedia = await client.fetchMedia(serverUri, token);
       final remoteAlbums = await client.fetchAlbums(serverUri, token);
       await _commit((state) {
+        if (clearLocalFirst) {
+          return state.copyWith(
+            media: remoteMedia,
+            albums: remoteAlbums,
+          );
+        }
         final existingMediaIds = state.media.map((m) => m.id).toSet();
         final newMedia =
             remoteMedia.where((m) => !existingMediaIds.contains(m.id)).toList();
@@ -263,15 +306,32 @@ class LocalHomeRepository extends HomeRepository {
   }
 
   @override
-  Future<void> toggleFavorite(String id) => _commit((state) {
-    _requireMedia(state, id);
-    if (state.trash.any((entry) => entry.mediaId == id)) {
-      throw const LocalActionException('Restore this memory first.');
+  Future<void> toggleFavorite(String id) async {
+    bool isNowFavorite = false;
+    await _commit((state) {
+      _requireMedia(state, id);
+      if (state.trash.any((entry) => entry.mediaId == id)) {
+        throw const LocalActionException('Restore this memory first.');
+      }
+      final next = {...state.favorites};
+      if (next.contains(id)) {
+        next.remove(id);
+        isNowFavorite = false;
+      } else {
+        next.add(id);
+        isNowFavorite = true;
+      }
+      return state.copyWith(favorites: next);
+    });
+
+    final serverUri = getServerAddress?.call();
+    final token = getAuthToken?.call();
+    if (serverUri != null && token != null) {
+      try {
+        await _apiClient.toggleFavorite(serverUri, token, id, isNowFavorite);
+      } catch (_) {}
     }
-    final next = {...state.favorites};
-    next.contains(id) ? next.remove(id) : next.add(id);
-    return state.copyWith(favorites: next);
-  });
+  }
 
   List<String> _activeIds(LibrarySnapshot state, Iterable<String> ids) {
     final unique = ids.toSet().toList();
@@ -285,14 +345,23 @@ class LocalHomeRepository extends HomeRepository {
   }
 
   @override
-  Future<void> setFavorites(List<String> ids, bool favorite) {
+  Future<void> setFavorites(List<String> ids, bool favorite) async {
     final requested = List<String>.of(ids);
-    return _commit((state) {
-      final active = _activeIds(state, requested);
+    List<String> active = const [];
+    await _commit((state) {
+      active = _activeIds(state, requested);
       final next = {...state.favorites};
       favorite ? next.addAll(active) : next.removeAll(active);
       return state.copyWith(favorites: next);
     });
+
+    final serverUri = getServerAddress?.call();
+    final token = getAuthToken?.call();
+    if (serverUri != null && token != null && active.isNotEmpty) {
+      try {
+        await _apiClient.batchFavoriteMedia(serverUri, token, active, favorite);
+      } catch (_) {}
+    }
   }
 
   @override
@@ -525,9 +594,9 @@ class LocalHomeRepository extends HomeRepository {
   Future<void> moveToTrash(String id) => moveManyToTrash([id]);
 
   @override
-  Future<void> moveManyToTrash(List<String> ids) {
+  Future<void> moveManyToTrash(List<String> ids) async {
     final requested = ids.toSet();
-    return _commit((state) {
+    await _commit((state) {
       for (final id in requested) {
         _requireMedia(state, id);
       }
@@ -541,15 +610,23 @@ class LocalHomeRepository extends HomeRepository {
         ],
       );
     });
+
+    final serverUri = getServerAddress?.call();
+    final token = getAuthToken?.call();
+    if (serverUri != null && token != null && requested.isNotEmpty) {
+      try {
+        await _apiClient.batchTrashMedia(serverUri, token, requested.toList());
+      } catch (_) {}
+    }
   }
 
   @override
   Future<void> restore(String id) => restoreMany([id]);
 
   @override
-  Future<void> restoreMany(List<String> ids) {
+  Future<void> restoreMany(List<String> ids) async {
     final requested = ids.toSet();
-    return _commit((state) {
+    await _commit((state) {
       for (final id in requested) {
         _requireMedia(state, id);
       }
@@ -559,15 +636,23 @@ class LocalHomeRepository extends HomeRepository {
             .toList(),
       );
     });
+
+    final serverUri = getServerAddress?.call();
+    final token = getAuthToken?.call();
+    if (serverUri != null && token != null && requested.isNotEmpty) {
+      try {
+        await _apiClient.batchRestoreMedia(serverUri, token, requested.toList());
+      } catch (_) {}
+    }
   }
 
   @override
   Future<void> deletePermanently(String id) => deleteManyPermanently([id]);
 
   @override
-  Future<void> deleteManyPermanently(List<String> ids) {
+  Future<void> deleteManyPermanently(List<String> ids) async {
     final requested = ids.toSet();
-    return _commit((state) {
+    await _commit((state) {
       final trashed = state.trash.map((entry) => entry.mediaId).toSet();
       if (!trashed.containsAll(requested)) {
         throw const LocalActionException('Move this memory to Trash first.');
@@ -599,6 +684,14 @@ class LocalHomeRepository extends HomeRepository {
         ],
       );
     });
+
+    final serverUri = getServerAddress?.call();
+    final token = getAuthToken?.call();
+    if (serverUri != null && token != null && requested.isNotEmpty) {
+      try {
+        await _apiClient.batchDeleteMedia(serverUri, token, requested.toList());
+      } catch (_) {}
+    }
   }
 
   void _notify() {
@@ -608,6 +701,9 @@ class LocalHomeRepository extends HomeRepository {
   @override
   void dispose() {
     _disposed = true;
+    if (_ownsApiClient) {
+      _apiClient.close();
+    }
     final conn = _connection;
     if (conn is DemoConnectionRepository) {
       conn.dispose();

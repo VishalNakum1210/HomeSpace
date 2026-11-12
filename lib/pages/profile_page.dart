@@ -9,6 +9,7 @@ import '../design/space_symbols.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
 import '../domain/models.dart';
+import 'backup_settings_page.dart';
 import 'connection_page.dart';
 import 'library_widgets.dart';
 import 'settings_pages.dart';
@@ -135,7 +136,7 @@ class ProfilePage extends StatelessWidget {
                     settingKey: const ValueKey('about-setting'),
                     icon: Icons.home_rounded,
                     title: 'About HomeSpace',
-                    subtitle: 'App info and next steps',
+                    subtitle: 'Server, backup, and app info',
                     tone: const Color(0xFF58A800),
                     onTap: () => showAbout(context),
                   ),
@@ -236,6 +237,17 @@ class ProfilePage extends StatelessWidget {
           onTap: () {
             Navigator.pop(context);
             openSpacePage<void>(context, const UploadsPage());
+          },
+        ),
+        ListTile(
+          key: const ValueKey('backup-setting'),
+          leading: const Icon(Icons.sync_rounded),
+          title: const Text('Auto-backup folders'),
+          subtitle: const Text('Camera, WhatsApp, Screenshots'),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () {
+            Navigator.pop(context);
+            openSpacePage<void>(context, const BackupSettingsPage());
           },
         ),
         const SizedBox(height: 22),

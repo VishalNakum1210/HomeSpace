@@ -72,21 +72,24 @@ class _EmptyPhotoLibrary extends StatelessWidget {
               foregroundColor: Colors.white,
               onPressed: () => PhotoPickerHelper.showAddOptions(context),
             ),
-            if (repository.scenario == DemoScenario.empty) ...[
+            if (FrontendSessionScope.maybeOf(context)?.authToken == null &&
+                repository.scenario == DemoScenario.empty) ...[
               const SizedBox(height: 10),
               TextButton(
                 onPressed: () => repository.setScenario(DemoScenario.populated),
                 child: const Text('Explore sample library'),
               ),
             ],
-            const SizedBox(height: 14),
-            MemoryStatusBanner(
-              warning: true,
-              message: repository.scenario == DemoScenario.offline
-                  ? "You’re offline\nSaved photos are available."
-                  : 'Local preview\nYour saved library is kept.',
-              onRetry: () => repository.setScenario(DemoScenario.populated),
-            ),
+            if (FrontendSessionScope.maybeOf(context)?.authToken == null) ...[
+              const SizedBox(height: 14),
+              MemoryStatusBanner(
+                warning: true,
+                message: repository.scenario == DemoScenario.offline
+                    ? "You’re offline\nSaved photos are available."
+                    : 'Local preview\nYour saved library is kept.',
+                onRetry: () => repository.setScenario(DemoScenario.populated),
+              ),
+            ],
           ],
         ),
       ),
@@ -190,7 +193,7 @@ class _PhotosPageState extends State<PhotosPage> {
                   if (targetUri != null &&
                       token != null &&
                       repository is LocalHomeRepository) {
-                    await (repository as LocalHomeRepository).syncWithServer(
+                    await repository.syncWithServer(
                       serverUri: targetUri,
                       token: token,
                     );
@@ -243,9 +246,10 @@ class _PhotosPageState extends State<PhotosPage> {
                                 ),
                               ],
                             ),
-                            if (repository.scenario == DemoScenario.offline ||
-                                repository.scenario == DemoScenario.success ||
-                                repository.recoveryNotice != null)
+                            if (FrontendSessionScope.maybeOf(context)?.authToken == null &&
+                                (repository.scenario == DemoScenario.offline ||
+                                 repository.scenario == DemoScenario.success ||
+                                 repository.recoveryNotice != null))
                               Padding(
                                 padding: const EdgeInsets.only(top: 8),
                                 child: MemoryStatusBanner(

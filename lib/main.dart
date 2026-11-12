@@ -44,6 +44,8 @@ Future<void> main() async {
     store: FileSnapshotStore.android(),
     customConnection: connectionRepo,
     customUploads: uploadRepo,
+    getServerAddress: () => connectionRepo.status.address ?? session.serverUri,
+    getAuthToken: () => session.authToken,
     scenario: DemoScenario.parse(
       const String.fromEnvironment(
         'HOMESPACE_SCENARIO',
