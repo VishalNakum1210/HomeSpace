@@ -273,6 +273,11 @@ class AutoBackupService {
         final bytes = await file.readAsBytes();
         if (bytes.isEmpty) continue;
 
+        final dateTakenMs = item['dateTaken'] as num?;
+        final takenAt = dateTakenMs != null && dateTakenMs > 0
+            ? DateTime.fromMillisecondsSinceEpoch(dateTakenMs.toInt())
+            : (file.existsSync() ? file.lastModifiedSync() : DateTime.now());
+
         final uploadId = 'backup-${DateTime.now().microsecondsSinceEpoch}-$queuedCount';
         uploadRepo.queueUpload(
           id: uploadId,
@@ -281,6 +286,7 @@ class AutoBackupService {
           bytes: bytes,
           filename: filename,
           mimeType: mimeType,
+          takenAt: takenAt,
         );
 
         existingTitles.add(filename.toLowerCase());
@@ -316,6 +322,7 @@ class AutoBackupService {
               filename.toLowerCase().endsWith('.mov') ||
               filename.toLowerCase().endsWith('.webm');
           final mimeType = lookupMimeType(filename) ?? (isVideo ? 'video/mp4' : 'image/jpeg');
+          final takenAt = entity.existsSync() ? entity.lastModifiedSync() : DateTime.now();
           final uploadId = 'backup-${DateTime.now().microsecondsSinceEpoch}-$queuedCount';
 
           uploadRepo.queueUpload(
@@ -325,6 +332,7 @@ class AutoBackupService {
             bytes: bytes,
             filename: filename,
             mimeType: mimeType,
+            takenAt: takenAt,
           );
 
           existingTitles.add(filename.toLowerCase());

@@ -324,9 +324,14 @@ class HomeSpaceApiClient {
     required List<int> fileBytes,
     required String filename,
     String? mimeType,
+    DateTime? takenAt,
     void Function(int bytesSent, int totalBytes)? onProgress,
   }) => _guard(() async {
-    final url = _resolve(baseUri, 'api/media/upload');
+    final url = _resolve(
+      baseUri,
+      'api/media/upload',
+      takenAt != null ? {'takenAt': takenAt.toUtc().toIso8601String()} : null,
+    );
     final resolvedMime = mimeType ?? lookupMimeType(filename) ?? 'image/jpeg';
     MediaType? mediaType;
     try {
@@ -340,15 +345,22 @@ class HomeSpaceApiClient {
       url,
       onProgress: onProgress,
     )
-      ..headers['Authorization'] = 'Bearer $token'
-      ..files.add(
-        http.MultipartFile.fromBytes(
-          'file',
-          fileBytes,
-          filename: filename,
-          contentType: mediaType,
-        ),
-      );
+      ..headers['Authorization'] = 'Bearer $token';
+
+    if (takenAt != null) {
+      final iso = takenAt.toUtc().toIso8601String();
+      request.headers['x-taken-at'] = iso;
+      request.fields['takenAt'] = iso;
+    }
+
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        fileBytes,
+        filename: filename,
+        contentType: mediaType,
+      ),
+    );
 
     // Allow up to 10 minutes for large videos or slower mobile uploads
     final streamedResponse = await _client.send(request).timeout(const Duration(minutes: 10));

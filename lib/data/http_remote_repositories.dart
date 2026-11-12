@@ -106,6 +106,7 @@ class _PendingUploadTask {
   final String filename;
   final String? mimeType;
   final String? targetAlbumId;
+  final DateTime? takenAt;
 
   _PendingUploadTask({
     required this.item,
@@ -113,6 +114,7 @@ class _PendingUploadTask {
     required this.filename,
     this.mimeType,
     this.targetAlbumId,
+    this.takenAt,
   });
 }
 
@@ -148,6 +150,7 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     required String filename,
     String? mimeType,
     String? targetAlbumId,
+    DateTime? takenAt,
   }) {
     final item = UploadItem(
       id: id,
@@ -163,6 +166,7 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
       filename: filename,
       mimeType: mimeType,
       targetAlbumId: targetAlbumId,
+      takenAt: takenAt,
     );
     _taskRegistry[id] = task;
     _pendingQueue.add(task);
@@ -192,6 +196,7 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
         task.filename,
         task.mimeType,
         task.targetAlbumId,
+        task.takenAt,
       );
     }
     _isProcessing = false;
@@ -203,6 +208,7 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     String filename,
     String? mimeType,
     String? targetAlbumId,
+    DateTime? takenAt,
   ) async {
     final serverUri = _getServerAddress();
     final token = _getAuthToken();
@@ -226,6 +232,7 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
         fileBytes: bytes,
         filename: filename,
         mimeType: mimeType,
+        takenAt: takenAt,
         onProgress: (sent, total) {
           final currentIdx = _items.indexWhere((e) => e.id == item.id);
           if (currentIdx != -1) {

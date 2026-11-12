@@ -34,6 +34,26 @@ const EXTENSION_MAP = {
   'video/x-msvideo': 'avi',
 };
 
+export function parseExifDate(exifBuffer) {
+  if (!exifBuffer || !Buffer.isBuffer(exifBuffer)) return null;
+  try {
+    const exifStr = exifBuffer.toString('binary');
+    const match = exifStr.match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+    if (match) {
+      const [_, year, month, day, hour, min, sec] = match;
+      const y = parseInt(year, 10);
+      if (y >= 1900 && y <= 2100) {
+        const iso = `${year}-${month}-${day}T${hour}:${min}:${sec}.000Z`;
+        const date = new Date(iso);
+        if (!isNaN(date.getTime())) {
+          return date.toISOString();
+        }
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 // Check if user has permission to access a media item (owner OR shared album member)
 export function canAccessMedia(db, userId, mediaId) {
   // 1. Direct owner
@@ -123,6 +143,7 @@ export async function mediaRoutes(fastify, options) {
     let width = 0;
     let height = 0;
     let thumbSize = 0;
+    let imageExif = null;
 
     try {
       if (isVideo) {
@@ -162,6 +183,10 @@ export async function mediaRoutes(fastify, options) {
               .toFile(paths.preview);
           } catch (_) {}
         });
+
+        if (metadata.exif) {
+          imageExif = metadata.exif;
+        }
       }
 
       const thumbStat = fs.statSync(paths.thumbnail);
@@ -177,6 +202,31 @@ export async function mediaRoutes(fastify, options) {
     const actualTotalBytes = byteSize + thumbSize;
     const now = new Date().toISOString();
     const originalFileName = data.filename || `photo_${Date.now()}.${ext}`;
+
+    // Resolve takenAt: 1) Client provided, 2) EXIF metadata, 3) Current timestamp
+    let resolvedTakenAt = null;
+    const clientDateStr =
+      req.query?.takenAt ||
+      req.headers?.['x-taken-at'] ||
+      data.fields?.takenAt?.value;
+
+    if (clientDateStr && typeof clientDateStr === 'string') {
+      const parsed = new Date(clientDateStr);
+      if (!isNaN(parsed.getTime())) {
+        const maxFuture = Date.now() + 24 * 60 * 60 * 1000;
+        if (parsed.getTime() <= maxFuture && parsed.getFullYear() >= 1900) {
+          resolvedTakenAt = parsed.toISOString();
+        }
+      }
+    }
+
+    if (!resolvedTakenAt && imageExif) {
+      resolvedTakenAt = parseExifDate(imageExif);
+    }
+
+    if (!resolvedTakenAt) {
+      resolvedTakenAt = now;
+    }
 
     // Record in media table
     const insertStmt = db.prepare(`
@@ -194,7 +244,7 @@ export async function mediaRoutes(fastify, options) {
       actualTotalBytes,
       width,
       height,
-      now,
+      resolvedTakenAt,
       now,
     );
 
@@ -209,7 +259,7 @@ export async function mediaRoutes(fastify, options) {
       byteSize: actualTotalBytes,
       width,
       height,
-      takenAt: now,
+      takenAt: resolvedTakenAt,
       createdAt: now,
       isFavorite: false,
       isTrashed: false,

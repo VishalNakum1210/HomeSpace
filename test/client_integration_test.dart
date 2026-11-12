@@ -210,6 +210,46 @@ void main() {
         )),
       );
     });
+
+    test('uploadMedia transmits original phone capture date (takenAt)', () async {
+      final phoneCaptureDate = DateTime.utc(2023, 8, 15, 14, 30, 45);
+      String? recordedQueryDate;
+      String? recordedHeaderDate;
+
+      final mockClient = MockClient((request) async {
+        if (request.url.path == '/api/media/upload') {
+          recordedQueryDate = request.url.queryParameters['takenAt'];
+          recordedHeaderDate = request.headers['x-taken-at'];
+          return http.Response(
+            jsonEncode({
+              'id': 'm_custom_date',
+              'fileName': 'camera_shot.jpg',
+              'mimeType': 'image/jpeg',
+              'byteSize': 1024,
+              'takenAt': recordedQueryDate ?? '2026-11-12T00:00:00.000Z',
+              'createdAt': '2026-11-12T10:00:00.000Z',
+            }),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('Not found', 404);
+      });
+
+      final client = HomeSpaceApiClient(client: mockClient);
+      final item = await client.uploadMedia(
+        baseUri: Uri.parse('http://192.168.0.108:8888'),
+        token: 'auth_token',
+        fileBytes: [1, 2, 3, 4],
+        filename: 'camera_shot.jpg',
+        takenAt: phoneCaptureDate,
+      );
+
+      expect(recordedQueryDate, '2023-08-15T14:30:45.000Z');
+      expect(recordedHeaderDate, '2023-08-15T14:30:45.000Z');
+      expect(item.takenAt, phoneCaptureDate);
+      expect(item.title, 'camera_shot.jpg');
+    });
   });
 
   group('HttpConnectionRepository', () {
@@ -283,6 +323,46 @@ void main() {
       expect(repo.items.first.phase, UploadPhase.completed);
       expect(repo.items.first.bytesSent, 500);
       expect(repo.items.first.progress, 1.0);
+    });
+
+    test('queueUpload preserves phone capture date into uploaded MediaItem', () async {
+      MediaItem? receivedItem;
+      final expectedDate = DateTime.utc(2022, 12, 25, 9, 15, 0);
+
+      final mockClient = MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'id': 'm_christmas',
+            'fileName': 'xmas.jpg',
+            'takenAt': request.url.queryParameters['takenAt'] ?? expectedDate.toIso8601String(),
+          }),
+          201,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final repo = HttpUploadRepository(
+        apiClient: HomeSpaceApiClient(client: mockClient),
+        getServerAddress: () => Uri.parse('http://192.168.0.108:8888'),
+        getAuthToken: () => 'valid_token',
+        onMediaUploaded: (item, _) {
+          receivedItem = item;
+        },
+      );
+
+      repo.queueUpload(
+        id: 'upload-date-test',
+        mediaId: 'm-date',
+        totalBytes: 500,
+        bytes: [1, 2, 3],
+        filename: 'xmas.jpg',
+        takenAt: expectedDate,
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(repo.items.first.phase, UploadPhase.completed);
+      expect(receivedItem, isNotNull);
+      expect(receivedItem!.takenAt, expectedDate);
     });
 
     test('pause, resume, and cancel work as expected', () {

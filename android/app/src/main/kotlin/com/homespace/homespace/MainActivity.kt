@@ -195,7 +195,8 @@ class MainActivity : FlutterActivity() {
             MediaStore.MediaColumns.DISPLAY_NAME,
             MediaStore.MediaColumns.SIZE,
             MediaStore.MediaColumns.MIME_TYPE,
-            MediaStore.MediaColumns.DATE_MODIFIED
+            MediaStore.MediaColumns.DATE_MODIFIED,
+            MediaStore.Images.Media.DATE_TAKEN
         )
 
         // Query Images
@@ -205,19 +206,26 @@ class MainActivity : FlutterActivity() {
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
             val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
             val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+            val modCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+            val takenCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
 
             while (cursor.moveToNext() && result.size < 200) {
                 val path = cursor.getString(dataCol) ?: continue
                 val name = cursor.getString(nameCol) ?: File(path).name
                 val size = cursor.getLong(sizeCol)
                 val mime = cursor.getString(mimeCol) ?: "image/jpeg"
+                val dateTaken = if (takenCol != -1) cursor.getLong(takenCol) else 0L
+                val dateModified = cursor.getLong(modCol) * 1000L
+                val effectiveTime = if (dateTaken > 0) dateTaken else if (dateModified > 0) dateModified else File(path).lastModified()
+
                 if (File(path).exists() && size > 0) {
                     result.add(mapOf(
                         "path" to path,
                         "name" to name,
                         "size" to size,
                         "mimeType" to mime,
-                        "isVideo" to false
+                        "isVideo" to false,
+                        "dateTaken" to effectiveTime
                     ))
                 }
             }
@@ -230,19 +238,26 @@ class MainActivity : FlutterActivity() {
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
             val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
             val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+            val modCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+            val takenCol = cursor.getColumnIndex(MediaStore.Video.Media.DATE_TAKEN)
 
             while (cursor.moveToNext() && result.size < 300) {
                 val path = cursor.getString(dataCol) ?: continue
                 val name = cursor.getString(nameCol) ?: File(path).name
                 val size = cursor.getLong(sizeCol)
                 val mime = cursor.getString(mimeCol) ?: "video/mp4"
+                val dateTaken = if (takenCol != -1) cursor.getLong(takenCol) else 0L
+                val dateModified = cursor.getLong(modCol) * 1000L
+                val effectiveTime = if (dateTaken > 0) dateTaken else if (dateModified > 0) dateModified else File(path).lastModified()
+
                 if (File(path).exists() && size > 0) {
                     result.add(mapOf(
                         "path" to path,
                         "name" to name,
                         "size" to size,
                         "mimeType" to mime,
-                        "isVideo" to true
+                        "isVideo" to true,
+                        "dateTaken" to effectiveTime
                     ))
                 }
             }

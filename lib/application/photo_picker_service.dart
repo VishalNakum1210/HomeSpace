@@ -247,6 +247,12 @@ class PhotoPickerHelper {
       final filename = file.name;
       final mimeType = lookupMimeType(filename) ?? (kind == MediaKind.video ? 'video/mp4' : 'image/jpeg');
 
+      DateTime? takenAt;
+      try {
+        takenAt = await file.lastModified();
+      } catch (_) {}
+      takenAt ??= DateTime.now();
+
       if (isOnlineServer) {
         final uploadRepo = repository.uploads as HttpUploadRepository;
         final uploadId = 'up-${DateTime.now().microsecondsSinceEpoch}-$i';
@@ -258,6 +264,7 @@ class PhotoPickerHelper {
           filename: filename,
           mimeType: mimeType,
           targetAlbumId: targetAlbumId,
+          takenAt: takenAt,
         );
       } else {
         final item = MediaItem(
@@ -265,7 +272,7 @@ class PhotoPickerHelper {
           asset: file.path,
           title: filename,
           category: category,
-          takenAt: DateTime.now(),
+          takenAt: takenAt,
           kind: kind,
         );
         await repository.addMedia(item);

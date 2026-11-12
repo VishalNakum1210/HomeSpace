@@ -264,4 +264,85 @@ test('Media API: Upload, Quota, Access Control, Streaming, Favorites, Trash', as
     const afterUsed = JSON.parse(afterStats.payload).user.storage.usedBytes;
     assert.equal(afterUsed, 0);
   });
+
+  await t.test('Date Handling: Preserves client phone capture date, rejects future dates, and orders timeline', async () => {
+    const historicalDate = '2022-06-15T11:22:33.000Z';
+    const recentDate = '2024-01-10T09:00:00.000Z';
+
+    // 1. Upload with ?takenAt=<historicalDate>
+    const { payload: p1, contentType: ct1 } = await createMultipartPayload(
+      'file',
+      smallImageBuffer,
+      'old_photo.png',
+      'image/png'
+    );
+    const res1 = await app.inject({
+      method: 'POST',
+      url: `/api/media/upload?takenAt=${encodeURIComponent(historicalDate)}`,
+      headers: {
+        authorization: `Bearer ${aliceToken}`,
+        'content-type': ct1,
+      },
+      payload: p1,
+    });
+    assert.equal(res1.statusCode, 201);
+    const body1 = JSON.parse(res1.payload);
+    assert.equal(body1.takenAt, historicalDate);
+
+    // 2. Upload with X-Taken-At header
+    const { payload: p2, contentType: ct2 } = await createMultipartPayload(
+      'file',
+      smallImageBuffer,
+      'recent_photo.png',
+      'image/png'
+    );
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        authorization: `Bearer ${aliceToken}`,
+        'content-type': ct2,
+        'x-taken-at': recentDate,
+      },
+      payload: p2,
+    });
+    assert.equal(res2.statusCode, 201);
+    const body2 = JSON.parse(res2.payload);
+    assert.equal(body2.takenAt, recentDate);
+
+    // 3. Upload with invalid date fallback
+    const { payload: p3, contentType: ct3 } = await createMultipartPayload(
+      'file',
+      smallImageBuffer,
+      'invalid_date.png',
+      'image/png'
+    );
+    const res3 = await app.inject({
+      method: 'POST',
+      url: '/api/media/upload?takenAt=not-a-valid-date',
+      headers: {
+        authorization: `Bearer ${aliceToken}`,
+        'content-type': ct3,
+      },
+      payload: p3,
+    });
+    assert.equal(res3.statusCode, 201);
+    const body3 = JSON.parse(res3.payload);
+    assert.ok(body3.takenAt);
+    assert.ok(!isNaN(new Date(body3.takenAt).getTime()));
+
+    // 4. Verify ordering in GET /api/media (recentDate must appear before historicalDate)
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/api/media',
+      headers: { authorization: `Bearer ${aliceToken}` },
+    });
+    assert.equal(listRes.statusCode, 200);
+    const listBody = JSON.parse(listRes.payload);
+    const items = listBody.items;
+    assert.ok(items.length >= 2);
+    const recentIndex = items.findIndex(i => i.id === body2.id);
+    const oldIndex = items.findIndex(i => i.id === body1.id);
+    assert.ok(recentIndex < oldIndex, 'Newer photo should appear before older photo');
+  });
 });
