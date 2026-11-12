@@ -21,16 +21,18 @@ class LocalHomeRepository extends HomeRepository {
   int _idCounter = 0;
   Future<void>? _initializing;
   Future<void> _tail = Future.value();
-  late final DemoConnectionRepository _connection = DemoConnectionRepository(
-    scenario: _scenario,
-  );
-  late final DemoUploadRepository _uploads = DemoUploadRepository(
-    scenario: _scenario,
-  );
+  final ConnectionRepository? customConnection;
+  final UploadRepository? customUploads;
+  late final ConnectionRepository _connection = customConnection ??
+      DemoConnectionRepository(scenario: _scenario);
+  late final UploadRepository _uploads = customUploads ??
+      DemoUploadRepository(scenario: _scenario);
 
   LocalHomeRepository({
     required this.store,
     DateTime Function()? clock,
+    this.customConnection,
+    this.customUploads,
     this._scenario = DemoScenario.populated,
     this.initialAppearance = Appearance.system,
   }) : clock = clock ?? DateTime.now,
@@ -104,9 +106,15 @@ class LocalHomeRepository extends HomeRepository {
   @override
   void setScenario(DemoScenario scenario) {
     _scenario = scenario;
-    _connection.scenario = scenario;
-    _connection.disconnect();
-    _uploads.reset(scenario);
+    final conn = _connection;
+    if (conn is DemoConnectionRepository) {
+      conn.scenario = scenario;
+      conn.disconnect();
+    }
+    final up = _uploads;
+    if (up is DemoUploadRepository) {
+      up.reset(scenario);
+    }
     _notify();
   }
 
@@ -553,8 +561,14 @@ class LocalHomeRepository extends HomeRepository {
   @override
   void dispose() {
     _disposed = true;
-    _connection.dispose();
-    _uploads.dispose();
+    final conn = _connection;
+    if (conn is DemoConnectionRepository) {
+      conn.dispose();
+    }
+    final up = _uploads;
+    if (up is DemoUploadRepository) {
+      up.dispose();
+    }
     super.dispose();
   }
 }

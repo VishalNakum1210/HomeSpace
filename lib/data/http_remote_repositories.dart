@@ -8,16 +8,26 @@ import 'homespace_api_client.dart';
 
 class HttpConnectionRepository extends ChangeNotifier implements ConnectionRepository {
   final HomeSpaceApiClient _apiClient;
-  ConnectionStatus _status = const ConnectionStatus(
-    ConnectionPhase.disconnected,
-    'No home server is connected.',
-    isDemo: false,
-  );
+  ConnectionStatus _status;
   int _attempt = 0;
   bool _disposed = false;
 
-  HttpConnectionRepository({HomeSpaceApiClient? apiClient})
-      : _apiClient = apiClient ?? HomeSpaceApiClient();
+  HttpConnectionRepository({
+    HomeSpaceApiClient? apiClient,
+    Uri? initialAddress,
+  })  : _apiClient = apiClient ?? HomeSpaceApiClient(),
+        _status = initialAddress != null
+            ? ConnectionStatus(
+                ConnectionPhase.disconnected,
+                'Ready to connect to $initialAddress',
+                address: initialAddress,
+                isDemo: false,
+              )
+            : const ConnectionStatus(
+                ConnectionPhase.disconnected,
+                'No home server is connected.',
+                isDemo: false,
+              );
 
   @override
   ConnectionStatus get status => _status;
