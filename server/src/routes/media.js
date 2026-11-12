@@ -173,9 +173,6 @@ export async function mediaRoutes(fastify, options) {
       if (fs.existsSync(paths.preview)) fs.unlinkSync(paths.preview);
       throw err;
     }
-      if (fs.existsSync(paths.preview)) fs.unlinkSync(paths.preview);
-      throw err;
-    }
 
     const actualTotalBytes = byteSize + thumbSize;
     const now = new Date().toISOString();

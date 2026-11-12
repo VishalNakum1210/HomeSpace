@@ -122,11 +122,11 @@ class _MediaViewerState extends State<MediaViewer> {
           if (item != null &&
               item.kind == MediaKind.photo &&
               (item.asset.startsWith('http://') || item.asset.startsWith('https://'))) {
-            final fullFileUrl = item.asset.endsWith('/thumb')
-                ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/file')
+            final previewUrl = item.asset.endsWith('/thumb')
+                ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/preview')
                 : item.asset;
             precacheImage(
-              NetworkImage(fullFileUrl, headers: authHeaders),
+              NetworkImage(previewUrl, headers: authHeaders),
               context,
             );
           }
@@ -307,6 +307,9 @@ class _MediaViewerState extends State<MediaViewer> {
                                         final token = FrontendSessionScope.maybeOf(context)?.authToken;
                                         final authHeaders = token != null ? {'Authorization': 'Bearer $token'} : null;
                                         final thumbUrl = item.asset;
+                                        final previewUrl = item.asset.endsWith('/thumb')
+                                            ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/preview')
+                                            : item.asset;
                                         final fullFileUrl = item.asset.endsWith('/thumb')
                                             ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/file')
                                             : item.asset;
@@ -322,9 +325,9 @@ class _MediaViewerState extends State<MediaViewer> {
                                               gaplessPlayback: true,
                                               errorBuilder: (_, _, _) => const SizedBox.shrink(),
                                             ),
-                                            // 2. High-resolution photo: automatically loaded, zero-touch clear transition
+                                            // 2. High-resolution screen-fit photo: 1600px WebP loaded in ~1s
                                             Image.network(
-                                              fullFileUrl,
+                                              previewUrl,
                                               headers: authHeaders,
                                               fit: BoxFit.contain,
                                               gaplessPlayback: true,
@@ -333,13 +336,22 @@ class _MediaViewerState extends State<MediaViewer> {
                                                 if (wasSynchronouslyLoaded) return child;
                                                 return AnimatedOpacity(
                                                   opacity: frame == null ? 0 : 1,
-                                                  duration: const Duration(milliseconds: 250),
+                                                  duration: const Duration(milliseconds: 200),
                                                   curve: Curves.easeOut,
                                                   child: child,
                                                 );
                                               },
                                               errorBuilder: (_, _, _) => const SizedBox.shrink(),
                                             ),
+                                            // 3. Raw sensor original: ONLY loaded on deep zoom (pinch / double-tap)
+                                            if (zoomed && page == index)
+                                              Image.network(
+                                                fullFileUrl,
+                                                headers: authHeaders,
+                                                fit: BoxFit.contain,
+                                                gaplessPlayback: true,
+                                                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                                              ),
                                           ],
                                         );
                                       }
