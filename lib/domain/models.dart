@@ -19,6 +19,12 @@ enum DemoScenario {
 }
 
 class MediaItem {
+  /// Stable ordering shared by the library and album timelines.
+  static int compareNewestFirst(MediaItem a, MediaItem b) {
+    final date = b.takenAt.compareTo(a.takenAt);
+    return date == 0 ? a.id.compareTo(b.id) : date;
+  }
+
   final String id;
   final String asset;
   final String title;

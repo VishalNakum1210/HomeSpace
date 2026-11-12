@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
-
-import '../design/vector_artwork.dart';
-
 import 'package:flutter/services.dart';
 
 import '../application/home_scope.dart';
 import '../design/cartoon_artwork.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
+import '../design/system_ui.dart';
+import '../design/vector_artwork.dart';
 import '../domain/models.dart';
 
 class EditProfilePage extends StatefulWidget {
@@ -242,20 +241,7 @@ class _AppearancePageState extends State<AppearancePage> {
           final text = Theme.of(context).textTheme;
           final style = SpaceStyle.of(context);
           return AnnotatedRegion<SystemUiOverlayStyle>(
-            value:
-                (brightness == Brightness.dark
-                        ? SystemUiOverlayStyle.light
-                        : SystemUiOverlayStyle.dark)
-                    .copyWith(
-                      statusBarColor: Colors.transparent,
-                      systemNavigationBarColor: Theme.of(context)
-                          .scaffoldBackgroundColor,
-                      systemNavigationBarIconBrightness:
-                          brightness == Brightness.dark
-                          ? Brightness.light
-                          : Brightness.dark,
-                      systemNavigationBarContrastEnforced: false,
-                    ),
+            value: spaceSystemUiStyle(context),
             child: Scaffold(
               appBar: AppBar(
                 title: const Text('Appearance'),

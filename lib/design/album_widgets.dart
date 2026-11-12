@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
-import 'vector_artwork.dart';
-
 import '../domain/models.dart';
 import 'space_theme.dart';
+import 'vector_artwork.dart';
 
 /// Example addresses for the bundled demo members, never used to send invitations.
 String? referenceMemberEmail(FamilyMember member) =>

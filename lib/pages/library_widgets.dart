@@ -1,55 +1,42 @@
 import 'package:flutter/material.dart';
-
-import '../design/vector_artwork.dart';
-
 import 'package:flutter/services.dart';
 
 import '../application/home_scope.dart';
+import '../design/album_widgets.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
-import '../design/album_widgets.dart';
+import '../design/system_ui.dart';
+import '../design/vector_artwork.dart';
 import '../domain/models.dart';
 
-Future<T?> openSpacePage<T>(
-  BuildContext context,
-  Widget page,
-) => Navigator.of(context).push<T>(
-  PageRouteBuilder<T>(
-    pageBuilder: (_, _, _) => Builder(
-      builder: (context) {
-        final theme = Theme.of(context);
-        final dark = theme.brightness == Brightness.dark;
-        return AnnotatedRegion<SystemUiOverlayStyle>(
-          value: (dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
-              .copyWith(
-                statusBarColor: Colors.transparent,
-                systemNavigationBarColor: theme.scaffoldBackgroundColor,
-                systemNavigationBarIconBrightness: dark
-                    ? Brightness.light
-                    : Brightness.dark,
-                systemNavigationBarContrastEnforced: false,
-              ),
-          child: page,
-        );
-      },
-    ),
-    transitionDuration: spaceMotion(context, 240),
-    reverseTransitionDuration: spaceMotion(context, 200),
-    transitionsBuilder: (_, animation, _, child) {
-      final eased = animation.drive(CurveTween(curve: Curves.easeOutCubic));
-      return FadeTransition(
-        opacity: eased,
-        child: SlideTransition(
-          position: Tween(
-            begin: const Offset(0, .035),
-            end: Offset.zero,
-          ).animate(eased),
-          child: child,
+Future<T?> openSpacePage<T>(BuildContext context, Widget page) =>
+    Navigator.of(context).push<T>(
+      PageRouteBuilder<T>(
+        pageBuilder: (_, _, _) => Builder(
+          builder: (context) {
+            return AnnotatedRegion<SystemUiOverlayStyle>(
+              value: spaceSystemUiStyle(context),
+              child: page,
+            );
+          },
         ),
-      );
-    },
-  ),
-);
+        transitionDuration: spaceMotion(context, 240),
+        reverseTransitionDuration: spaceMotion(context, 200),
+        transitionsBuilder: (_, animation, _, child) {
+          final eased = animation.drive(CurveTween(curve: Curves.easeOutCubic));
+          return FadeTransition(
+            opacity: eased,
+            child: SlideTransition(
+              position: Tween(
+                begin: const Offset(0, .035),
+                end: Offset.zero,
+              ).animate(eased),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
 
 int libraryColumns(BuildContext context) {
   final width = MediaQuery.sizeOf(context).width;
@@ -79,9 +66,7 @@ class MemoryTile extends StatelessWidget {
   final bool? selected;
   final bool favorite;
   final String? subtitle;
-  final bool avatarAttribution;
   final FamilyMember? attribution;
-  final bool showSubtitle;
   const MemoryTile({
     super.key,
     required this.media,
@@ -90,9 +75,7 @@ class MemoryTile extends StatelessWidget {
     this.selected,
     this.favorite = false,
     this.subtitle,
-    this.avatarAttribution = false,
     this.attribution,
-    this.showSubtitle = true,
   });
   @override
   Widget build(BuildContext context) {
@@ -147,36 +130,11 @@ class MemoryTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (subtitle != null && avatarAttribution && showSubtitle)
+                if (attribution != null)
                   Positioned(
                     right: 7,
                     bottom: 7,
-                    child: MemberPortrait(
-                      member: attribution ?? FamilyMember('', subtitle!),
-                      size: 26,
-                    ),
-                  ),
-                if (subtitle != null && !avatarAttribution && showSubtitle)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: ColoredBox(
-                      color: const Color(0xCC101519),
-                      child: Padding(
-                        padding: const EdgeInsets.all(7),
-                        child: Text(
-                          subtitle!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
+                    child: MemberPortrait(member: attribution!, size: 26),
                   ),
               ],
             ),

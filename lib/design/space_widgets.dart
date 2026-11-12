@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'space_symbols.dart';
 import 'space_theme.dart';
 import 'state_artwork.dart';
 
@@ -198,29 +197,6 @@ class SpaceFilter extends StatelessWidget {
   }
 }
 
-class SpaceBadge extends StatelessWidget {
-  final String label;
-  final Color? color;
-  const SpaceBadge(this.label, {super.key, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final style = SpaceStyle.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color ?? style.accentSoft,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelMedium!
-            .copyWith(color: style.accentInk, letterSpacing: .5),
-      ),
-    );
-  }
-}
-
 class SpaceSection extends StatelessWidget {
   final String title;
   final String? detail;
@@ -283,44 +259,6 @@ class SpaceEmpty extends StatelessWidget {
       ),
     );
   }
-}
-
-class SpacePageHeading extends StatelessWidget {
-  final SpacePage page;
-  final String subtitle;
-  const SpacePageHeading(this.page, {super.key, required this.subtitle});
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 16, bottom: 24),
-    child: Row(
-      children: [
-        Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            color: SpaceStyle.of(context).accentSoft,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Center(child: SpaceSymbol(page, size: 30)),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                page.label,
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 3),
-              Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
 double spaceBottomPadding(BuildContext context) =>

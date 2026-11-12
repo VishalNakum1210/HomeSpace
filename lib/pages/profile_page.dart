@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
-import '../design/space_symbols.dart';
+import '../design/album_widgets.dart';
 import '../design/cartoon_artwork.dart';
 import '../design/cartoon_header.dart';
-import '../design/album_widgets.dart';
-import '../domain/models.dart';
+import '../design/space_symbols.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
-import 'settings_pages.dart';
-import 'library_widgets.dart';
-import 'trash_page.dart';
+import '../domain/models.dart';
 import 'connection_page.dart';
+import 'library_widgets.dart';
+import 'settings_pages.dart';
+import 'trash_page.dart';
 import 'uploads_page.dart';
 
 String themeLabel(ThemeMode mode) => switch (mode) {
@@ -109,7 +110,8 @@ class ProfilePage extends StatelessWidget {
                     title: 'Appearance',
                     subtitle: themeLabel(mode),
                     tone: const Color(0xFFFF9600),
-                    onTap: () => chooseTheme(context),
+                    onTap: () =>
+                        openSpacePage<void>(context, const AppearancePage()),
                   ),
                   _SettingRow(
                     icon: Icons.accessibility_new_rounded,
@@ -137,6 +139,18 @@ class ProfilePage extends StatelessWidget {
                     tone: const Color(0xFF58A800),
                     onTap: () => showAbout(context),
                   ),
+                  if (FrontendSessionScope.maybeOf(context) != null) ...[
+                    const SizedBox(height: 8),
+                    SpaceButton(
+                      key: const ValueKey('logout'),
+                      label: 'Log out',
+                      icon: Icons.logout_rounded,
+                      backgroundColor: const Color(0xFFFFE7E5),
+                      foregroundColor: const Color(0xFFAD302C),
+                      onPressed: () =>
+                          FrontendSessionScope.maybeOf(context)!.logout(),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -145,9 +159,6 @@ class ProfilePage extends StatelessWidget {
       ),
     );
   }
-
-  Future<void> chooseTheme(BuildContext context) =>
-      openSpacePage<void>(context, const AppearancePage());
 
   Future<void> showMotionInfo(BuildContext context) => showSpaceSheet<void>(
     context,
@@ -234,7 +245,7 @@ class ProfilePage extends StatelessWidget {
           onPressed: () => showLicensePage(
             context: context,
             applicationName: 'HomeSpace',
-            applicationVersion: '0.7.3',
+            applicationVersion: '0.8.1',
           ),
         ),
         const SizedBox(height: 10),

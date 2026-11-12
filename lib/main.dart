@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app.dart';
+import 'application/frontend_session.dart';
 import 'data/local_home_repository.dart';
 import 'data/snapshot_store.dart';
 import 'domain/models.dart';
@@ -17,6 +18,7 @@ Future<void> main() async {
   });
   runApp(
     HomeSpaceApp(
+      session: FrontendSession(),
       repository: LocalHomeRepository(
         store: FileSnapshotStore.android(),
         scenario: DemoScenario.parse(

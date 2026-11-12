@@ -2,10 +2,10 @@ import 'dart:async';
 
 import '../domain/models.dart';
 import '../domain/repositories.dart';
+import 'demo_remote_repositories.dart';
 import 'seed_library.dart';
 import 'snapshot_codec.dart';
 import 'snapshot_store.dart';
-import 'demo_remote_repositories.dart';
 
 class LocalHomeRepository extends HomeRepository {
   final SnapshotStore store;

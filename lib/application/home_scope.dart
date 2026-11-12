@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../design/space_widgets.dart';
+import '../design/state_artwork.dart';
 import '../domain/models.dart';
 import '../domain/repositories.dart';
-import '../design/state_artwork.dart';
-import '../design/space_widgets.dart';
 
 class HomeScope extends InheritedNotifier<HomeRepository> {
   const HomeScope({

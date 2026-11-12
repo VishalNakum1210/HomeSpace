@@ -34,6 +34,10 @@ application. The original sheet remains a local ignored artifact at
 as `exec-67a67b0d-c10f-4a08-9645-03441e293962.png`.
 
 `memory-garden.png` is the earlier 2135 × 736 transparent image-generation
-illustration retained as source material. It is not used by the current UI.
+illustration retained as source material. It is not used by the current UI or bundled in the APK.
 Actual library photos remain raster photographs; their sources are recorded in
 `assets/photos/SOURCES.md`.
+
+`auth-layout-approved.png` preserves the approved Login/Registration reference.
+The app shows only its illustration regions; form controls and text are Flutter
+widgets. This is the only bundled illustration raster source.

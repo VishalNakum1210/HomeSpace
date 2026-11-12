@@ -162,7 +162,6 @@ class _TrashPageState extends State<TrashPage> {
                     media: photo,
                     selected: selecting ? selected.contains(photo.id) : null,
                     subtitle: 'Trashed ${date.day}/${date.month}/${date.year}',
-                    showSubtitle: false,
                     onLongPress: () => toggle(photo.id),
                     onTap: selecting
                         ? () => toggle(photo.id)

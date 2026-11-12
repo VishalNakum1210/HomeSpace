@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../domain/models.dart';
 import '../application/home_scope.dart';
+import '../domain/models.dart';
 import 'space_symbols.dart';
 
 class CartoonHeader extends StatelessWidget {

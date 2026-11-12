@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../application/home_scope.dart';
-import '../design/space_theme.dart';
-import '../design/cartoon_header.dart';
-import '../design/cartoon_artwork.dart';
 import '../design/album_widgets.dart';
+import '../design/cartoon_artwork.dart';
+import '../design/cartoon_header.dart';
+import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
 import '../domain/models.dart';
 import '../domain/repositories.dart';
+import 'album_editor_page.dart';
 import 'album_page.dart';
 import 'library_widgets.dart';
-import 'album_editor_page.dart';
 
 class CollectionsPage extends StatefulWidget {
   final VoidCallback? onProfile;

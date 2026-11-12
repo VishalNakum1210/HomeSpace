@@ -29,8 +29,18 @@ The latest frontend review fixes pinch/pan/paging handoffs, saves completing
 during Back navigation and stale bulk selections. See
 [gesture and control-flow validation](docs/frontend-polish.md).
 
+Login and Registration now follow the approved authentication design, with exact
+approved illustration regions, Nunito, native form controls and Profile logout.
+Submissions explicitly offer entry to the local preview; real account services
+are still pending. See [authentication frontend](docs/auth-frontend.md).
+
+The latest [code cleanup audit](docs/code-audit.md) removes obsolete widgets
+and unreachable UI branches, shares system-bar styling and photo timeline
+grouping, and excludes unused raster source artwork from the APK.
+
 ## Included
 
+- Login/registration layouts, validation, password visibility, and logout to a fresh login screen.
 - Locally bundled Nunito typography, an original house mascot, and colorful code-drawn page symbols.
 - Green Photos, purple Collections, and orange Profile accents on neutral surfaces.
 - Compact icon-only floating navigation with a **blue circle** behind the active icon.
@@ -66,7 +76,7 @@ flutter build apk --release --no-pub
 APK output: `build/app/outputs/flutter-apk/app-release.apk`.
 
 The current redesigned preview is saved as
-`output/releases/homespace-android-0.7.3+14-preview.apk` (version 0.7.3+14).
+`output/releases/homespace-android-0.8.1+16-preview.apk` (version 0.8.1+16).
 See [gesture and control-flow validation](docs/frontend-polish.md) for current checks
 and preview locations. The earlier functional phase-3 build and its Android
 screenshots remain documented in [phase-three validation](docs/phase-3-validation.md).

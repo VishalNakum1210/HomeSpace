@@ -1,16 +1,17 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../application/home_scope.dart';
+import '../design/album_widgets.dart';
+import '../design/photo_action.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
-import '../design/photo_action.dart';
-import '../design/album_widgets.dart';
-import 'album_page.dart';
+import '../design/system_ui.dart';
 import '../domain/models.dart';
+import 'album_page.dart';
 import 'library_widgets.dart';
 import 'local_edit_sheets.dart';
 
@@ -182,11 +183,9 @@ class _MediaViewerState extends State<MediaViewer> {
         builder: (context) {
           final text = Theme.of(context).textTheme;
           return AnnotatedRegion<SystemUiOverlayStyle>(
-            value: SystemUiOverlayStyle.light.copyWith(
-              statusBarColor: Colors.transparent,
-              systemNavigationBarColor: const Color(0xFF101519),
-              systemNavigationBarIconBrightness: Brightness.light,
-              systemNavigationBarContrastEnforced: false,
+            value: spaceSystemUiStyle(
+              context,
+              backgroundColor: const Color(0xFF101519),
             ),
             child: Scaffold(
               backgroundColor: const Color(0xFF101519),

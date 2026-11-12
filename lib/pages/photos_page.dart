@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
-import '../design/vector_artwork.dart';
-
 import '../application/home_scope.dart';
 import '../design/cartoon_artwork.dart';
 import '../design/cartoon_header.dart';
-import '../design/space_theme.dart';
 import '../design/photo_action.dart';
-import '../design/state_artwork.dart';
+import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
+import '../design/state_artwork.dart';
+import '../design/vector_artwork.dart';
+import '../domain/media_timeline.dart';
 import '../domain/models.dart';
 import 'library_widgets.dart';
 import 'local_edit_sheets.dart';
@@ -159,18 +159,16 @@ class _PhotosPageState extends State<PhotosPage> {
               (filter == 'All' ||
                   (filter == 'Favorites'
                       ? repository.favorites.contains(photo.id)
-                      : filter == 'Videos'
-                      ? photo.kind == MediaKind.video
-                      : photo.category == filter)) &&
+                      : photo.kind == MediaKind.video)) &&
               (query.isEmpty ||
                   photo.title.toLowerCase().contains(query) ||
                   photo.category.toLowerCase().contains(query)),
         )
         .toList();
-    photos.sort((a, b) {
-      final date = b.takenAt.compareTo(a.takenAt);
-      return date == 0 ? a.id.compareTo(b.id) : date;
-    });
+    photos.sort(MediaItem.compareNewestFirst);
+    final groups = selecting || searching
+        ? {'Search results': photos}
+        : groupMediaTimeline(photos, repository.groupFor);
     final columns = libraryColumns(context);
     final ids = selected
         .where((id) => repository.media.any((item) => item.id == id))
@@ -395,19 +393,14 @@ class _PhotosPageState extends State<PhotosPage> {
                             : 'Try another search or choose a different filter.',
                       ),
                     ),
-                  for (final group
-                      in focused
-                          ? {'Search results'}
-                          : photos.map(repository.groupFor).toSet()) ...[
+                  for (final group in groups.entries) ...[
                     if (!focused)
                       SliverPadding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         sliver: SliverToBoxAdapter(
                           child: SpaceSection(
-                            group,
-                            detail: focused
-                                ? '${photos.length} ${photos.length == 1 ? 'result' : 'results'}'
-                                : '${photos.where((item) => repository.groupFor(item) == group).length} memories',
+                            group.key,
+                            detail: '${group.value.length} memories',
                           ),
                         ),
                       ),
@@ -419,20 +412,9 @@ class _PhotosPageState extends State<PhotosPage> {
                           mainAxisSpacing: 6,
                           crossAxisSpacing: 6,
                         ),
-                        itemCount: photos
-                            .where(
-                              (item) =>
-                                  focused || repository.groupFor(item) == group,
-                            )
-                            .length,
+                        itemCount: group.value.length,
                         itemBuilder: (context, index) {
-                          final photo = photos
-                              .where(
-                                (item) =>
-                                    focused ||
-                                    repository.groupFor(item) == group,
-                              )
-                              .elementAt(index);
+                          final photo = group.value[index];
                           return MemoryTile(
                             key: ValueKey('memory-${photo.id}'),
                             media: photo,

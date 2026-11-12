@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../application/home_scope.dart';
-import '../design/space_theme.dart';
 import '../design/album_widgets.dart';
 import '../design/cartoon_artwork.dart';
+import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
+import '../domain/media_timeline.dart';
 import '../domain/models.dart';
-import 'library_widgets.dart';
 import 'album_editor_page.dart';
 import 'album_members_page.dart';
+import 'library_widgets.dart';
 import 'media_viewer.dart';
 
 class AlbumPage extends StatefulWidget {
@@ -54,10 +55,8 @@ class _AlbumPageState extends State<AlbumPage> {
       );
     }
     final photos = repository.photosFor(album).toList()
-      ..sort((a, b) {
-        final result = b.takenAt.compareTo(a.takenAt);
-        return result == 0 ? a.id.compareTo(b.id) : result;
-      });
+      ..sort(MediaItem.compareNewestFirst);
+    final groups = groupMediaTimeline(photos, repository.groupFor);
     final ids = selected
         .where((id) => photos.any((item) => item.id == id))
         .toList();
@@ -105,7 +104,7 @@ class _AlbumPageState extends State<AlbumPage> {
                   ),
                 ]
               : [
-                  if (owner || canAdd)
+                  if (canAdd)
                     PopupMenuButton<String>(
                       tooltip: 'Album options',
                       enabled: !busy,
@@ -317,17 +316,13 @@ class _AlbumPageState extends State<AlbumPage> {
                   message: 'Add a few favorites from your library.',
                 ),
               ),
-            for (final group in photos.map(repository.groupFor).toSet()) ...[
+            for (final group in groups.entries) ...[
               SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 sliver: SliverToBoxAdapter(
                   child: SpaceSection(
-                    group,
-                    detail: albumMemoryCount(
-                      photos
-                          .where((photo) => repository.groupFor(photo) == group)
-                          .length,
-                    ),
+                    group.key,
+                    detail: albumMemoryCount(group.value.length),
                   ),
                 ),
               ),
@@ -339,13 +334,9 @@ class _AlbumPageState extends State<AlbumPage> {
                     mainAxisSpacing: 6,
                     crossAxisSpacing: 6,
                   ),
-                  itemCount: photos
-                      .where((photo) => repository.groupFor(photo) == group)
-                      .length,
+                  itemCount: group.value.length,
                   itemBuilder: (context, index) {
-                    final photo = photos
-                        .where((photo) => repository.groupFor(photo) == group)
-                        .elementAt(index);
+                    final photo = group.value[index];
                     return MemoryTile(
                       key: ValueKey('album-memory-${photo.id}'),
                       media: photo,
@@ -353,7 +344,6 @@ class _AlbumPageState extends State<AlbumPage> {
                       subtitle: album.shared
                           ? repository.memberById(album.addedBy[photo.id]!).name
                           : null,
-                      avatarAttribution: true,
                       attribution: album.shared
                           ? repository.memberById(album.addedBy[photo.id]!)
                           : null,
