@@ -48,15 +48,27 @@ class MediaThumbnail extends StatelessWidget {
   final MediaItem media;
   const MediaThumbnail({super.key, required this.media});
   @override
-  Widget build(BuildContext context) => media.kind == MediaKind.photo
-      ? Image.asset(
-          media.asset,
-          fit: BoxFit.cover,
-          cacheWidth: 600,
-          errorBuilder: (_, _, _) =>
-              const Center(child: Icon(Icons.broken_image_outlined)),
-        )
-      : const Center(child: Icon(Icons.movie_outlined, size: 40));
+  Widget build(BuildContext context) {
+    if (media.kind != MediaKind.photo) {
+      return const Center(child: Icon(Icons.movie_outlined, size: 40));
+    }
+    if (media.asset.startsWith('http://') || media.asset.startsWith('https://')) {
+      return Image.network(
+        media.asset,
+        fit: BoxFit.cover,
+        cacheWidth: 600,
+        errorBuilder: (_, _, _) =>
+            const Center(child: Icon(Icons.broken_image_outlined)),
+      );
+    }
+    return Image.asset(
+      media.asset,
+      fit: BoxFit.cover,
+      cacheWidth: 600,
+      errorBuilder: (_, _, _) =>
+          const Center(child: Icon(Icons.broken_image_outlined)),
+    );
+  }
 }
 
 class MemoryTile extends StatelessWidget {

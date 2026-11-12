@@ -32,6 +32,9 @@ class BundledPhotoMetadata {
 }
 
 Future<BundledPhotoMetadata> readBundledPhotoMetadata(String asset) async {
+  if (asset.startsWith('http://') || asset.startsWith('https://')) {
+    return const BundledPhotoMetadata(0, 0, 0);
+  }
   final data = await rootBundle.load(asset);
   final buffer = await ui.ImmutableBuffer.fromUint8List(
     data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
@@ -255,16 +258,28 @@ class _MediaViewerState extends State<MediaViewer> {
                                           ),
                                         );
                                       }
-                                      return Image.asset(
-                                        item.asset,
-                                        fit: BoxFit.contain,
-                                        semanticLabel: item.title,
-                                        errorBuilder: (_, _, _) => const Center(
-                                          child: Text(
-                                            'Couldn’t open this photo',
-                                          ),
-                                        ),
-                                      );
+                                      return item.asset.startsWith('http://') ||
+                                              item.asset.startsWith('https://')
+                                          ? Image.network(
+                                              item.asset,
+                                              fit: BoxFit.contain,
+                                              semanticLabel: item.title,
+                                              errorBuilder: (_, _, _) => const Center(
+                                                child: Text(
+                                                  'Couldn’t open this photo',
+                                                ),
+                                              ),
+                                            )
+                                          : Image.asset(
+                                              item.asset,
+                                              fit: BoxFit.contain,
+                                              semanticLabel: item.title,
+                                              errorBuilder: (_, _, _) => const Center(
+                                                child: Text(
+                                                  'Couldn’t open this photo',
+                                                ),
+                                              ),
+                                            );
                                     },
                                   ),
                           ),
