@@ -90,5 +90,21 @@ export function initDatabase(dbPath = ':memory:') {
     CREATE INDEX IF NOT EXISTS idx_albums_owner_id ON albums(owner_id);
   `);
 
+  // Auto-heal any existing media records where taken_at matches created_at but file_name contains camera timestamp
+  try {
+    const rows = db.prepare("SELECT id, file_name, taken_at FROM media WHERE file_name LIKE 'IMG_%' OR file_name LIKE 'VID_%' OR file_name LIKE 'PXL_%'").all();
+    const updateStmt = db.prepare("UPDATE media SET taken_at = ? WHERE id = ?");
+    for (const row of rows) {
+      const match = row.file_name.match(/(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})/);
+      if (match) {
+        const [_, year, month, day, hour, min, sec] = match;
+        const iso = `${year}-${month}-${day}T${hour}:${min}:${sec}.000Z`;
+        if (row.taken_at !== iso) {
+          updateStmt.run(iso, row.id);
+        }
+      }
+    }
+  } catch (_) {}
+
   return db;
 }

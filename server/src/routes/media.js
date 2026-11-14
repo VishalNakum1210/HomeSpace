@@ -54,6 +54,23 @@ export function parseExifDate(exifBuffer) {
   return null;
 }
 
+export function parseDateFromFileName(filename) {
+  if (!filename || typeof filename !== 'string') return null;
+  const match = filename.match(/(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})/);
+  if (match) {
+    const [_, year, month, day, hour, min, sec] = match;
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10);
+    const d = parseInt(day, 10);
+    if (y >= 1970 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      const iso = `${year}-${month}-${day}T${hour}:${min}:${sec}.000Z`;
+      const date = new Date(iso);
+      if (!isNaN(date.getTime())) return date.toISOString();
+    }
+  }
+  return null;
+}
+
 // Check if user has permission to access a media item (owner OR shared album member)
 export function canAccessMedia(db, userId, mediaId) {
   // 1. Direct owner
@@ -222,6 +239,10 @@ export async function mediaRoutes(fastify, options) {
 
     if (!resolvedTakenAt && imageExif) {
       resolvedTakenAt = parseExifDate(imageExif);
+    }
+
+    if (!resolvedTakenAt) {
+      resolvedTakenAt = parseDateFromFileName(originalFileName);
     }
 
     if (!resolvedTakenAt) {

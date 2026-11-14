@@ -99,7 +99,14 @@ class LocalHomeRepository extends HomeRepository {
         );
         await store.save(_data);
       } else {
-        _data = saved.snapshot;
+        final healedMedia = saved.snapshot.media.map((m) {
+          final fileDate = parseDateFromFileName(m.title);
+          if (fileDate != null && m.takenAt != fileDate) {
+            return m.copyWith(takenAt: fileDate);
+          }
+          return m;
+        }).toList();
+        _data = saved.snapshot.copyWith(media: healedMedia);
         _recoveryNotice = saved.recoveryNotice;
       }
       _ready = true;
@@ -302,11 +309,12 @@ class LocalHomeRepository extends HomeRepository {
         final updatedExistingMedia = state.media.map((m) {
           final remote = remoteMap[m.id];
           if (remote != null) {
+            final fileNameDate = parseDateFromFileName(remote.title);
             return m.copyWith(
               kind: remote.kind,
               asset: remote.asset,
               title: remote.title,
-              takenAt: remote.takenAt,
+              takenAt: fileNameDate ?? remote.takenAt,
             );
           }
           return m;
@@ -314,7 +322,10 @@ class LocalHomeRepository extends HomeRepository {
 
         final existingMediaIds = state.media.map((m) => m.id).toSet();
         final newMedia =
-            remoteMedia.where((m) => !existingMediaIds.contains(m.id)).toList();
+            remoteMedia.where((m) => !existingMediaIds.contains(m.id)).map((m) {
+              final fileNameDate = parseDateFromFileName(m.title);
+              return fileNameDate != null ? m.copyWith(takenAt: fileNameDate) : m;
+            }).toList();
 
         final remoteAlbumMap = {for (final a in remoteAlbums) a.id: a};
         final updatedExistingAlbums = state.albums.map((a) {

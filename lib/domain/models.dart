@@ -18,6 +18,35 @@ enum DemoScenario {
       values.firstWhere((item) => item.name == value, orElse: () => populated);
 }
 
+/// Parses date and time from standard camera/screenshot filenames (e.g. IMG_20261113_180034.jpg, VID_20261113_180034.mp4).
+DateTime? parseDateFromFileName(String filename) {
+  final match = RegExp(r'(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})').firstMatch(filename);
+  if (match != null) {
+    final year = int.tryParse(match.group(1)!);
+    final month = int.tryParse(match.group(2)!);
+    final day = int.tryParse(match.group(3)!);
+    final hour = int.tryParse(match.group(4)!);
+    final minute = int.tryParse(match.group(5)!);
+    final second = int.tryParse(match.group(6)!);
+    if (year != null && month != null && day != null && hour != null && minute != null && second != null) {
+      if (year >= 1970 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return DateTime(year, month, day, hour, minute, second);
+      }
+    }
+  }
+
+  final dateOnly = RegExp(r'(?:IMG_|VID_|PXL_|Screenshot_)?(\d{4})[-_]?(\d{2})[-_]?(\d{2})', caseSensitive: false).firstMatch(filename);
+  if (dateOnly != null) {
+    final year = int.tryParse(dateOnly.group(1)!);
+    final month = int.tryParse(dateOnly.group(2)!);
+    final day = int.tryParse(dateOnly.group(3)!);
+    if (year != null && month != null && day != null && year >= 1970 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return DateTime(year, month, day, 12, 0, 0);
+    }
+  }
+  return null;
+}
+
 class MediaItem {
   /// Stable ordering shared by the library and album timelines.
   static int compareNewestFirst(MediaItem a, MediaItem b) {

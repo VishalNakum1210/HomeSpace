@@ -306,12 +306,16 @@ class HomeSpaceApiClient {
           lowerName.endsWith('.3gp') ||
           lowerName.endsWith('.avi');
 
+      final dateFromFileName = parseDateFromFileName(fileName);
+      final rawTakenAt = DateTime.tryParse(takenAtIso);
+      final effectiveTakenAt = dateFromFileName ?? rawTakenAt ?? DateTime.now();
+
       return MediaItem(
         id: id,
         asset: thumbUrl,
         title: fileName.isNotEmpty ? fileName : (isVideo ? 'Video' : 'Photo'),
         category: 'Library',
-        takenAt: DateTime.tryParse(takenAtIso) ?? DateTime.now(),
+        takenAt: effectiveTakenAt,
         kind: isVideo ? MediaKind.video : MediaKind.photo,
       );
     }).toList();
@@ -375,12 +379,16 @@ class HomeSpaceApiClient {
     final mime = map['mimeType'] as String? ?? resolvedMime;
     final isVideo = mime.startsWith('video/');
 
+    final dateFromFileName = parseDateFromFileName(filename);
+    final rawTakenAt = DateTime.tryParse(takenAtIso);
+    final effectiveTakenAt = takenAt ?? dateFromFileName ?? rawTakenAt ?? DateTime.now();
+
     return MediaItem(
       id: id,
       asset: thumbUrl,
       title: map['fileName'] as String? ?? filename,
       category: 'Uploads',
-      takenAt: DateTime.tryParse(takenAtIso) ?? DateTime.now(),
+      takenAt: effectiveTakenAt,
       kind: isVideo ? MediaKind.video : MediaKind.photo,
     );
   });
