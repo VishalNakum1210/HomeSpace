@@ -53,9 +53,8 @@ class _UploadsPageState extends State<UploadsPage> {
           builder: (context, _) {
             final filter = _effectiveFilter(queue);
             final items = queue.items;
-            final completed = items
-                .where((item) => item.phase == UploadPhase.completed)
-                .length;
+            final remaining = queue.remainingCount;
+            final completed = queue.completedCount;
             final visible = items
                 .where(
                   (item) => switch (filter) {
@@ -112,10 +111,17 @@ class _UploadsPageState extends State<UploadsPage> {
                                     builder: (context) {
                                       final session = FrontendSessionScope.maybeOf(context);
                                       final isReal = session?.authToken != null || queue is! DemoUploadRepository;
+                                      if (!isReal) {
+                                        return Text(
+                                          '$completed of ${items.length} sample items completed',
+                                          key: const ValueKey('queue-summary'),
+                                          style: text.bodyLarge,
+                                        );
+                                      }
                                       return Text(
-                                        isReal
-                                            ? '$completed of ${items.length} items uploaded to HomeSpace'
-                                            : '$completed of ${items.length} sample items completed',
+                                        remaining > 0
+                                            ? '$remaining items remaining ($completed of ${items.length} uploaded)'
+                                            : '$completed items uploaded to HomeSpace',
                                         key: const ValueKey('queue-summary'),
                                         style: text.bodyLarge,
                                       );
@@ -165,9 +171,9 @@ class _UploadsPageState extends State<UploadsPage> {
                                   ChoiceChip(
                                     key: ValueKey('queue-${option.name}'),
                                     label: Text(switch (option) {
-                                      QueueFilter.all => 'All',
-                                      QueueFilter.active => 'Active',
-                                      QueueFilter.finished => 'Finished',
+                                      QueueFilter.all => 'All (${items.length})',
+                                      QueueFilter.active => 'Active ($remaining)',
+                                      QueueFilter.finished => 'Finished ($completed)',
                                     }),
                                     selected: filter == option,
                                     onSelected: (_) =>
@@ -355,9 +361,24 @@ class _UploadCard extends StatelessWidget {
                     Text(title, style: text.titleMedium),
                     const SizedBox(height: 4),
                     Text(
-                      uploadLabel(item.phase),
+                      (item.phase == UploadPhase.uploading &&
+                              item.totalBytes > 0 &&
+                              item.bytesSent >= (item.totalBytes * 0.97).round())
+                          ? 'Processing on server...'
+                          : uploadLabel(item.phase),
                       key: ValueKey('upload-state-${item.id}'),
-                      style: text.bodyMedium,
+                      style: text.bodyMedium?.copyWith(
+                        color: (item.phase == UploadPhase.uploading &&
+                                item.totalBytes > 0 &&
+                                item.bytesSent >= (item.totalBytes * 0.97).round())
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
+                        fontWeight: (item.phase == UploadPhase.uploading &&
+                                item.totalBytes > 0 &&
+                                item.bytesSent >= (item.totalBytes * 0.97).round())
+                            ? FontWeight.w600
+                            : null,
+                      ),
                     ),
                   ],
                 ),
@@ -379,9 +400,13 @@ class _UploadCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  item.totalBytes > 0
-                      ? '${formatBytes(item.bytesSent)} of ${formatBytes(item.totalBytes)}'
-                      : 'Uploading…',
+                  (item.phase == UploadPhase.uploading &&
+                          item.totalBytes > 0 &&
+                          item.bytesSent >= (item.totalBytes * 0.97).round())
+                      ? 'Saving to HomeSpace...'
+                      : (item.totalBytes > 0
+                          ? '${formatBytes(item.bytesSent)} of ${formatBytes(item.totalBytes)}'
+                          : 'Uploading…'),
                   style: text.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),

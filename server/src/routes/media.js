@@ -1,38 +1,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { pipeline } from 'node:stream/promises';
 import sharp from 'sharp';
-import { getMediaPaths, deleteMediaFiles, checkQuota, updateStorageUsage, sanitizeMediaId } from '../storage.js';
-
-const ALLOWED_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-  'image/heic',
-  'image/avif',
-  'video/mp4',
-  'video/webm',
-  'video/quicktime',
-  'video/x-matroska',
-  'video/3gpp',
-  'video/x-msvideo',
-]);
-
-const EXTENSION_MAP = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-  'image/heic': 'heic',
-  'image/avif': 'avif',
-  'video/mp4': 'mp4',
-  'video/webm': 'webm',
-  'video/quicktime': 'mov',
-  'video/x-matroska': 'mkv',
-  'video/3gpp': '3gp',
-  'video/x-msvideo': 'avi',
-};
+import { getMediaPaths, deleteMediaFiles, checkQuota, updateStorageUsage, sanitizeMediaId, sanitizeUserId, ALLOWED_MIME_TYPES, EXTENSION_MAP, validateMagicBytes } from '../storage.js';
 
 export function parseExifDate(exifBuffer) {
   if (!exifBuffer || !Buffer.isBuffer(exifBuffer)) return null;
@@ -96,18 +68,71 @@ export async function mediaRoutes(fastify, options) {
   // Authenticate all media routes
   fastify.addHook('preHandler', fastify.authenticate);
 
-  // 1. Upload media item
-  fastify.post('/media/upload', async (req, reply) => {
-    const data = await req.file();
-    if (!data) {
+  // 1. Upload media item (allow up to 5GB video/photo payloads)
+  fastify.post('/media/upload', { bodyLimit: 5 * 1024 * 1024 * 1024 }, async (req, reply) => {
+    let tempUploadPath = null;
+    let thumbBuffer = null;
+    let filename = '';
+    let mimeType = '';
+    const formFields = {};
+
+    const uploadTempDir = path.join(dataDir, 'users', sanitizeUserId(req.user.id), 'temp');
+    if (!fs.existsSync(uploadTempDir)) fs.mkdirSync(uploadTempDir, { recursive: true });
+    const tempFileId = 'tmp_' + crypto.randomBytes(8).toString('hex');
+    const targetTempPath = path.join(uploadTempDir, tempFileId);
+
+    try {
+      if (req.isMultipart()) {
+        for await (const part of req.parts()) {
+          if (part.type === 'file') {
+            if (part.fieldname === 'thumb' || part.fieldname === 'thumbnail') {
+              thumbBuffer = await part.toBuffer();
+            } else {
+              filename = part.filename;
+              mimeType = part.mimetype;
+              const outStream = fs.createWriteStream(targetTempPath);
+              await pipeline(part.file, outStream);
+              tempUploadPath = targetTempPath;
+            }
+          } else {
+            formFields[part.fieldname] = part.value;
+          }
+        }
+      } else {
+        const data = await req.file();
+        if (data) {
+          filename = data.filename;
+          mimeType = data.mimetype;
+          const outStream = fs.createWriteStream(targetTempPath);
+          await pipeline(data.file, outStream);
+          tempUploadPath = targetTempPath;
+        }
+      }
+    } catch (streamErr) {
+      if (fs.existsSync(targetTempPath)) {
+        try { fs.unlinkSync(targetTempPath); } catch (_) {}
+      }
+      throw streamErr;
+    }
+
+    if (!tempUploadPath || !fs.existsSync(tempUploadPath)) {
       return reply.code(400).send({
         error: { code: 'NO_FILE', message: 'No file uploaded' },
       });
     }
 
-    let mimeType = data.mimetype;
-    if ((!mimeType || mimeType === 'application/octet-stream') && data.filename) {
-      const fileExt = path.extname(data.filename).toLowerCase().replace('.', '');
+    const stat = fs.statSync(tempUploadPath);
+    if (stat.size === 0) {
+      if (fs.existsSync(tempUploadPath)) {
+        try { fs.unlinkSync(tempUploadPath); } catch (_) {}
+      }
+      return reply.code(400).send({
+        error: { code: 'NO_FILE', message: 'Uploaded file is empty' },
+      });
+    }
+
+    if ((!mimeType || mimeType === 'application/octet-stream') && filename) {
+      const fileExt = path.extname(filename).toLowerCase().replace('.', '');
       const reverseMap = {
         jpg: 'image/jpeg',
         jpeg: 'image/jpeg',
@@ -125,22 +150,64 @@ export async function mediaRoutes(fastify, options) {
       };
       if (reverseMap[fileExt]) mimeType = reverseMap[fileExt];
     }
-    if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+    // 1. Validate magic bytes from binary header to prevent MIME spoofing or disguised scripts
+    const verifiedMagicMime = validateMagicBytes(tempUploadPath);
+    if (verifiedMagicMime) {
+      mimeType = verifiedMagicMime;
+    } else if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+      if (fs.existsSync(tempUploadPath)) {
+        try { fs.unlinkSync(tempUploadPath); } catch (_) {}
+      }
       return reply.code(415).send({
         error: {
           code: 'UNSUPPORTED_MEDIA_TYPE',
-          message: `Unsupported media format: ${mimeType}. Supported: JPEG, PNG, WebP, GIF, HEIC, AVIF, MP4, MOV, WebM, MKV`,
+          message: `Unsupported or corrupted media format. Supported: JPEG, PNG, WebP, GIF, HEIC, AVIF, MP4, MOV, WebM, MKV`,
         },
       });
     }
 
-    const fileBuffer = await data.toBuffer();
-    const byteSize = fileBuffer.length;
+    const byteSize = stat.size;
+    const ext = EXTENSION_MAP[mimeType] || 'jpg';
+    const originalFileName = filename || `photo_${Date.now()}.${ext}`;
+
+    // 1. Deduplication check: Check if user already uploaded this file (e.g. retry after client timeout)
+    const existing = db.prepare(`
+      SELECT * FROM media
+      WHERE user_id = ? AND file_name = ? AND is_trashed = 0
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(req.user.id, originalFileName);
+
+    if (existing) {
+      const sizeDiff = Math.abs(existing.byte_size - byteSize);
+      if (sizeDiff < 500 * 1024) {
+        // File already exists on server! Clean up temp upload file and return existing record
+        if (fs.existsSync(tempUploadPath)) {
+          try { fs.unlinkSync(tempUploadPath); } catch (_) {}
+        }
+        return reply.code(200).send({
+          id: existing.id,
+          userId: existing.user_id,
+          fileName: existing.file_name,
+          mimeType: existing.mime_type,
+          byteSize: existing.byte_size,
+          width: existing.width,
+          height: existing.height,
+          takenAt: existing.taken_at,
+          createdAt: existing.created_at,
+          isFavorite: Boolean(existing.is_favorite),
+          isTrashed: Boolean(existing.is_trashed),
+        });
+      }
+    }
 
     // Estimate total size with thumbnail (~80KB thumbnail estimate)
     const estimatedTotalBytes = byteSize + 80 * 1024;
     const quotaCheck = checkQuota(db, req.user.id, estimatedTotalBytes);
     if (!quotaCheck.allowed) {
+      if (fs.existsSync(tempUploadPath)) {
+        try { fs.unlinkSync(tempUploadPath); } catch (_) {}
+      }
       return reply.code(413).send({
         error: {
           code: 'QUOTA_EXCEEDED',
@@ -150,11 +217,11 @@ export async function mediaRoutes(fastify, options) {
     }
 
     const mediaId = 'm_' + crypto.randomBytes(8).toString('hex');
-    const ext = EXTENSION_MAP[mimeType] || 'jpg';
     const paths = getMediaPaths(dataDir, req.user.id, mediaId, ext);
 
-    // Save original image/video to user's isolated folder
-    fs.writeFileSync(paths.original, fileBuffer);
+    // Atomically move streamed temp upload file into user's originals storage and enforce non-executable 0o600 permissions
+    fs.renameSync(tempUploadPath, paths.original);
+    try { fs.chmodSync(paths.original, 0o600); } catch (_) {}
 
     const isVideo = mimeType.startsWith('video/');
     let width = 0;
@@ -164,37 +231,74 @@ export async function mediaRoutes(fastify, options) {
 
     try {
       if (isVideo) {
-        // High quality video card poster for thumbnail & preview
-        const svgPoster = `<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#101820"/>
-              <stop offset="100%" stop-color="#1E2A38"/>
-            </linearGradient>
-          </defs>
-          <rect width="400" height="400" fill="url(#g)"/>
-          <circle cx="200" cy="200" r="46" fill="#ffffff" fill-opacity="0.85"/>
-          <polygon points="190,178 226,200 190,222" fill="#101820"/>
-        </svg>`;
-        await sharp(Buffer.from(svgPoster)).webp({ quality: 90 }).toFile(paths.thumbnail);
-        await sharp(Buffer.from(svgPoster)).webp({ quality: 90 }).toFile(paths.preview);
+        if (thumbBuffer && thumbBuffer.length > 0) {
+          await sharp(thumbBuffer)
+            .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 80 })
+            .toFile(paths.thumbnail);
+          await sharp(thumbBuffer)
+            .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 85 })
+            .toFile(paths.preview);
+        } else {
+          // If no thumb uploaded with video, extract via ffmpeg or generate slick poster card
+          const ffmpegInstalled = await new Promise((resolve) => {
+            execFile('ffmpeg', ['-version'], (err) => resolve(!err));
+          });
+          let extracted = false;
+          if (ffmpegInstalled) {
+            try {
+              await new Promise((resolve, reject) => {
+                execFile(
+                  'ffmpeg',
+                  ['-y', '-ss', '00:00:01', '-i', paths.original, '-vframes', '1', '-f', 'image2', paths.thumbnail],
+                  (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                  }
+                );
+              });
+              extracted = fs.existsSync(paths.thumbnail) && fs.statSync(paths.thumbnail).size > 0;
+              if (extracted) {
+                fs.copyFileSync(paths.thumbnail, paths.preview);
+              }
+            } catch (_) {}
+          }
+          if (!extracted) {
+            // Sleek fallback: Generate an artistic SVG/WebP video poster with play badge
+            const posterSvg = `<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#1E293B" />
+                  <stop offset="100%" stop-color="#0F172A" />
+                </linearGradient>
+              </defs>
+              <rect width="100%" height="100%" fill="url(#grad)" />
+              <circle cx="200" cy="200" r="48" fill="rgba(255,255,255,0.2)" />
+              <polygon points="188,176 224,200 188,224" fill="#FFFFFF" />
+            </svg>`;
+            await sharp(Buffer.from(posterSvg))
+              .resize(400, 400)
+              .webp({ quality: 80 })
+              .toFile(paths.thumbnail);
+            fs.copyFileSync(paths.thumbnail, paths.preview);
+          }
+        }
       } else {
-        // Process with Sharp for metadata & fast 400px thumbnail
-        const image = sharp(fileBuffer);
+        // Image processing: Sharp streams directly from paths.original file on disk (0 RAM buffering)
+        const image = sharp(paths.original);
         const metadata = await image.metadata();
         width = metadata.width || 0;
         height = metadata.height || 0;
 
-        // Generate compressed mobile thumbnail (400px width/height bounding box, webp format)
         await image
           .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
           .webp({ quality: 80 })
           .toFile(paths.thumbnail);
 
-        // Generate sharp screen-fit preview asynchronously in background for blazing fast upload response
         setImmediate(async () => {
           try {
-            await sharp(fileBuffer)
+            await sharp(paths.original)
               .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
               .webp({ quality: 85 })
               .toFile(paths.preview);
@@ -208,6 +312,10 @@ export async function mediaRoutes(fastify, options) {
 
       const thumbStat = fs.statSync(paths.thumbnail);
       thumbSize = thumbStat.size;
+      try { fs.chmodSync(paths.thumbnail, 0o600); } catch (_) {}
+      if (fs.existsSync(paths.preview)) {
+        try { fs.chmodSync(paths.preview, 0o600); } catch (_) {}
+      }
     } catch (err) {
       // Cleanup on failure
       if (fs.existsSync(paths.original)) fs.unlinkSync(paths.original);
@@ -218,14 +326,14 @@ export async function mediaRoutes(fastify, options) {
 
     const actualTotalBytes = byteSize + thumbSize;
     const now = new Date().toISOString();
-    const originalFileName = data.filename || `photo_${Date.now()}.${ext}`;
+    const originalFileName = filename || `photo_${Date.now()}.${ext}`;
 
     // Resolve takenAt: 1) Client provided, 2) EXIF metadata, 3) Current timestamp
     let resolvedTakenAt = null;
     const clientDateStr =
       req.query?.takenAt ||
       req.headers?.['x-taken-at'] ||
-      data.fields?.takenAt?.value;
+      formFields.takenAt;
 
     if (clientDateStr && typeof clientDateStr === 'string') {
       const parsed = new Date(clientDateStr);
@@ -360,14 +468,99 @@ export async function mediaRoutes(fastify, options) {
     const paths = getMediaPaths(dataDir, media.user_id, media.id, ext);
 
     if (!fs.existsSync(paths.thumbnail)) {
-      return reply.code(404).send({
-        error: { code: 'NOT_FOUND', message: 'Thumbnail file missing' },
-      });
+      if (fs.existsSync(paths.original) && media.mime_type.startsWith('image/')) {
+        try {
+          await sharp(paths.original)
+            .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 80 })
+            .toFile(paths.thumbnail);
+        } catch (_) {
+          reply.header('Content-Type', media.mime_type);
+          return reply.send(fs.createReadStream(paths.original));
+        }
+      } else if (media.mime_type.startsWith('video/') && fs.existsSync(paths.original)) {
+        try {
+          await new Promise((resolve, reject) => {
+            execFile('ffmpeg', [
+              '-ss', '00:00:01',
+              '-i', paths.original,
+              '-vframes', '1',
+              '-vf', 'scale=400:400:force_original_aspect_ratio=decrease',
+              '-q:v', '2',
+              '-y',
+              paths.thumbnail,
+            ], (err) => {
+              if (err) reject(err);
+              else resolve();
+            });
+          });
+        } catch (_) {
+          // If ffmpeg fails or is not installed, generate a WebP video poster
+          const posterSvg = `
+          <svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+            <rect width="400" height="400" fill="#1b2838"/>
+            <circle cx="200" cy="200" r="50" fill="#2A3B4C"/>
+            <polygon points="190,178 190,222 226,200" fill="#FFFFFF"/>
+          </svg>`;
+          try {
+            await sharp(Buffer.from(posterSvg)).webp({ quality: 80 }).toFile(paths.thumbnail);
+          } catch (_) {
+            return reply.code(404).send({
+              error: { code: 'NOT_FOUND', message: 'Thumbnail file missing' },
+            });
+          }
+        }
+      } else if (fs.existsSync(paths.preview) && !media.mime_type.startsWith('video/')) {
+        reply.header('Content-Type', 'image/webp');
+        return reply.send(fs.createReadStream(paths.preview));
+      } else {
+        return reply.code(404).send({
+          error: { code: 'NOT_FOUND', message: 'Thumbnail file missing' },
+        });
+      }
     }
 
     reply.header('Content-Type', 'image/webp');
     reply.header('Cache-Control', 'private, max-age=86400');
     return reply.send(fs.createReadStream(paths.thumbnail));
+  });
+
+  // 4b. Upload / update thumbnail for an existing media item (especially videos)
+  fastify.put('/media/:id/thumb', async (req, reply) => {
+    const media = canAccessMedia(db, req.user.id, req.params.id);
+    if (!media) {
+      return reply.code(404).send({
+        error: { code: 'NOT_FOUND', message: 'Media item not found or access denied' },
+      });
+    }
+
+    const data = await req.file();
+    if (!data) {
+      return reply.code(400).send({
+        error: { code: 'NO_FILE', message: 'No thumbnail uploaded' },
+      });
+    }
+
+    const buffer = await data.toBuffer();
+    const ext = EXTENSION_MAP[media.mime_type] || 'jpg';
+    const paths = getMediaPaths(dataDir, media.user_id, media.id, ext);
+
+    await sharp(buffer)
+      .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 80 })
+      .toFile(paths.thumbnail);
+
+    await sharp(buffer)
+      .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 85 })
+      .toFile(paths.preview);
+
+    try {
+      fs.chmodSync(paths.thumbnail, 0o600);
+      fs.chmodSync(paths.preview, 0o600);
+    } catch (_) {}
+
+    return { success: true, id: media.id };
   });
 
   // 4b. Stream preview (fast 1600px screen-fit WebP image, Google Photos technique)
@@ -435,21 +628,40 @@ export async function mediaRoutes(fastify, options) {
 
     reply.header('Content-Type', media.mime_type);
     reply.header('Accept-Ranges', 'bytes');
+    reply.header('Cache-Control', 'public, max-age=604800, immutable');
 
     if (range) {
       const parts = range.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      if (isNaN(start) || start < 0 || start >= stat.size) {
+        reply.header('Content-Range', `bytes */${stat.size}`);
+        return reply.code(416).send({ error: { code: 'RANGE_NOT_SATISFIABLE' } });
+      }
+
+      // If client requests open-ended range (e.g. "bytes=0-"), cap chunk size to 16MB.
+      // 16MB provides smooth buffer-free video playback for high-bitrate phone videos,
+      // avoiding frequent round-trip stalls while keeping memory and socket overhead low.
+      const CHUNK_SIZE = 16 * 1024 * 1024;
+      const explicitEnd = parts[1] ? parseInt(parts[1], 10) : NaN;
+      const end = !isNaN(explicitEnd) ? Math.min(explicitEnd, stat.size - 1) : Math.min(start + CHUNK_SIZE - 1, stat.size - 1);
       const chunksize = end - start + 1;
 
       reply.code(206);
       reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
       reply.header('Content-Length', chunksize);
-      return reply.send(fs.createReadStream(paths.original, { start, end }));
+      const stream = fs.createReadStream(paths.original, { start, end });
+      req.raw.on('close', () => {
+        stream.destroy();
+      });
+      return reply.send(stream);
     }
 
     reply.header('Content-Length', stat.size);
-    return reply.send(fs.createReadStream(paths.original));
+    const fullStream = fs.createReadStream(paths.original);
+    req.raw.on('close', () => {
+      fullStream.destroy();
+    });
+    return reply.send(fullStream);
   });
 
   // 6. Toggle Favorite

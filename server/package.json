@@ -10,7 +10,11 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
     "dev": "node --env-file-if-exists=.env --watch src/index.js",
-    "test": "node --test --test-concurrency=1 test/*.test.js"
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "cli": "node src/cli.js"
+  },
+  "bin": {
+    "homespace": "./src/cli.js"
   },
   "dependencies": {
     "@fastify/multipart": "^10.0.0",

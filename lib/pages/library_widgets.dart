@@ -2,9 +2,13 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
+import '../application/device_media_service.dart';
 import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
+import '../data/homespace_api_client.dart';
 import '../design/album_widgets.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
@@ -50,98 +54,486 @@ int libraryColumns(BuildContext context) {
 class MediaThumbnail extends StatelessWidget {
   final MediaItem media;
   const MediaThumbnail({super.key, required this.media});
+
+  static void clearLocalCaches() {
+    _PhotoThumbnailTileState.clearLocalPathCache();
+    _VideoThumbnailTileState.clearLocalCache();
+  }
+
   @override
   Widget build(BuildContext context) {
-    Widget imageWidget;
-    if (media.asset.startsWith('http://') || media.asset.startsWith('https://')) {
-      final token = FrontendSessionScope.maybeOf(context)?.authToken;
-      imageWidget = Image.network(
-        media.asset,
+    if (media.kind == MediaKind.video) {
+      return _VideoThumbnailTile(media: media);
+    }
+    return _PhotoThumbnailTile(media: media);
+  }
+}
+
+class _PhotoThumbnailTile extends StatefulWidget {
+  final MediaItem media;
+  const _PhotoThumbnailTile({required this.media});
+
+  @override
+  State<_PhotoThumbnailTile> createState() => _PhotoThumbnailTileState();
+}
+
+class _PhotoThumbnailTileState extends State<_PhotoThumbnailTile> {
+  static final Map<String, String?> _localPathCache = {};
+  static final Map<String, String?> _diskThumbCache = {};
+  static final Set<String> _inFlightDownloads = {};
+
+  static void clearLocalPathCache() {
+    _localPathCache.clear();
+  }
+
+  String? _resolvedPath;
+  bool _hasError = false;
+  int _retryCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveThumbnail();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PhotoThumbnailTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.media.id != widget.media.id ||
+        oldWidget.media.asset != widget.media.asset) {
+      _retryCount = 0;
+      _hasError = false;
+      _resolvedPath = null;
+      _resolveThumbnail();
+    }
+  }
+
+  Future<void> _resolveThumbnail() async {
+    final asset = widget.media.asset;
+    final title = widget.media.title.trim();
+    final id = widget.media.id;
+
+    // 1. Direct local file on disk
+    if (!kIsWeb && !asset.startsWith('http://') && !asset.startsWith('https://')) {
+      if (File(asset).existsSync()) {
+        if (mounted) setState(() => _resolvedPath = asset);
+        return;
+      }
+    }
+
+    if (kIsWeb) return;
+
+    // 2. Check local device storage via MediaStore / candidate folders (0ms instant render)
+    if (title.isNotEmpty) {
+      if (_localPathCache.containsKey(title)) {
+        final cached = _localPathCache[title];
+        if (cached != null && File(cached).existsSync()) {
+          if (mounted) setState(() => _resolvedPath = cached);
+          return;
+        } else {
+          _localPathCache.remove(title);
+        }
+      }
+      final local = await DeviceMediaService.findLocalMedia(title, isVideo: false);
+      if (local != null && File(local).existsSync()) {
+        _localPathCache[title] = local;
+        if (mounted) setState(() => _resolvedPath = local);
+        return;
+      } else {
+        _localPathCache.remove(title);
+      }
+    }
+
+    // 3. Check persistent disk cache (survives app restarts & memory eviction)
+    if (_diskThumbCache.containsKey(id)) {
+      final cached = _diskThumbCache[id];
+      if (cached != null && File(cached).existsSync() && File(cached).lengthSync() > 0) {
+        if (mounted) setState(() => _resolvedPath = cached);
+        return;
+      } else {
+        _diskThumbCache.remove(id);
+      }
+    }
+
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final cacheFile = File('${tempDir.path}/thumb_$id.webp');
+      if (cacheFile.existsSync() && cacheFile.lengthSync() > 0) {
+        _diskThumbCache[id] = cacheFile.path;
+        if (mounted) setState(() => _resolvedPath = cacheFile.path);
+        return;
+      }
+
+      // 4. Download from network & cache to disk with auto-retry
+      final session = mounted ? FrontendSessionScope.maybeOf(context) : null;
+      final targetUri = resolveMediaUri(
+        asset: asset,
+        id: id,
+        serverUri: session?.serverUri,
+        endpoint: 'thumb',
+      );
+      if (targetUri != null) {
+        _downloadAndCache(cacheFile, targetUri);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _downloadAndCache(File cacheFile, Uri targetUri) async {
+    final id = widget.media.id;
+    if (_inFlightDownloads.contains(id)) return;
+    _inFlightDownloads.add(id);
+
+    try {
+      final token = mounted ? FrontendSessionScope.maybeOf(context)?.authToken : null;
+      final client = createHomeSpaceHttpClient();
+      try {
+        final req = http.Request('GET', targetUri);
+        if (token != null) req.headers['Authorization'] = 'Bearer $token';
+        final streamed = await client.send(req);
+        if (streamed.statusCode == 200) {
+          final tempPart = File('${cacheFile.path}.part');
+          final sink = tempPart.openWrite();
+          await streamed.stream.pipe(sink);
+          await sink.flush();
+          await sink.close();
+          if (await tempPart.exists() && await tempPart.length() > 0) {
+            await tempPart.rename(cacheFile.path);
+            _diskThumbCache[id] = cacheFile.path;
+            if (mounted) {
+              setState(() {
+                _resolvedPath = cacheFile.path;
+                _hasError = false;
+              });
+            }
+          }
+        } else {
+          _handleDownloadFailure();
+        }
+      } finally {
+        client.close();
+      }
+    } catch (_) {
+      _handleDownloadFailure();
+    } finally {
+      _inFlightDownloads.remove(id);
+    }
+  }
+
+  void _handleDownloadFailure() {
+    if (!mounted) return;
+    if (_retryCount < 2) {
+      _retryCount++;
+      Future.delayed(Duration(milliseconds: 1200 * _retryCount), () {
+        if (mounted && _resolvedPath == null) {
+          _resolveThumbnail();
+        }
+      });
+    } else {
+      setState(() => _hasError = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_resolvedPath != null) {
+      if (File(_resolvedPath!).existsSync()) {
+        return Image.file(
+          File(_resolvedPath!),
+          fit: BoxFit.cover,
+          cacheWidth: 360,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => _fallbackWidget(),
+        );
+      } else {
+        // Local file was removed/deleted; clear stale state and re-resolve from server.
+        _resolvedPath = null;
+        _localPathCache.remove(widget.media.title.trim());
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _resolveThumbnail();
+        });
+      }
+    }
+
+    final session = FrontendSessionScope.maybeOf(context);
+    final targetUri = resolveMediaUri(
+      asset: widget.media.asset,
+      id: widget.media.id,
+      serverUri: session?.serverUri,
+      endpoint: 'thumb',
+    );
+
+    if (targetUri != null && !_hasError) {
+      final token = session?.authToken;
+      return Image.network(
+        targetUri.toString(),
         headers: token != null ? {'Authorization': 'Bearer $token'} : null,
         fit: BoxFit.cover,
         cacheWidth: 360,
         gaplessPlayback: true,
         frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-          if (wasSynchronouslyLoaded) return child;
-          return AnimatedOpacity(
-            opacity: frame == null ? 0 : 1,
-            duration: const Duration(milliseconds: 150),
-            curve: Curves.easeOut,
-            child: child,
-          );
+          if (wasSynchronouslyLoaded || frame != null) return child;
+          return _placeholder();
         },
-        errorBuilder: (_, _, _) => Center(
-          child: Icon(
-            media.kind == MediaKind.video ? Icons.movie_outlined : Icons.broken_image_outlined,
-            size: 36,
-          ),
-        ),
+        errorBuilder: (_, _, _) {
+          if (_resolvedPath != null && File(_resolvedPath!).existsSync()) {
+            return Image.file(File(_resolvedPath!), fit: BoxFit.cover, cacheWidth: 360);
+          }
+          return _fallbackWidget();
+        },
       );
-    } else if (!kIsWeb && File(media.asset).existsSync()) {
-      imageWidget = Image.file(
-        File(media.asset),
+    }
+
+    if (!kIsWeb && File(widget.media.asset).existsSync()) {
+      return Image.file(
+        File(widget.media.asset),
         fit: BoxFit.cover,
         cacheWidth: 360,
         gaplessPlayback: true,
-        errorBuilder: (_, _, _) => Center(
-          child: Icon(
-            media.kind == MediaKind.video ? Icons.movie_outlined : Icons.broken_image_outlined,
-            size: 36,
-          ),
+        errorBuilder: (_, _, _) => _fallbackWidget(),
+      );
+    }
+
+    if (widget.media.asset.startsWith('assets/')) {
+      return Image.asset(
+        widget.media.asset,
+        fit: BoxFit.cover,
+        cacheWidth: 360,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => _fallbackWidget(),
+      );
+    }
+
+    return _fallbackWidget();
+  }
+
+  Widget _placeholder() {
+    return Container(
+      color: Colors.black12,
+      child: const Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black26),
         ),
+      ),
+    );
+  }
+
+  Widget _fallbackWidget() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() {
+          _hasError = false;
+          _retryCount = 0;
+        });
+        _resolveThumbnail();
+      },
+      child: Container(
+        color: Colors.black12,
+        child: const Center(
+          child: Icon(Icons.broken_image_outlined, size: 36, color: Colors.black38),
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoThumbnailTile extends StatefulWidget {
+  final MediaItem media;
+  const _VideoThumbnailTile({required this.media});
+
+  @override
+  State<_VideoThumbnailTile> createState() => _VideoThumbnailTileState();
+}
+
+class _VideoThumbnailTileState extends State<_VideoThumbnailTile> {
+  static final Set<String> _inFlightVideoDownloads = {};
+  static final Map<String, String> _diskVideoThumbCache = {};
+  String? _localThumbPath;
+
+  static void clearLocalCache() {
+    _diskVideoThumbCache.clear();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveThumbnail();
+  }
+
+  @override
+  void didUpdateWidget(covariant _VideoThumbnailTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.media.id != widget.media.id ||
+        oldWidget.media.asset != widget.media.asset) {
+      _resolveThumbnail();
+    }
+  }
+
+  Future<void> _resolveThumbnail() async {
+    if (kIsWeb) return;
+
+    final id = widget.media.id;
+    if (_diskVideoThumbCache.containsKey(id)) {
+      final cached = _diskVideoThumbCache[id]!;
+      if (File(cached).existsSync()) {
+        if (mounted) setState(() => _localThumbPath = cached);
+        return;
+      } else {
+        _diskVideoThumbCache.remove(id);
+      }
+    }
+
+    final fileName = widget.media.title.trim();
+
+    // 1. Hardware video extraction via MediaStore
+    final thumb = await DeviceMediaService.getVideoThumbnail(
+      widget.media.asset,
+      fileName: fileName.isNotEmpty ? fileName : null,
+    );
+    if (mounted && thumb != null && File(thumb).existsSync()) {
+      _diskVideoThumbCache[id] = thumb;
+      setState(() => _localThumbPath = thumb);
+      return;
+    }
+
+    // 2. Check persistent disk cache
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final cacheFile = File('${tempDir.path}/thumb_$id.webp');
+      if (cacheFile.existsSync() && cacheFile.lengthSync() > 0) {
+        _diskVideoThumbCache[id] = cacheFile.path;
+        if (mounted) setState(() => _localThumbPath = cacheFile.path);
+        return;
+      }
+
+      // 3. Network download
+      final session = mounted ? FrontendSessionScope.maybeOf(context) : null;
+      final targetUri = resolveMediaUri(
+        asset: widget.media.asset,
+        id: id,
+        serverUri: session?.serverUri,
+        endpoint: 'thumb',
+      );
+      if (targetUri != null && !_inFlightVideoDownloads.contains(id)) {
+        _inFlightVideoDownloads.add(id);
+        try {
+          if (!mounted) return;
+          final token = session?.authToken;
+          final client = createHomeSpaceHttpClient();
+          try {
+            final req = http.Request('GET', targetUri);
+            if (token != null) req.headers['Authorization'] = 'Bearer $token';
+            final streamed = await client.send(req);
+            if (streamed.statusCode == 200) {
+              final tempPart = File('${cacheFile.path}.part');
+              final sink = tempPart.openWrite();
+              await streamed.stream.pipe(sink);
+              await sink.flush();
+              await sink.close();
+              if (await tempPart.exists() && await tempPart.length() > 0) {
+                await tempPart.rename(cacheFile.path);
+                _diskVideoThumbCache[id] = cacheFile.path;
+                if (mounted) setState(() => _localThumbPath = cacheFile.path);
+              }
+            }
+          } finally {
+            client.close();
+          }
+        } catch (_) {
+        } finally {
+          _inFlightVideoDownloads.remove(id);
+        }
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = FrontendSessionScope.maybeOf(context);
+    final targetUri = resolveMediaUri(
+      asset: widget.media.asset,
+      id: widget.media.id,
+      serverUri: session?.serverUri,
+      endpoint: 'thumb',
+    );
+
+    Widget imageWidget;
+    if (_localThumbPath != null) {
+      if (File(_localThumbPath!).existsSync()) {
+        imageWidget = Image.file(
+          File(_localThumbPath!),
+          fit: BoxFit.cover,
+          cacheWidth: 360,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => _fallbackPoster(),
+        );
+      } else {
+        _localThumbPath = null;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _resolveThumbnail();
+        });
+        imageWidget = _fallbackPoster();
+      }
+    } else if (targetUri != null) {
+      final token = session?.authToken;
+      imageWidget = Image.network(
+        targetUri.toString(),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+        fit: BoxFit.cover,
+        cacheWidth: 360,
+        gaplessPlayback: true,
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded || frame != null) return child;
+          return _fallbackPoster();
+        },
+        errorBuilder: (_, _, _) => _fallbackPoster(),
       );
     } else {
-      imageWidget = Image.asset(
-        media.asset,
-        fit: BoxFit.cover,
-        cacheWidth: 360,
-        gaplessPlayback: true,
-        errorBuilder: (_, _, _) => Center(
-          child: Icon(
-            media.kind == MediaKind.video ? Icons.movie_outlined : Icons.broken_image_outlined,
-            size: 36,
-          ),
-        ),
-      );
+      imageWidget = _fallbackPoster();
     }
 
-    if (media.kind == MediaKind.video) {
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          imageWidget,
-          Positioned(
-            left: 6,
-            bottom: 6,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.play_arrow_rounded, color: Colors.white, size: 12),
-                  SizedBox(width: 2),
-                  Text(
-                    'Video',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        imageWidget,
+        Positioned(
+          left: 6,
+          bottom: 6,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.65),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.play_arrow_rounded, color: Colors.white, size: 14),
+                SizedBox(width: 3),
+                Text(
+                  'Video',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-        ],
-      );
-    }
-
-    return imageWidget;
+        ),
+      ],
+    );
   }
+
+  Widget _fallbackPoster() => Container(
+        color: const Color(0xFF1E2A38),
+        child: const Center(
+          child: Icon(Icons.movie_rounded, color: Colors.white70, size: 36),
+        ),
+      );
 }
 
 class MemoryTile extends StatelessWidget {

@@ -8,6 +8,7 @@ import 'application/home_scope.dart';
 import 'design/space_navigation.dart';
 import 'design/space_theme.dart';
 import 'design/system_ui.dart';
+import 'domain/models.dart';
 import 'domain/repositories.dart';
 import 'pages/auth_page.dart';
 import 'pages/collections_page.dart';
@@ -28,11 +29,34 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
   final navigatorKey = GlobalKey<NavigatorState>();
   SpacePage page = SpacePage.photos;
   bool photoFocused = false;
+  late Appearance _appearance;
+  late bool _ready;
+  String? _bootError;
+
   @override
   void initState() {
     super.initState();
+    _appearance = widget.repository.profile.appearance;
+    _ready = widget.repository.ready;
+    _bootError = widget.repository.bootError;
     unawaited(widget.repository.initialize());
+    widget.repository.addListener(_repositoryChanged);
     widget.session?.addListener(sessionChanged);
+  }
+
+  void _repositoryChanged() {
+    final nextAppearance = widget.repository.profile.appearance;
+    final nextReady = widget.repository.ready;
+    final nextBootError = widget.repository.bootError;
+    if (nextAppearance != _appearance ||
+        nextReady != _ready ||
+        nextBootError != _bootError) {
+      setState(() {
+        _appearance = nextAppearance;
+        _ready = nextReady;
+        _bootError = nextBootError;
+      });
+    }
   }
 
   @override
@@ -43,6 +67,11 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
       widget.session?.addListener(sessionChanged);
     }
     if (oldWidget.repository != widget.repository) {
+      oldWidget.repository.removeListener(_repositoryChanged);
+      _appearance = widget.repository.profile.appearance;
+      _ready = widget.repository.ready;
+      _bootError = widget.repository.bootError;
+      widget.repository.addListener(_repositoryChanged);
       unawaited(widget.repository.initialize());
     }
   }
@@ -58,6 +87,7 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
 
   @override
   void dispose() {
+    widget.repository.removeListener(_repositoryChanged);
     widget.session?.removeListener(sessionChanged);
     super.dispose();
   }
@@ -72,31 +102,23 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
     session: widget.session,
     child: HomeScope(
       repository: widget.repository,
-      child: ListenableBuilder(
-        listenable: widget.repository,
-        builder: (context, _) => MaterialApp(
-          navigatorKey: navigatorKey,
-          title: 'HomeSpace',
-          debugShowCheckedModeBanner: false,
-          theme: spaceTheme(Brightness.light, page),
-          darkTheme: spaceTheme(Brightness.dark, page),
-          themeMode: ThemeMode.values.byName(
-            widget.repository.profile.appearance.name,
-          ),
-          themeAnimationDuration:
-              WidgetsBinding
-                  .instance
-                  .platformDispatcher
-                  .accessibilityFeatures
-                  .disableAnimations
-              ? Duration.zero
-              : const Duration(milliseconds: 200),
-          themeAnimationCurve: Curves.easeOut,
-          home: widget.session != null && !widget.session!.isOpen
-              ? AuthPage(session: widget.session!)
-              : !widget.repository.ready
-              ? RepositoryBootPage(repository: widget.repository)
-              : Builder(
+      child: MaterialApp(
+        navigatorKey: navigatorKey,
+        title: 'HomeSpace',
+        debugShowCheckedModeBanner: false,
+        theme: spaceTheme(Brightness.light, page),
+        darkTheme: spaceTheme(Brightness.dark, page),
+        themeMode: ThemeMode.values.byName(_appearance.name),
+        themeAnimationDuration: Duration.zero,
+        home: widget.session != null && !widget.session!.isOpen
+            ? AuthPage(session: widget.session!)
+            : !_ready
+            ? ListenableBuilder(
+                listenable: widget.repository,
+                builder: (context, _) =>
+                    RepositoryBootPage(repository: widget.repository),
+              )
+            : Builder(
                   builder: (context) {
                     final keyboardOpen =
                         MediaQuery.viewInsetsOf(context).bottom > 0;
@@ -171,7 +193,6 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
                     );
                   },
                 ),
-        ),
       ),
     ),
   );

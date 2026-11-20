@@ -56,9 +56,16 @@ curl -s http://127.0.0.1:8888/api/health || {
   exit 1
 }
 
+echo "7. Enabling Tailscale Funnel on port 8443..."
+if command -v tailscale &> /dev/null; then
+  tailscale serve --https=8443 8888 || true
+  tailscale funnel 8443 on || true
+  echo "Tailscale Funnel enabled on port 8443."
+fi
+
 echo ""
 echo "================================================="
 echo "  SUCCESS! HomeSpace is running on port 8888     "
-echo "  Local LAN URL: http://192.168.0.108:8888       "
-echo "  Tailscale URL: http://100.113.105.20:8888      "
+echo "  Tailscale Funnel URL: https://vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net:8443"
+echo "  Tailscale Mesh URL:   http://100.113.105.20:8888"
 echo "================================================="

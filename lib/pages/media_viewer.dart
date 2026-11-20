@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:mime/mime.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../application/device_media_service.dart';
@@ -86,6 +88,11 @@ class MediaViewer extends StatefulWidget {
     required this.initialId,
     this.inTrash = false,
   });
+
+  static void clearLocalCaches() {
+    _PhotoViewerView.clearLocalPathCache();
+  }
+
   @override
   State<MediaViewer> createState() => _MediaViewerState();
 }
@@ -116,22 +123,26 @@ class _MediaViewerState extends State<MediaViewer> {
       final authHeaders = token != null ? {'Authorization': 'Bearer $token'} : null;
 
       // Prefetch current and adjacent photos in full resolution (Google Photos predictive pre-caching)
+      final session = FrontendSessionScope.maybeOf(context);
       final offsets = [0, 1, -1];
       for (final offset in offsets) {
         final targetIndex = currentIndex + offset;
         if (targetIndex >= 0 && targetIndex < widget.mediaIds.length) {
           final id = widget.mediaIds[targetIndex];
           final item = repository.mediaById(id);
-          if (item != null &&
-              item.kind == MediaKind.photo &&
-              (item.asset.startsWith('http://') || item.asset.startsWith('https://'))) {
-            final previewUrl = item.asset.endsWith('/thumb')
-                ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/preview')
-                : item.asset;
-            precacheImage(
-              NetworkImage(previewUrl, headers: authHeaders),
-              context,
+          if (item != null && item.kind == MediaKind.photo) {
+            final previewUri = resolveMediaUri(
+              asset: item.asset,
+              id: item.id,
+              serverUri: session?.serverUri,
+              endpoint: 'preview',
             );
+            if (previewUri != null) {
+              precacheImage(
+                NetworkImage(previewUri.toString(), headers: authHeaders),
+                context,
+              );
+            }
           }
         }
       }
@@ -305,80 +316,11 @@ class _MediaViewerState extends State<MediaViewer> {
                                           active: page == index,
                                         );
                                       }
-                                      if (item.asset.startsWith('http://') ||
-                                          item.asset.startsWith('https://')) {
-                                        final token = FrontendSessionScope.maybeOf(context)?.authToken;
-                                        final authHeaders = token != null ? {'Authorization': 'Bearer $token'} : null;
-                                        final thumbUrl = item.asset;
-                                        final previewUrl = item.asset.endsWith('/thumb')
-                                            ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/preview')
-                                            : item.asset;
-                                        final fullFileUrl = item.asset.endsWith('/thumb')
-                                            ? item.asset.replaceRange(item.asset.length - 6, item.asset.length, '/file')
-                                            : item.asset;
-
-                                        return Stack(
-                                          fit: StackFit.expand,
-                                          children: [
-                                            // 1. Instant base layer: 400px thumbnail already in memory from grid
-                                            Image.network(
-                                              thumbUrl,
-                                              headers: authHeaders,
-                                              fit: BoxFit.contain,
-                                              gaplessPlayback: true,
-                                              errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                                            ),
-                                            // 2. High-resolution screen-fit photo: 1600px WebP loaded in ~1s
-                                            Image.network(
-                                              previewUrl,
-                                              headers: authHeaders,
-                                              fit: BoxFit.contain,
-                                              gaplessPlayback: true,
-                                              semanticLabel: item.title,
-                                              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                                                if (wasSynchronouslyLoaded) return child;
-                                                return AnimatedOpacity(
-                                                  opacity: frame == null ? 0 : 1,
-                                                  duration: const Duration(milliseconds: 200),
-                                                  curve: Curves.easeOut,
-                                                  child: child,
-                                                );
-                                              },
-                                              errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                                            ),
-                                            // 3. Raw sensor original: ONLY loaded on deep zoom (pinch / double-tap)
-                                            if (zoomed && page == index)
-                                              Image.network(
-                                                fullFileUrl,
-                                                headers: authHeaders,
-                                                fit: BoxFit.contain,
-                                                gaplessPlayback: true,
-                                                errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                                              ),
-                                          ],
-                                        );
-                                      }
-                                      if (!kIsWeb && File(item.asset).existsSync()) {
-                                        return Image.file(
-                                          File(item.asset),
-                                          fit: BoxFit.contain,
-                                          semanticLabel: item.title,
-                                          errorBuilder: (_, _, _) => const Center(
-                                            child: Text(
-                                              'Couldn’t open this photo',
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                      return Image.asset(
-                                        item.asset,
-                                        fit: BoxFit.contain,
-                                        semanticLabel: item.title,
-                                        errorBuilder: (_, _, _) => const Center(
-                                          child: Text(
-                                            'Couldn’t open this photo',
-                                          ),
-                                        ),
+                                      return _PhotoViewerView(
+                                        key: ValueKey('photo-${item.id}'),
+                                        item: item,
+                                        zoomed: zoomed && page == index,
+                                        active: page == index,
                                       );
                                     },
                                   ),
@@ -725,19 +667,22 @@ class _MediaViewerState extends State<MediaViewer> {
           ? photo.title
           : (photo.kind == MediaKind.video ? 'video_${photo.id}.mp4' : 'photo_${photo.id}.jpg');
 
-      if (asset.startsWith('http://') || asset.startsWith('https://')) {
-        final token = FrontendSessionScope.maybeOf(context)?.authToken;
-        final fileUrl = asset.endsWith('/thumb')
-            ? asset.replaceRange(asset.length - 6, asset.length, '/file')
-            : (asset.endsWith('/preview')
-                ? asset.replaceRange(asset.length - 8, asset.length, '/file')
-                : asset);
+      final session = FrontendSessionScope.maybeOf(context);
+      final fileUri = resolveMediaUri(
+        asset: asset,
+        id: photo.id,
+        serverUri: session?.serverUri,
+        endpoint: 'file',
+      );
 
+      if (!kIsWeb && File(asset).existsSync()) {
+        bytes = await File(asset).readAsBytes();
+      } else if (fileUri != null) {
+        final token = session?.authToken;
         final client = createHomeSpaceHttpClient();
         try {
-          final uri = Uri.parse(fileUrl);
           final response = await client.get(
-            uri,
+            fileUri,
             headers: token != null ? {'Authorization': 'Bearer $token'} : null,
           ).timeout(const Duration(minutes: 5));
 
@@ -749,11 +694,11 @@ class _MediaViewerState extends State<MediaViewer> {
         } finally {
           client.close();
         }
-      } else if (!kIsWeb && File(asset).existsSync()) {
-        bytes = await File(asset).readAsBytes();
-      } else {
+      } else if (asset.startsWith('assets/')) {
         final data = await rootBundle.load(asset);
         bytes = data.buffer.asUint8List();
+      } else {
+        throw Exception('Cannot locate media file to download');
       }
 
       if (bytes.isEmpty) {
@@ -1241,6 +1186,416 @@ class _PhotoViewportState extends State<_PhotoViewport>
   );
 }
 
+class _PhotoViewerView extends StatefulWidget {
+  final MediaItem item;
+  final bool zoomed;
+  final bool active;
+  const _PhotoViewerView({
+    super.key,
+    required this.item,
+    this.zoomed = false,
+    this.active = true,
+  });
+
+  static void clearLocalPathCache() {
+    _PhotoViewerViewState.clearLocalPathCache();
+  }
+
+  @override
+  State<_PhotoViewerView> createState() => _PhotoViewerViewState();
+}
+
+class _PhotoViewerViewState extends State<_PhotoViewerView> {
+  static final Map<String, String?> _localPathCache = {};
+  static final Map<String, String?> _diskPreviewCache = {};
+  static final Set<String> _inFlightDownloads = {};
+
+  static void clearLocalPathCache() {
+    _localPathCache.clear();
+  }
+
+  String? _resolvedPath;
+  String? _fallbackThumbPath;
+  bool _isLoading = false;
+  bool _hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolvePhoto();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PhotoViewerView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.id != widget.item.id ||
+        oldWidget.item.asset != widget.item.asset) {
+      _hasError = false;
+      _resolvedPath = null;
+      _fallbackThumbPath = null;
+      _resolvePhoto();
+    }
+  }
+
+  Future<void> _resolvePhoto() async {
+    final asset = widget.item.asset;
+    final title = widget.item.title.trim();
+    final id = widget.item.id;
+
+    // 1. Direct local file on disk
+    if (!kIsWeb && !asset.startsWith('http://') && !asset.startsWith('https://')) {
+      if (File(asset).existsSync() && File(asset).lengthSync() > 0) {
+        if (mounted) setState(() => _resolvedPath = asset);
+        return;
+      }
+    }
+
+    // 2. Bundled assets
+    if (asset.startsWith('assets/')) {
+      if (mounted) setState(() => _resolvedPath = asset);
+      return;
+    }
+
+    if (kIsWeb) return;
+
+    // 3. Search local device storage via native MediaStore for instant 0ms full-res photo
+    if (title.isNotEmpty) {
+      if (_localPathCache.containsKey(title)) {
+        final cached = _localPathCache[title];
+        if (cached != null && File(cached).existsSync() && File(cached).lengthSync() > 0) {
+          if (mounted) setState(() => _resolvedPath = cached);
+          return;
+        } else {
+          _localPathCache.remove(title);
+        }
+      }
+      final local = await DeviceMediaService.findLocalMedia(title, isVideo: false);
+      if (local != null && File(local).existsSync() && File(local).lengthSync() > 0) {
+        _localPathCache[title] = local;
+        if (mounted) setState(() => _resolvedPath = local);
+        return;
+      } else {
+        _localPathCache.remove(title);
+      }
+    }
+
+    // 4. Check persistent disk cache (preview, full photo, or thumbnail from grid)
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final previewCache = File('${tempDir.path}/preview_$id.webp');
+      final thumbCache = File('${tempDir.path}/thumb_$id.webp');
+
+      if (_diskPreviewCache.containsKey(id)) {
+        final cached = _diskPreviewCache[id];
+        if (cached != null && File(cached).existsSync() && File(cached).lengthSync() > 0) {
+          if (mounted) setState(() => _resolvedPath = cached);
+          return;
+        } else {
+          _diskPreviewCache.remove(id);
+        }
+      }
+
+      if (previewCache.existsSync() && previewCache.lengthSync() > 0) {
+        _diskPreviewCache[id] = previewCache.path;
+        if (mounted) setState(() => _resolvedPath = previewCache.path);
+        return;
+      }
+
+      // If thumbnail was already downloaded by grid, show it immediately so screen is NEVER black!
+      if (thumbCache.existsSync() && thumbCache.lengthSync() > 0) {
+        if (mounted) setState(() => _fallbackThumbPath = thumbCache.path);
+      }
+
+      // 5. Download preview from network & cache to disk
+      final session = mounted ? FrontendSessionScope.maybeOf(context) : null;
+      final previewUri = resolveMediaUri(
+        asset: asset,
+        id: id,
+        serverUri: session?.serverUri,
+        endpoint: 'preview',
+      );
+      final thumbUri = resolveMediaUri(
+        asset: asset,
+        id: id,
+        serverUri: session?.serverUri,
+        endpoint: 'thumb',
+      );
+
+      if (previewUri != null || thumbUri != null) {
+        _downloadAndCache(previewCache, thumbCache, previewUri: previewUri, thumbUri: thumbUri);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _downloadAndCache(
+    File previewCache,
+    File thumbCache, {
+    Uri? previewUri,
+    Uri? thumbUri,
+  }) async {
+    final id = widget.item.id;
+    if (_inFlightDownloads.contains(id)) return;
+    _inFlightDownloads.add(id);
+
+    if (mounted && _resolvedPath == null && _fallbackThumbPath == null) {
+      setState(() => _isLoading = true);
+    }
+
+    try {
+      final token = mounted ? FrontendSessionScope.maybeOf(context)?.authToken : null;
+      final client = createHomeSpaceHttpClient();
+      try {
+        // Try preview first
+        if (previewUri != null) {
+          final req = http.Request('GET', previewUri);
+          if (token != null) req.headers['Authorization'] = 'Bearer $token';
+          final streamed = await client.send(req);
+
+          if (streamed.statusCode == 200) {
+            final tempPart = File('${previewCache.path}.part');
+            final sink = tempPart.openWrite();
+            await streamed.stream.pipe(sink);
+            await sink.flush();
+            await sink.close();
+            if (await tempPart.exists() && await tempPart.length() > 0) {
+              await tempPart.rename(previewCache.path);
+              _diskPreviewCache[id] = previewCache.path;
+              if (mounted) {
+                setState(() {
+                  _resolvedPath = previewCache.path;
+                  _isLoading = false;
+                  _hasError = false;
+                });
+                return;
+              }
+            }
+          }
+        }
+
+        // If preview returns 404/failure, fallback to thumbUri
+        if (thumbUri != null) {
+          final fallbackReq = http.Request('GET', thumbUri);
+          if (token != null) fallbackReq.headers['Authorization'] = 'Bearer $token';
+          final fallbackStreamed = await client.send(fallbackReq);
+          if (fallbackStreamed.statusCode == 200) {
+            final tempPart = File('${thumbCache.path}.part');
+            final sink = tempPart.openWrite();
+            await fallbackStreamed.stream.pipe(sink);
+            await sink.flush();
+            await sink.close();
+            if (await tempPart.exists() && await tempPart.length() > 0) {
+              await tempPart.rename(thumbCache.path);
+              if (mounted) {
+                setState(() {
+                  _fallbackThumbPath = thumbCache.path;
+                  _isLoading = false;
+                  _hasError = false;
+                });
+                return;
+              }
+            }
+          }
+        }
+      } finally {
+        client.close();
+      }
+    } catch (_) {} finally {
+      _inFlightDownloads.remove(id);
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        if (_resolvedPath == null && _fallbackThumbPath == null) {
+          _hasError = true;
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final title = widget.item.title;
+
+    // 1. Fully resolved image (local file on device or cached preview on disk)
+    if (_resolvedPath != null) {
+      if (_resolvedPath!.startsWith('assets/')) {
+        return Image.asset(
+          _resolvedPath!,
+          fit: BoxFit.contain,
+          semanticLabel: title,
+          errorBuilder: (_, _, _) => _buildErrorFallback(),
+        );
+      }
+      if (File(_resolvedPath!).existsSync()) {
+        return Image.file(
+          File(_resolvedPath!),
+          fit: BoxFit.contain,
+          semanticLabel: title,
+          errorBuilder: (_, _, _) => _buildErrorFallback(),
+        );
+      } else {
+        // Local file was removed/deleted from device; clear stale cache and re-resolve
+        _resolvedPath = null;
+        _localPathCache.remove(widget.item.title.trim());
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _resolvePhoto();
+        });
+      }
+    }
+
+    // 2. Base layer: cached thumbnail if preview is still downloading
+    if (_fallbackThumbPath != null) {
+      if (File(_fallbackThumbPath!).existsSync()) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.file(
+              File(_fallbackThumbPath!),
+              fit: BoxFit.contain,
+              semanticLabel: title,
+            ),
+            if (_isLoading)
+              Positioned(
+                bottom: 24,
+                right: 24,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      } else {
+        _fallbackThumbPath = null;
+      }
+    }
+
+    // 3. Fallback network image if on web or if paths not yet loaded
+    final session = FrontendSessionScope.maybeOf(context);
+    final targetUri = resolveMediaUri(
+      asset: widget.item.asset,
+      id: widget.item.id,
+      serverUri: session?.serverUri,
+      endpoint: 'preview',
+    ) ?? resolveMediaUri(
+      asset: widget.item.asset,
+      id: widget.item.id,
+      serverUri: session?.serverUri,
+      endpoint: 'thumb',
+    );
+
+    if (targetUri != null) {
+      final token = session?.authToken;
+      final authHeaders = token != null ? {'Authorization': 'Bearer $token'} : null;
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.network(
+            targetUri.toString(),
+            headers: authHeaders,
+            fit: BoxFit.contain,
+            semanticLabel: title,
+            errorBuilder: (_, _, _) => _buildErrorFallback(),
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return Center(
+                child: CircularProgressIndicator(
+                  value: loadingProgress.expectedTotalBytes != null
+                      ? loadingProgress.cumulativeBytesLoaded /
+                          loadingProgress.expectedTotalBytes!
+                      : null,
+                  color: const Color(0xFFF39C12),
+                ),
+              );
+            },
+          ),
+        ],
+      );
+    }
+
+    if (_hasError) {
+      return _buildErrorFallback();
+    }
+
+    // 4. Loading state with subtle animation
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(
+          color: Color(0xFFF39C12),
+        ),
+      );
+    }
+
+    // 5. Error state with retry action
+    return _buildErrorFallback();
+  }
+
+  Widget _buildErrorFallback() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0x33F39C12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Icon(
+              Icons.broken_image_rounded,
+              color: Color(0xFFF39C12),
+              size: 48,
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Couldn’t load this photo',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: () {
+              setState(() {
+                _hasError = false;
+                _isLoading = true;
+              });
+              _resolvePhoto();
+            },
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+            label: const Text(
+              'Retry',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+            style: TextButton.styleFrom(
+              backgroundColor: const Color(0x33FFFFFF),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _VideoPlayerView extends StatefulWidget {
   final MediaItem item;
   final bool active;
@@ -1260,6 +1615,7 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
   bool _hasError = false;
   String _errorMessage = '';
   bool _showControls = true;
+  String? _posterPath;
 
   @override
   void initState() {
@@ -1283,24 +1639,85 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
     final authHeaders = token != null ? {'Authorization': 'Bearer $token'} : null;
 
     try {
-      if (asset.startsWith('http://') || asset.startsWith('https://')) {
-        final videoUrl = asset.endsWith('/thumb')
-            ? asset.replaceRange(asset.length - 6, asset.length, '/file')
-            : (asset.endsWith('/preview')
-                ? asset.replaceRange(asset.length - 8, asset.length, '/file')
-                : asset);
-        var videoUri = Uri.parse(videoUrl);
-        if (token != null && !videoUri.queryParameters.containsKey('token')) {
-          final query = Map<String, String>.from(videoUri.queryParameters);
+      File? localFile;
+      if (!kIsWeb) {
+        if (File(asset).existsSync() && File(asset).lengthSync() > 0) {
+          localFile = File(asset);
+        } else {
+          // 1. Search device storage via native MediaStore for instant 0ms playback
+          final title = widget.item.title.trim();
+          if (title.isNotEmpty) {
+            final found = await DeviceMediaService.findLocalMedia(title, isVideo: true);
+            if (found != null && File(found).existsSync() && File(found).lengthSync() > 0) {
+              localFile = File(found);
+            }
+          }
+
+          // 2. Check if video was previously cached in temp directory
+          if (localFile == null) {
+            try {
+              final tempDir = await getTemporaryDirectory();
+              final cached = File('${tempDir.path}/video_${widget.item.id}.mp4');
+              if (cached.existsSync() && cached.lengthSync() > 0) {
+                localFile = cached;
+              }
+            } catch (_) {}
+          }
+
+          // 3. Check fallback common directories
+          if (localFile == null && title.isNotEmpty) {
+            final candidateDirs = [
+              '/storage/emulated/0/DCIM/Camera',
+              '/storage/emulated/0/DCIM',
+              '/storage/emulated/0/Pictures',
+              '/storage/emulated/0/Pictures/Screenshots',
+              '/storage/emulated/0/Pictures/HomeSpace',
+              '/storage/emulated/0/Movies',
+              '/storage/emulated/0/Movies/HomeSpace',
+              '/storage/emulated/0/Download',
+              '/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Video',
+              '/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images',
+            ];
+            for (final dir in candidateDirs) {
+              final f = File('$dir/$title');
+              if (f.existsSync() && f.lengthSync() > 0) {
+                localFile = f;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      final session = mounted ? FrontendSessionScope.maybeOf(context) : null;
+      final videoUri = resolveMediaUri(
+        asset: asset,
+        id: widget.item.id,
+        serverUri: session?.serverUri,
+        endpoint: 'file',
+      );
+
+      if (localFile != null) {
+        DeviceMediaService.getVideoThumbnail(
+          localFile.path,
+          fileName: widget.item.title.trim(),
+        ).then((thumb) {
+          if (mounted && thumb != null) {
+            setState(() => _posterPath = thumb);
+          }
+        });
+        _controller = VideoPlayerController.file(localFile);
+      } else if (videoUri != null) {
+        var playUri = videoUri;
+        if (token != null && !playUri.queryParameters.containsKey('token')) {
+          final query = Map<String, String>.from(playUri.queryParameters);
           query['token'] = token;
-          videoUri = videoUri.replace(queryParameters: query);
+          playUri = playUri.replace(queryParameters: query);
         }
         _controller = VideoPlayerController.networkUrl(
-          videoUri,
+          playUri,
           httpHeaders: authHeaders ?? const {},
         );
-      } else if (!kIsWeb && File(asset).existsSync()) {
-        _controller = VideoPlayerController.file(File(asset));
       } else {
         _controller = VideoPlayerController.asset(asset);
       }
@@ -1393,22 +1810,54 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
     }
 
     if (!_initialized || _controller == null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(color: Colors.white),
-            const SizedBox(height: 16),
-            Text(
-              'Loading video…',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
+      final token = FrontendSessionScope.maybeOf(context)?.authToken;
+      final authHeaders = token != null ? {'Authorization': 'Bearer $token'} : null;
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: _posterPath != null && File(_posterPath!).existsSync()
+                ? Image.file(File(_posterPath!), fit: BoxFit.contain)
+                : () {
+                    final session = FrontendSessionScope.maybeOf(context);
+                    final posterUri = resolveMediaUri(
+                      asset: widget.item.asset,
+                      id: widget.item.id,
+                      serverUri: session?.serverUri,
+                      endpoint: 'thumb',
+                    );
+                    if (posterUri != null) {
+                      return Image.network(
+                        posterUri.toString(),
+                        fit: BoxFit.contain,
+                        headers: authHeaders,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const SizedBox.shrink(),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  }(),
+          ),
+          Container(color: Colors.black45),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(color: Colors.white),
+                const SizedBox(height: 16),
+                Text(
+                  'Loading video…',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       );
     }
 
     final isPlaying = _controller!.value.isPlaying;
+    final isBuffering = _controller!.value.isBuffering;
     final position = _controller!.value.position;
     final duration = _controller!.value.duration;
 
@@ -1428,6 +1877,31 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
               child: VideoPlayer(_controller!),
             ),
           ),
+          if (isBuffering)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                    ),
+                    SizedBox(width: 12),
+                    Text(
+                      'Buffering…',
+                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (_showControls || !isPlaying)
             Container(
               decoration: const BoxDecoration(

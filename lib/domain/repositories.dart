@@ -89,3 +89,21 @@ abstract interface class UploadRepository implements Listenable {
   void cancel(String id);
   void clearCompleted();
 }
+
+extension UploadRepositoryX on UploadRepository {
+  /// The count of items currently waiting in queue or actively uploading.
+  int get remainingCount => items.where(
+        (i) => i.phase == UploadPhase.queued || i.phase == UploadPhase.uploading,
+      ).length;
+
+  /// The count of items completed.
+  int get completedCount => items.where((i) => i.phase == UploadPhase.completed).length;
+
+  /// The count of active items (not completed and not canceled).
+  int get activeCount => items.where(
+        (i) => i.phase != UploadPhase.completed && i.phase != UploadPhase.canceled,
+      ).length;
+
+  /// Whether any items are currently queued or uploading.
+  bool get hasActiveUploads => remainingCount > 0;
+}

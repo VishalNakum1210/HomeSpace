@@ -7,6 +7,7 @@ import '../application/device_media_service.dart';
 import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
 import '../application/photo_picker_service.dart';
+import '../data/demo_remote_repositories.dart';
 import '../data/local_home_repository.dart';
 import '../design/cartoon_artwork.dart';
 import '../design/cartoon_header.dart';
@@ -17,9 +18,11 @@ import '../design/state_artwork.dart';
 import '../design/vector_artwork.dart';
 import '../domain/media_timeline.dart';
 import '../domain/models.dart';
+import '../domain/repositories.dart';
 import 'library_widgets.dart';
 import 'local_edit_sheets.dart';
 import 'media_viewer.dart';
+import 'uploads_page.dart';
 
 class PhotosPage extends StatefulWidget {
   final VoidCallback onProfile;
@@ -33,6 +36,119 @@ class PhotosPage extends StatefulWidget {
   });
   @override
   State<PhotosPage> createState() => _PhotosPageState();
+}
+
+class DashboardUploadBanner extends StatelessWidget {
+  final UploadRepository uploads;
+  const DashboardUploadBanner({super.key, required this.uploads});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: uploads,
+      builder: (context, _) {
+        if (uploads is DemoUploadRepository) {
+          return const SizedBox.shrink();
+        }
+        final remaining = uploads.remainingCount;
+        final completed = uploads.completedCount;
+        final total = uploads.items.length;
+        if (remaining == 0 && !uploads.hasActiveUploads) {
+          return const SizedBox.shrink();
+        }
+
+        final progress = total > 0 ? (completed / total).clamp(0.0, 1.0) : 0.0;
+        final theme = Theme.of(context);
+        final style = SpaceStyle.of(context);
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 4),
+          child: Material(
+            key: const ValueKey('dashboard-upload-banner'),
+            color: style.accentSoft,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => openSpacePage<void>(context, const UploadsPage()),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: style.accent.withValues(alpha: 0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: style.accent.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.cloud_upload_rounded,
+                            size: 20,
+                            color: style.accent,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                uploads.items.any((u) =>
+                                        u.phase == UploadPhase.uploading &&
+                                        u.totalBytes > 0 &&
+                                        u.bytesSent >= (u.totalBytes * 0.97).round())
+                                    ? 'Saving to server… ($remaining in queue)'
+                                    : 'Backing up memories ($remaining remaining)',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '$completed of $total uploaded • Tap to view queue',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.8),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 20,
+                          color: theme.iconTheme.color?.withValues(alpha: 0.5),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 4,
+                        backgroundColor: style.accent.withValues(alpha: 0.2),
+                        valueColor: AlwaysStoppedAnimation<Color>(style.accent),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _EmptyPhotoLibrary extends StatelessWidget {
@@ -49,6 +165,7 @@ class _EmptyPhotoLibrary extends StatelessWidget {
         child: Column(
           children: [
             CartoonHeader(profile: repository.profile, onProfile: onProfile),
+            DashboardUploadBanner(uploads: repository.uploads),
             SpaceArtwork(
               'empty-garden',
               height: 172,
@@ -113,6 +230,13 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
   Timer? _mediaChangeDebounceTimer;
   bool _isAutoBackingUp = false;
 
+  void _invalidateLocalMediaCaches() {
+    DeviceMediaService.clearLocalMediaCache();
+    MediaThumbnail.clearLocalCaches();
+    MediaViewer.clearLocalCaches();
+    if (mounted) setState(() {});
+  }
+
   Future<void> _triggerSyncAndBackup() async {
     if (_isAutoBackingUp) return;
     final session = FrontendSessionScope.maybeOf(context);
@@ -126,6 +250,7 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
           serverUri: session!.serverUri!,
           token: session.authToken!,
         );
+        _invalidateLocalMediaCaches();
         await AutoBackupService.triggerAutoBackupIfEnabled(repository: repo);
       } catch (_) {
       } finally {
@@ -154,6 +279,7 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
     });
 
     _mediaChangeSubscription = DeviceMediaService.onMediaChanged.listen((_) {
+      _invalidateLocalMediaCaches();
       _debounceAndTriggerBackup();
     });
   }
@@ -167,6 +293,7 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _invalidateLocalMediaCaches();
       _debounceAndTriggerBackup();
     }
   }
@@ -334,6 +461,7 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                                 ),
                               ),
                           ],
+                          DashboardUploadBanner(uploads: repository.uploads),
                           const SizedBox(height: 10),
                           Row(
                             key: const ValueKey('photo-search-row'),

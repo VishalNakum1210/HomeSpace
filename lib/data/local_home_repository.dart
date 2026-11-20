@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../application/auto_backup_service.dart';
 import '../domain/models.dart';
 import '../domain/repositories.dart';
 import 'demo_remote_repositories.dart';
@@ -234,9 +235,39 @@ class LocalHomeRepository extends HomeRepository {
 
   @override
   Future<void> addMedia(MediaItem item) => _commit((state) {
-    if (state.media.any((m) => m.id == item.id)) {
+    bool matches(MediaItem m) =>
+        m.id == item.id ||
+        (m.title.toLowerCase() == item.title.toLowerCase() && m.title.isNotEmpty);
+    final oldItem = state.media.cast<MediaItem?>().firstWhere(
+      (m) => m != null && matches(m),
+      orElse: () => null,
+    );
+    if (oldItem != null) {
+      final oldId = oldItem.id;
+      final newId = item.id;
+      final nextFavorites = {...state.favorites};
+      if (oldId != newId && nextFavorites.remove(oldId)) {
+        nextFavorites.add(newId);
+      }
+      final nextAlbums = oldId == newId
+          ? state.albums
+          : state.albums.map((a) {
+              final nextMediaIds = a.mediaIds.map((id) => id == oldId ? newId : id).toList();
+              final nextCover = a.coverId == oldId ? newId : a.coverId;
+              final nextAddedBy = <String, String>{};
+              a.addedBy.forEach((key, val) {
+                nextAddedBy[key == oldId ? newId : key] = val;
+              });
+              return a.copyWith(mediaIds: nextMediaIds, coverId: nextCover, addedBy: nextAddedBy);
+            }).toList();
+      final nextTrash = oldId == newId
+          ? state.trash
+          : state.trash.map((t) => t.mediaId == oldId ? TrashEntry(newId, t.deletedAt) : t).toList();
       return state.copyWith(
-        media: state.media.map((m) => m.id == item.id ? item : m).toList(),
+        media: state.media.map((m) => matches(m) ? item : m).toList(),
+        favorites: nextFavorites,
+        albums: nextAlbums,
+        trash: nextTrash,
       );
     }
     return state.copyWith(media: [item, ...state.media]);
@@ -245,7 +276,12 @@ class LocalHomeRepository extends HomeRepository {
   @override
   Future<void> addMediaItems(List<MediaItem> items) => _commit((state) {
     final existingIds = state.media.map((m) => m.id).toSet();
-    final newItems = items.where((m) => !existingIds.contains(m.id)).toList();
+    final existingTitles = state.media.map((m) => m.title.toLowerCase()).toSet();
+    final newItems = items
+        .where((m) =>
+            !existingIds.contains(m.id) &&
+            !existingTitles.contains(m.title.toLowerCase()))
+        .toList();
     if (newItems.isEmpty) return state;
     return state.copyWith(media: [...newItems, ...state.media]);
   });
@@ -296,21 +332,47 @@ class LocalHomeRepository extends HomeRepository {
   }) async {
     final client = apiClient ?? _apiClient;
     try {
-      final remoteMedia = await client.fetchMedia(serverUri, token);
+      final rawRemoteMedia = await client.fetchMedia(serverUri, token);
       final remoteAlbums = await client.fetchAlbums(serverUri, token);
+
+      // Deduplicate remote media items by title to eliminate any duplicates
+      final seenTitles = <String>{};
+      final remoteMedia = <MediaItem>[];
+      for (final m in rawRemoteMedia) {
+        final key = m.title.toLowerCase();
+        if (key.isNotEmpty && seenTitles.contains(key)) continue;
+        if (key.isNotEmpty) seenTitles.add(key);
+        remoteMedia.add(m);
+      }
+
+      final deletedSignatures = await AutoBackupService.getDeletedSignatures();
+
       await _commit((state) {
         if (clearLocalFirst) {
           return state.copyWith(
-            media: remoteMedia,
+            media: remoteMedia.where((m) => !deletedSignatures.contains(m.title.toLowerCase())).toList(),
             albums: remoteAlbums,
           );
         }
-        final remoteMap = {for (final m in remoteMedia) m.id: m};
+        final remoteMapById = {for (final m in remoteMedia) m.id: m};
+        final remoteMapByTitle = {
+          for (final m in remoteMedia)
+            if (m.title.trim().isNotEmpty) m.title.trim().toLowerCase(): m
+        };
+        final idReplacements = <String, String>{};
+        final matchedRemoteIds = <String>{};
+
         final updatedExistingMedia = state.media.map((m) {
-          final remote = remoteMap[m.id];
+          final titleKey = m.title.trim().toLowerCase();
+          final remote = remoteMapById[m.id] ?? remoteMapByTitle[titleKey];
           if (remote != null) {
+            matchedRemoteIds.add(remote.id);
+            if (m.id != remote.id) {
+              idReplacements[m.id] = remote.id;
+            }
             final fileNameDate = parseDateFromFileName(remote.title);
             return m.copyWith(
+              id: remote.id,
               kind: remote.kind,
               asset: remote.asset,
               title: remote.title,
@@ -320,26 +382,52 @@ class LocalHomeRepository extends HomeRepository {
           return m;
         }).toList();
 
-        final existingMediaIds = state.media.map((m) => m.id).toSet();
-        final newMedia =
-            remoteMedia.where((m) => !existingMediaIds.contains(m.id)).map((m) {
-              final fileNameDate = parseDateFromFileName(m.title);
-              return fileNameDate != null ? m.copyWith(takenAt: fileNameDate) : m;
-            }).toList();
+        final existingMediaIds = updatedExistingMedia.map((m) => m.id).toSet();
+        final existingMediaTitles = updatedExistingMedia.map((m) => m.title.trim().toLowerCase()).toSet();
+        final newMedia = remoteMedia
+            .where((m) =>
+                !existingMediaIds.contains(m.id) &&
+                !matchedRemoteIds.contains(m.id) &&
+                !existingMediaTitles.contains(m.title.trim().toLowerCase()) &&
+                !deletedSignatures.contains(m.title.trim().toLowerCase()))
+            .map((m) {
+          final fileNameDate = parseDateFromFileName(m.title);
+          return fileNameDate != null ? m.copyWith(takenAt: fileNameDate) : m;
+        }).toList();
 
         final remoteAlbumMap = {for (final a in remoteAlbums) a.id: a};
         final updatedExistingAlbums = state.albums.map((a) {
           final remote = remoteAlbumMap[a.id];
-          return remote ?? a;
+          var album = remote ?? a;
+          if (idReplacements.isNotEmpty) {
+            final nextIds = album.mediaIds.map((id) => idReplacements[id] ?? id).toList();
+            final nextCover = idReplacements[album.coverId] ?? album.coverId;
+            final nextAddedBy = <String, String>{};
+            album.addedBy.forEach((key, val) {
+              nextAddedBy[idReplacements[key] ?? key] = val;
+            });
+            album = album.copyWith(mediaIds: nextIds, coverId: nextCover, addedBy: nextAddedBy);
+          }
+          return album;
         }).toList();
 
         final existingAlbumIds = state.albums.map((a) => a.id).toSet();
         final newAlbums =
             remoteAlbums.where((a) => !existingAlbumIds.contains(a.id)).toList();
 
+        final nextFavorites = idReplacements.isEmpty
+            ? state.favorites
+            : state.favorites.map((id) => idReplacements[id] ?? id).toSet();
+
+        final nextTrash = idReplacements.isEmpty
+            ? state.trash
+            : state.trash.map((t) => TrashEntry(idReplacements[t.mediaId] ?? t.mediaId, t.deletedAt)).toList();
+
         return state.copyWith(
           media: [...newMedia, ...updatedExistingMedia],
           albums: [...newAlbums, ...updatedExistingAlbums],
+          favorites: nextFavorites,
+          trash: nextTrash,
         );
       });
     } catch (_) {
@@ -638,6 +726,21 @@ class LocalHomeRepository extends HomeRepository {
   @override
   Future<void> moveManyToTrash(List<String> ids) async {
     final requested = ids.toSet();
+    final targetedItems = _data.media.where((m) => requested.contains(m.id)).toList();
+    final titles = targetedItems.map((m) => m.title).where((t) => t.isNotEmpty).toList();
+
+    // Cancel any in-flight or queued uploads for these files
+    final up = _uploads;
+    for (final upload in up.items) {
+      final uploadTitle = (upload.title ?? '').toLowerCase();
+      if (titles.any((t) => t.toLowerCase() == uploadTitle)) {
+        up.cancel(upload.id);
+      }
+    }
+
+    // Register with AutoBackupService so both foreground and native background backup skip them
+    unawaited(AutoBackupService.markMediaDeleted(titles));
+
     await _commit((state) {
       for (final id in requested) {
         _requireMedia(state, id);
@@ -668,6 +771,10 @@ class LocalHomeRepository extends HomeRepository {
   @override
   Future<void> restoreMany(List<String> ids) async {
     final requested = ids.toSet();
+    final targetedItems = _data.media.where((m) => requested.contains(m.id)).toList();
+    final titles = targetedItems.map((m) => m.title).where((t) => t.isNotEmpty).toList();
+    unawaited(AutoBackupService.unmarkMediaDeleted(titles));
+
     await _commit((state) {
       for (final id in requested) {
         _requireMedia(state, id);
@@ -694,6 +801,21 @@ class LocalHomeRepository extends HomeRepository {
   @override
   Future<void> deleteManyPermanently(List<String> ids) async {
     final requested = ids.toSet();
+    final targetedItems = _data.media.where((m) => requested.contains(m.id)).toList();
+    final titles = targetedItems.map((m) => m.title).where((t) => t.isNotEmpty).toList();
+
+    // Cancel any in-flight or queued uploads for these files
+    final up = _uploads;
+    for (final upload in up.items) {
+      final uploadTitle = (upload.title ?? '').toLowerCase();
+      if (titles.any((t) => t.toLowerCase() == uploadTitle)) {
+        up.cancel(upload.id);
+      }
+    }
+
+    // Permanently record these signatures so auto-backup will never re-upload them from device
+    unawaited(AutoBackupService.markMediaDeleted(titles));
+
     await _commit((state) {
       final trashed = state.trash.map((entry) => entry.mediaId).toSet();
       if (!trashed.containsAll(requested)) {

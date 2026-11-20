@@ -6,14 +6,18 @@ export function initDatabase(dbPath = ':memory:') {
   if (dbPath !== ':memory:') {
     const parentDir = path.dirname(dbPath);
     if (!fs.existsSync(parentDir)) {
-      fs.mkdirSync(parentDir, { recursive: true });
+      fs.mkdirSync(parentDir, { recursive: true, mode: 0o700 });
     }
   }
 
   const db = new DatabaseSync(dbPath);
+  if (dbPath !== ':memory:') {
+    try { fs.chmodSync(dbPath, 0o600); } catch (_) {}
+  }
 
   // Performance and integrity pragmas
   db.exec('PRAGMA foreign_keys = ON;');
+  db.exec('PRAGMA busy_timeout = 5000;');
   if (dbPath !== ':memory:') {
     db.exec('PRAGMA journal_mode = WAL;');
     db.exec('PRAGMA synchronous = NORMAL;');
@@ -104,6 +108,20 @@ export function initDatabase(dbPath = ':memory:') {
         }
       }
     }
+  } catch (_) {}
+
+  // Auto-deduplicate any duplicate media rows for the same user and file_name
+  try {
+    db.exec(`
+      DELETE FROM media
+      WHERE is_trashed = 0
+        AND id NOT IN (
+          SELECT MIN(id)
+          FROM media
+          WHERE is_trashed = 0
+          GROUP BY user_id, file_name
+        );
+    `);
   } catch (_) {}
 
   return db;

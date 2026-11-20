@@ -13,6 +13,7 @@ class BackupFolderConfig {
   final String description;
   final List<String> paths;
   final bool enabled;
+  final int? enabledAt;
 
   const BackupFolderConfig({
     required this.id,
@@ -20,19 +21,27 @@ class BackupFolderConfig {
     required this.description,
     required this.paths,
     this.enabled = true,
+    this.enabledAt,
   });
 
-  BackupFolderConfig copyWith({bool? enabled}) => BackupFolderConfig(
+  BackupFolderConfig copyWith({
+    bool? enabled,
+    int? enabledAt,
+    bool clearEnabledAt = false,
+  }) =>
+      BackupFolderConfig(
         id: id,
         name: name,
         description: description,
         paths: paths,
         enabled: enabled ?? this.enabled,
+        enabledAt: clearEnabledAt ? null : (enabledAt ?? this.enabledAt),
       );
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'enabled': enabled,
+        if (enabledAt != null) 'enabledAt': enabledAt,
       };
 
   factory BackupFolderConfig.fromJson(
@@ -41,6 +50,7 @@ class BackupFolderConfig {
   ) {
     return template.copyWith(
       enabled: json['enabled'] as bool? ?? template.enabled,
+      enabledAt: (json['enabledAt'] as num?)?.toInt(),
     );
   }
 }
@@ -110,10 +120,112 @@ class AutoBackupService {
     }
   }
 
+  static Future<File?> _getDeletedSignaturesFile() async {
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final dir = Directory('${docs.path}/homespace');
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      return File('${dir.path}/deleted_signatures.json');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Set<String>? _deletedSignaturesCache;
+
+  /// Loads and returns the set of lowercase filenames that have been deleted or trashed
+  /// so that auto backup will never re-upload them.
+  static Future<Set<String>> getDeletedSignatures() async {
+    if (_deletedSignaturesCache != null) {
+      return _deletedSignaturesCache!;
+    }
+    final signatures = <String>{};
+    try {
+      final file = await _getDeletedSignaturesFile();
+      if (file != null && await file.exists()) {
+        final content = await file.readAsString();
+        final list = jsonDecode(content);
+        if (list is List) {
+          for (final item in list) {
+            if (item is String && item.isNotEmpty) {
+              signatures.add(item.toLowerCase().trim());
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Cross-reference with native Android SharedPreferences
+    try {
+      final nativeIgnored = await DeviceMediaService.getIgnoredOrDeletedItems();
+      signatures.addAll(nativeIgnored);
+    } catch (_) {}
+
+    _deletedSignaturesCache = signatures;
+    return signatures;
+  }
+
+  /// Registers filenames as deleted so auto backup will permanently ignore them.
+  static Future<void> markMediaDeleted(Iterable<String> filenames) async {
+    final valid = filenames
+        .map((s) => s.toLowerCase().trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (valid.isEmpty) return;
+
+    final current = await getDeletedSignatures();
+    current.addAll(valid);
+    _deletedSignaturesCache = current;
+
+    try {
+      final file = await _getDeletedSignaturesFile();
+      if (file != null) {
+        await file.writeAsString(jsonEncode(current.toList()), flush: true);
+      }
+    } catch (_) {}
+
+    try {
+      await DeviceMediaService.markMediaDeleted(valid);
+    } catch (_) {}
+  }
+
+  /// Unregisters filenames from deleted signatures (e.g. if restored from Trash).
+  static Future<void> unmarkMediaDeleted(Iterable<String> filenames) async {
+    final valid = filenames
+        .map((s) => s.toLowerCase().trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (valid.isEmpty) return;
+
+    final current = await getDeletedSignatures();
+    current.removeAll(valid);
+    _deletedSignaturesCache = current;
+
+    try {
+      final file = await _getDeletedSignaturesFile();
+      if (file != null) {
+        await file.writeAsString(jsonEncode(current.toList()), flush: true);
+      }
+    } catch (_) {}
+
+    try {
+      await DeviceMediaService.unmarkMediaDeleted(valid);
+    } catch (_) {}
+  }
+
   static Future<List<BackupFolderConfig>> loadFolders() async {
     try {
+      final startTime = await getBackupStartTime();
       final file = await _getConfigFile();
-      if (file == null || !await file.exists()) return defaultFolders;
+      if (file == null || !await file.exists()) {
+        return defaultFolders.map((template) {
+          return template.copyWith(
+            enabledAt: template.enabled ? startTime : null,
+          );
+        }).toList();
+      }
       final raw = await file.readAsString();
       final map = jsonDecode(raw) as Map<String, dynamic>;
       final folderList = (map['folders'] as List<dynamic>?) ?? [];
@@ -124,23 +236,101 @@ class AutoBackupService {
           orElse: () => null,
         );
         if (found is Map<String, dynamic>) {
-          return BackupFolderConfig.fromJson(found, template);
+          final config = BackupFolderConfig.fromJson(found, template);
+          if (config.enabled && (config.enabledAt == null || config.enabledAt! <= 0)) {
+            return config.copyWith(enabledAt: startTime);
+          }
+          return config;
         }
-        return template;
+        return template.copyWith(
+          enabledAt: template.enabled ? startTime : null,
+        );
       }).toList();
     } catch (_) {
       return defaultFolders;
     }
   }
 
-  static Future<void> saveFolders(List<BackupFolderConfig> folders) async {
+  static Future<int> getBackupStartTime() async {
+    try {
+      final file = await _getConfigFile();
+      if (file != null && await file.exists()) {
+        final raw = await file.readAsString();
+        final map = jsonDecode(raw) as Map<String, dynamic>;
+        final start = map['backupStartTime'] as num?;
+        if (start != null && start > 0) return start.toInt();
+      }
+    } catch (_) {}
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await setBackupStartTime(now);
+    return now;
+  }
+
+  static Future<void> setBackupStartTime(int timestamp) async {
     try {
       final file = await _getConfigFile();
       if (file == null) return;
-      final data = {
-        'folders': folders.map((f) => f.toJson()).toList(),
+      Map<String, dynamic> map = {};
+      if (await file.exists()) {
+        try {
+          map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        } catch (_) {}
+      }
+      map['backupStartTime'] = timestamp;
+      await file.writeAsString(jsonEncode(map));
+    } catch (_) {}
+  }
+
+  static Future<void> saveFolders(List<BackupFolderConfig> folders) async {
+    try {
+      final startTime = await getBackupStartTime();
+      final file = await _getConfigFile();
+      if (file != null) {
+        Map<String, dynamic> map = {};
+        if (await file.exists()) {
+          try {
+            map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+          } catch (_) {}
+        }
+        map['folders'] = folders.map((f) => f.toJson()).toList();
+        map['backupStartTime'] = startTime;
+        await file.writeAsString(jsonEncode(map));
+      }
+      final enabledFolders = folders.where((f) => f.enabled).toList();
+      final enabledIds = enabledFolders.map((f) => f.id).toList();
+      final folderStartTimes = <String, int>{
+        for (final f in enabledFolders)
+          if (f.enabledAt != null && f.enabledAt! > 0) f.id: f.enabledAt!,
       };
-      await file.writeAsString(jsonEncode(data));
+      await DeviceMediaService.syncBackupConfig(
+        enabledFolders: enabledIds,
+        folderStartTimes: folderStartTimes,
+        backupStartTime: startTime,
+      );
+    } catch (_) {}
+  }
+
+  /// Synchronizes current backup configuration and credentials to Native Android background service.
+  static Future<void> syncConfigToNative({
+    String? serverUri,
+    String? token,
+  }) async {
+    try {
+      final folders = await loadFolders();
+      final startTime = await getBackupStartTime();
+      final enabledFolders = folders.where((f) => f.enabled).toList();
+      final enabledIds = enabledFolders.map((f) => f.id).toList();
+      final folderStartTimes = <String, int>{
+        for (final f in enabledFolders)
+          if (f.enabledAt != null && f.enabledAt! > 0) f.id: f.enabledAt!,
+      };
+      await DeviceMediaService.syncBackupConfig(
+        serverUri: serverUri,
+        token: token,
+        enabledFolders: enabledIds,
+        folderStartTimes: folderStartTimes,
+        backupStartTime: startTime,
+      );
     } catch (_) {}
   }
 
@@ -167,7 +357,11 @@ class AutoBackupService {
   }
 
   static bool _isSupportedMedia(String filePath) {
-    final lower = filePath.toLowerCase();
+    final lower = filePath.toLowerCase().replaceAll('\\', '/');
+    final filename = lower.split('/').last;
+    if (filename.startsWith('.') || filename.contains('.trashed') || filename.contains('.pending')) {
+      return false;
+    }
     return lower.endsWith('.jpg') ||
         lower.endsWith('.jpeg') ||
         lower.endsWith('.png') ||
@@ -184,6 +378,12 @@ class AutoBackupService {
   /// or null if it does not belong to any recognized backup folder or is an app-internal path.
   static String? classifyMediaFolder(String filePath) {
     final lower = filePath.toLowerCase().replaceAll('\\', '/');
+
+    // Never backup hidden or OS-trashed files
+    final filename = lower.split('/').last;
+    if (filename.startsWith('.') || filename.contains('.trashed') || filename.contains('.pending')) {
+      return null;
+    }
 
     // Never backup HomeSpace downloaded photos/videos to prevent re-upload loops
     if (lower.contains('/pictures/homespace') || lower.contains('/movies/homespace')) {
@@ -226,9 +426,13 @@ class AutoBackupService {
   static Future<int> scanAndQueueBackup({
     required List<BackupFolderConfig> folders,
     required HomeRepository repository,
+    bool onlyNewPhotos = false,
+    int? minTimestampMs,
   }) async {
     final uploadRepo = repository.uploads;
     if (uploadRepo is! HttpUploadRepository) return 0;
+
+    final defaultMinTime = onlyNewPhotos ? (minTimestampMs ?? await getBackupStartTime()) : 0;
 
     // Check & request storage permission if running on Android
     final hasPerm = await DeviceMediaService.checkStoragePermission();
@@ -237,6 +441,7 @@ class AutoBackupService {
       if (!granted) return 0;
     }
 
+    final folderMap = {for (final f in folders) f.id: f};
     final enabledFolderIds = folders
         .where((f) => f.enabled)
         .map((f) => f.id)
@@ -244,9 +449,23 @@ class AutoBackupService {
 
     if (enabledFolderIds.isEmpty) return 0;
 
+    final activeTitles = repository.media.map((m) => m.title.toLowerCase()).toSet();
+    final trashedIds = repository.trash.map((t) => t.mediaId).toSet();
+    final trashedTitles = repository.snapshot.media
+        .where((m) => trashedIds.contains(m.id))
+        .map((m) => m.title.toLowerCase())
+        .toSet();
+    final queuedTitles = repository.uploads.items
+        .map((u) => (u.title ?? '').toLowerCase())
+        .where((t) => t.isNotEmpty)
+        .toSet();
+    final deletedSignatures = await getDeletedSignatures();
+
     final existingTitles = {
-      ...repository.media.map((m) => m.title.toLowerCase()),
-      ...repository.uploads.items.map((u) => (u.title ?? '').toLowerCase()),
+      ...activeTitles,
+      ...trashedTitles,
+      ...queuedTitles,
+      ...deletedSignatures,
     };
 
     int queuedCount = 0;
@@ -259,6 +478,9 @@ class AutoBackupService {
         final filename = item['name'] as String? ?? 'media.jpg';
         final mimeType = item['mimeType'] as String? ?? 'image/jpeg';
         if (path == null) continue;
+        if (filename.startsWith('.') || filename.toLowerCase().contains('.trashed') || filename.toLowerCase().contains('.pending')) {
+          continue;
+        }
 
         // Strictly verify that this file belongs to an enabled folder
         final folderId = classifyMediaFolder(path);
@@ -266,24 +488,34 @@ class AutoBackupService {
           continue;
         }
 
+        final folderConfig = folderMap[folderId];
+        if (folderConfig == null || !folderConfig.enabled) continue;
+
         if (existingTitles.contains(filename.toLowerCase())) continue;
 
         final file = File(path);
         if (!file.existsSync()) continue;
-        final bytes = await file.readAsBytes();
-        if (bytes.isEmpty) continue;
 
         final dateTakenMs = item['dateTaken'] as num?;
         final takenAt = dateTakenMs != null && dateTakenMs > 0
             ? DateTime.fromMillisecondsSinceEpoch(dateTakenMs.toInt())
             : (file.existsSync() ? file.lastModifiedSync() : DateTime.now());
 
+        // When onlyNewPhotos is true, skip media created before this folder's backup was started
+        final folderMinTime = minTimestampMs ?? folderConfig.enabledAt ?? defaultMinTime;
+        if (onlyNewPhotos && folderMinTime > 0 && takenAt.millisecondsSinceEpoch < folderMinTime) {
+          continue;
+        }
+
+        final fileSize = file.lengthSync();
+        if (fileSize <= 0) continue;
+
         final uploadId = 'backup-${DateTime.now().microsecondsSinceEpoch}-$queuedCount';
         uploadRepo.queueUpload(
           id: uploadId,
           mediaId: uploadId,
-          totalBytes: bytes.length,
-          bytes: bytes,
+          totalBytes: fileSize,
+          filePath: file.path,
           filename: filename,
           mimeType: mimeType,
           takenAt: takenAt,
@@ -310,26 +542,39 @@ class AutoBackupService {
           final folderId = classifyMediaFolder(entity.path) ?? config.id;
           if (!enabledFolderIds.contains(folderId)) continue;
 
+          final folderConfig = folderMap[folderId] ?? config;
+          if (!folderConfig.enabled) continue;
+
           final filename = entity.uri.pathSegments.lastWhere(
             (p) => p.isNotEmpty,
             orElse: () => 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg',
           );
 
+          if (filename.startsWith('.') || filename.toLowerCase().contains('.trashed') || filename.toLowerCase().contains('.pending')) {
+            continue;
+          }
+
           if (existingTitles.contains(filename.toLowerCase())) continue;
 
-          final bytes = await entity.readAsBytes();
+          final takenAt = entity.existsSync() ? entity.lastModifiedSync() : DateTime.now();
+          final folderMinTime = minTimestampMs ?? folderConfig.enabledAt ?? defaultMinTime;
+          if (onlyNewPhotos && folderMinTime > 0 && takenAt.millisecondsSinceEpoch < folderMinTime) {
+            continue;
+          }
+
+          final fileSize = entity.lengthSync();
+          if (fileSize <= 0) continue;
           final isVideo = filename.toLowerCase().endsWith('.mp4') ||
               filename.toLowerCase().endsWith('.mov') ||
               filename.toLowerCase().endsWith('.webm');
           final mimeType = lookupMimeType(filename) ?? (isVideo ? 'video/mp4' : 'image/jpeg');
-          final takenAt = entity.existsSync() ? entity.lastModifiedSync() : DateTime.now();
           final uploadId = 'backup-${DateTime.now().microsecondsSinceEpoch}-$queuedCount';
 
           uploadRepo.queueUpload(
             id: uploadId,
             mediaId: uploadId,
-            totalBytes: bytes.length,
-            bytes: bytes,
+            totalBytes: fileSize,
+            filePath: entity.path,
             filename: filename,
             mimeType: mimeType,
             takenAt: takenAt,
@@ -350,7 +595,11 @@ class AutoBackupService {
     try {
       final folders = await loadFolders();
       if (!folders.any((f) => f.enabled)) return 0;
-      return await scanAndQueueBackup(folders: folders, repository: repository);
+      return await scanAndQueueBackup(
+        folders: folders,
+        repository: repository,
+        onlyNewPhotos: true,
+      );
     } catch (_) {
       return 0;
     }

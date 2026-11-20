@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../application/auto_backup_service.dart';
 import '../application/device_media_service.dart';
 import '../application/home_scope.dart';
+import '../data/demo_remote_repositories.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
+import '../domain/repositories.dart';
 import 'library_widgets.dart';
 import 'uploads_page.dart';
 
@@ -37,15 +39,21 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
   }
 
   Future<void> _toggleFolder(int index, bool enabled) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
     final next = [...folders];
-    next[index] = next[index].copyWith(enabled: enabled);
+    final prev = next[index];
+    next[index] = prev.copyWith(
+      enabled: enabled,
+      enabledAt: enabled ? now : null,
+      clearEnabledAt: !enabled,
+    );
     setState(() {
       folders = next;
     });
     await AutoBackupService.saveFolders(folders);
   }
 
-  Future<void> _runBackupNow() async {
+  Future<void> _runBackupNow({bool onlyNewPhotos = true}) async {
     setState(() {
       scanning = true;
       statusMessage = null;
@@ -75,14 +83,15 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
     final count = await AutoBackupService.scanAndQueueBackup(
       folders: folders,
       repository: repository,
+      onlyNewPhotos: onlyNewPhotos,
     );
 
     if (!mounted) return;
     setState(() {
       scanning = false;
       statusMessage = count > 0
-          ? 'Successfully queued $count new photos for backup!'
-          : 'All photos from selected folders are already backed up or queued.';
+          ? 'Successfully queued $count ${onlyNewPhotos ? "new " : ""}photos for backup!'
+          : 'All selected photos are already backed up or queued.';
     });
 
     final messenger = ScaffoldMessenger.of(context);
@@ -189,7 +198,7 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Select phone folders to automatically preserve memories on your HomeSpace server.',
+                                        'New photos and videos captured after enabling will be automatically preserved on your HomeSpace server.',
                                         style: text.bodySmall,
                                       ),
                                     ],
@@ -314,20 +323,47 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
                             icon: scanning ? Icons.hourglass_top_rounded : Icons.cloud_upload_rounded,
                             backgroundColor: const Color(0xFF1677E8),
                             foregroundColor: Colors.white,
-                            onPressed: scanning ? null : _runBackupNow,
+                            onPressed: scanning ? null : () => _runBackupNow(onlyNewPhotos: true),
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 10),
                           OutlinedButton.icon(
-                            icon: const Icon(Icons.list_alt_rounded),
-                            label: const Text('View Upload Queue'),
+                            key: const ValueKey('backup-all-history'),
+                            icon: const Icon(Icons.history_rounded),
+                            label: const Text('Backup All Past Photos'),
                             style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(double.infinity, 52),
+                              minimumSize: const Size(double.infinity, 50),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
                               ),
                             ),
-                            onPressed: () =>
-                                openSpacePage<void>(context, const UploadsPage()),
+                            onPressed: scanning ? null : () => _runBackupNow(onlyNewPhotos: false),
+                          ),
+                          const SizedBox(height: 12),
+                          ListenableBuilder(
+                            listenable: HomeScope.of(context).uploads,
+                            builder: (context, _) {
+                              final queue = HomeScope.of(context).uploads;
+                              final remaining = queue is! DemoUploadRepository
+                                  ? queue.remainingCount
+                                  : 0;
+                              return OutlinedButton.icon(
+                                key: const ValueKey('view-upload-queue-btn'),
+                                icon: const Icon(Icons.list_alt_rounded),
+                                label: Text(
+                                  remaining > 0
+                                      ? 'View Upload Queue ($remaining remaining)'
+                                      : 'View Upload Queue',
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size(double.infinity, 52),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                onPressed: () =>
+                                    openSpacePage<void>(context, const UploadsPage()),
+                              );
+                            },
                           ),
                         ],
                       ),

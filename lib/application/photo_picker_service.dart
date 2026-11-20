@@ -243,7 +243,6 @@ class PhotoPickerHelper {
 
     for (var i = 0; i < files.length; i++) {
       final file = files[i];
-      final bytes = await file.readAsBytes();
       final filename = file.name;
       final mimeType = lookupMimeType(filename) ?? (kind == MediaKind.video ? 'video/mp4' : 'image/jpeg');
 
@@ -253,14 +252,16 @@ class PhotoPickerHelper {
       } catch (_) {}
       takenAt ??= DateTime.now();
 
+      final fileLength = await file.length();
+
       if (isOnlineServer) {
         final uploadRepo = repository.uploads as HttpUploadRepository;
         final uploadId = 'up-${DateTime.now().microsecondsSinceEpoch}-$i';
         uploadRepo.queueUpload(
           id: uploadId,
           mediaId: uploadId,
-          totalBytes: bytes.length,
-          bytes: bytes,
+          totalBytes: fileLength,
+          filePath: file.path,
           filename: filename,
           mimeType: mimeType,
           targetAlbumId: targetAlbumId,

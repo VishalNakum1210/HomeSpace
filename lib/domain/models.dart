@@ -276,7 +276,11 @@ class UploadItem {
     this.bytesSent = 0,
     this.phase = UploadPhase.queued,
   });
-  double get progress => totalBytes == 0 ? 0 : (bytesSent / totalBytes).clamp(0.0, 1.0);
+  double get progress {
+    if (totalBytes == 0) return 0;
+    if (phase == UploadPhase.completed) return 1.0;
+    return (bytesSent / totalBytes).clamp(0.0, 1.0);
+  }
   UploadItem copyWith({
     String? title,
     int? bytesSent,

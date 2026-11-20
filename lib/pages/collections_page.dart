@@ -220,11 +220,7 @@ class _AlbumCard extends StatelessWidget {
                             ),
                           )
                         else
-                          Image.asset(
-                            cover.asset,
-                            fit: BoxFit.cover,
-                            cacheWidth: 600,
-                          ),
+                          MediaThumbnail(media: cover),
                         Positioned(
                           right: 4,
                           bottom: 4,

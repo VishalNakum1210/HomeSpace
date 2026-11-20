@@ -16,6 +16,13 @@ async function start() {
     config,
   });
 
+  // Ensure Node's underlying HTTP server does not abort long file uploads
+  if (app.server) {
+    app.server.requestTimeout = 0;
+    app.server.headersTimeout = 0;
+    app.server.keepAliveTimeout = 120000;
+  }
+
   try {
     const address = await app.listen({
       port: config.port,

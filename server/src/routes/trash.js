@@ -1,13 +1,4 @@
-import { deleteMediaFiles, updateStorageUsage } from '../storage.js';
-
-const EXTENSION_MAP = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-  'image/heic': 'heic',
-  'image/avif': 'avif',
-};
+import { deleteMediaFiles, updateStorageUsage, EXTENSION_MAP } from '../storage.js';
 
 export async function trashRoutes(fastify, options) {
   const { db, dataDir } = options;

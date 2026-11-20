@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app.dart';
+import 'application/auto_backup_service.dart';
 import 'application/frontend_session.dart';
 import 'data/http_remote_repositories.dart';
 import 'data/local_home_repository.dart';
@@ -20,8 +21,10 @@ class HomeSpaceHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
     return super.createHttpClient(context)
-      ..badCertificateCallback =
-          (X509Certificate cert, String host, int port) => true;
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) {
+        // Allow self-signed and Tailscale certificates for all home server connections
+        return true;
+      };
   }
 }
 
@@ -54,11 +57,21 @@ Future<void> main() async {
   final activeServerUri = session.serverUri ?? serverUri;
   final connectionRepo = HttpConnectionRepository(initialAddress: activeServerUri);
 
+  if (session.isAuthenticated || activeServerUri != null) {
+    unawaited(
+      AutoBackupService.syncConfigToNative(
+        serverUri: (activeServerUri ?? session.serverUri)?.toString(),
+        token: session.authToken,
+      ).catchError((_) {}),
+    );
+  }
+
   late final LocalHomeRepository repository;
   final uploadRepo = HttpUploadRepository(
     getServerAddress: () =>
         connectionRepo.status.address ?? session.serverUri ?? activeServerUri,
     getAuthToken: () => session.authToken,
+    getExistingMedia: () => repository.media,
     onMediaUploaded: (item, targetAlbumId) async {
       await repository.addMedia(item);
       if (targetAlbumId != null) {

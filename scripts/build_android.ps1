@@ -26,6 +26,14 @@ if ($Production -and -not (Test-Path -LiteralPath (Join-Path $workspacePath 'and
     throw 'Production signing requires android/key.properties. See docs/android-release.md.'
 }
 
+if ([string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
+    $studioJbr = 'C:\Program Files\Android\Android Studio\jbr'
+    if (Test-Path -LiteralPath $studioJbr -PathType Container) {
+        $env:JAVA_HOME = $studioJbr
+        $env:PATH = "$studioJbr\bin;$env:PATH"
+    }
+}
+
 function Invoke-FlutterStep {
     param([string[]]$FlutterArguments)
     & $dartPath $flutterSnapshotPath @FlutterArguments

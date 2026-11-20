@@ -11,7 +11,10 @@ import { trashRoutes } from './routes/trash.js';
 export async function buildApp({ db, dataDir, config }) {
   const fastify = Fastify({
     logger: false,
-    bodyLimit: 10 * 1024 * 1024, // 10MB default json limit
+    bodyLimit: 5 * 1024 * 1024 * 1024, // 5GB limit for large video uploads
+    connectionTimeout: 0,
+    keepAliveTimeout: 120000,
+    requestTimeout: 0,
   });
 
   // Rate limiting to protect authentication endpoints from brute force
@@ -24,10 +27,10 @@ export async function buildApp({ db, dataDir, config }) {
     },
   });
 
-  // Multipart file upload support for media uploads (1GB max for high-res videos & photos)
+  // Multipart file upload support for media uploads (5GB max for high-res videos & photos)
   await fastify.register(multipart, {
     limits: {
-      fileSize: 1024 * 1024 * 1024, // 1GB max per photo/video
+      fileSize: 5 * 1024 * 1024 * 1024, // 5GB max per photo/video
     },
   });
 

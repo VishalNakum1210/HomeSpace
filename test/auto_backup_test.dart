@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:homespace/application/auto_backup_service.dart';
 import 'package:homespace/application/device_media_service.dart';
 import 'package:homespace/application/home_scope.dart';
+import 'package:homespace/domain/models.dart';
 import 'package:homespace/data/http_remote_repositories.dart';
 import 'package:homespace/data/local_home_repository.dart';
 import 'package:homespace/data/snapshot_store.dart';
@@ -206,6 +207,239 @@ void main() {
       expect(queued, 1);
       expect(uploadRepo.items.length, 1);
       expect(uploadRepo.items.first.title, 'IMG_01.jpg');
+    });
+
+    test('DeviceMediaService and AutoBackupService sync config and schedule background jobs', () async {
+      DeviceMediaService.debugOverrideIsAndroid = true;
+      addTearDown(() => DeviceMediaService.debugOverrideIsAndroid = false);
+
+      Map<String, dynamic>? lastSyncedArgs;
+      bool scheduleCalled = false;
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('com.homespace.homespace/backup'),
+        (call) async {
+          if (call.method == 'syncBackupConfig') {
+            lastSyncedArgs = Map<String, dynamic>.from(call.arguments as Map);
+            return true;
+          }
+          if (call.method == 'scheduleBackgroundBackup') {
+            scheduleCalled = true;
+            return true;
+          }
+          if (call.method == 'isBackgroundBackupScheduled') {
+            return true;
+          }
+          return null;
+        },
+      );
+
+      final synced = await DeviceMediaService.syncBackupConfig(
+        serverUri: 'https://test.server:8443',
+        token: 'test_token',
+        enabledFolders: ['camera', 'whatsapp'],
+      );
+      expect(synced, isTrue);
+      expect(lastSyncedArgs?['serverUri'], 'https://test.server:8443');
+      expect(lastSyncedArgs?['token'], 'test_token');
+      expect(lastSyncedArgs?['enabledFolders'], ['camera', 'whatsapp']);
+
+      final scheduled = await DeviceMediaService.scheduleBackgroundBackup();
+      expect(scheduled, isTrue);
+      expect(scheduleCalled, isTrue);
+
+      final isScheduled = await DeviceMediaService.isBackgroundBackupScheduled();
+      expect(isScheduled, isTrue);
+
+      await AutoBackupService.syncConfigToNative(
+        serverUri: 'https://test.server:8443',
+        token: 'test_token',
+      );
+      expect(lastSyncedArgs?['serverUri'], 'https://test.server:8443');
+    });
+
+    test('scanAndQueueBackup with onlyNewPhotos skips photos clicked before folder was enabled', () async {
+      DeviceMediaService.debugOverrideIsAndroid = true;
+      addTearDown(() => DeviceMediaService.debugOverrideIsAndroid = false);
+
+      final tempDir = Directory.systemTemp.createTempSync('backup_timestamp_test_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+
+      final oldPhoto = File('${tempDir.path}/DCIM/Camera/IMG_OLD.jpg')..createSync(recursive: true);
+      oldPhoto.writeAsBytesSync([1, 2, 3]);
+
+      final newPhoto = File('${tempDir.path}/DCIM/Camera/IMG_NEW.jpg')..createSync(recursive: true);
+      newPhoto.writeAsBytesSync([4, 5, 6]);
+
+      // Suppose the folder was enabled at t=20000.
+      // oldPhoto was clicked at t=10000 (before enable).
+      // newPhoto was clicked at t=30000 (after enable).
+      const folderEnableTime = 20000;
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('com.homespace.homespace/permissions'),
+        (call) async {
+          if (call.method == 'checkStoragePermission') return true;
+          if (call.method == 'requestStoragePermission') return true;
+          if (call.method == 'queryCameraMedia') {
+            return [
+              {
+                'path': oldPhoto.path,
+                'name': 'IMG_OLD.jpg',
+                'size': 3,
+                'mimeType': 'image/jpeg',
+                'isVideo': false,
+                'dateTaken': 10000,
+              },
+              {
+                'path': newPhoto.path,
+                'name': 'IMG_NEW.jpg',
+                'size': 3,
+                'mimeType': 'image/jpeg',
+                'isVideo': false,
+                'dateTaken': 30000,
+              },
+            ];
+          }
+          return null;
+        },
+      );
+
+      final uploadRepo = HttpUploadRepository(
+        getServerAddress: () => Uri.parse('http://127.0.0.1:8080'),
+        getAuthToken: () => 'token',
+      );
+
+      final repository = LocalHomeRepository(
+        store: MemorySnapshotStore(),
+        customUploads: uploadRepo,
+      );
+      addTearDown(repository.dispose);
+
+      final folders = [
+        const BackupFolderConfig(
+          id: 'camera',
+          name: 'Camera',
+          description: '',
+          paths: [],
+          enabled: true,
+          enabledAt: folderEnableTime,
+        ),
+      ];
+
+      final queued = await AutoBackupService.scanAndQueueBackup(
+        folders: folders,
+        repository: repository,
+        onlyNewPhotos: true,
+      );
+
+      // Only IMG_NEW.jpg should be queued; IMG_OLD.jpg must be skipped!
+      expect(queued, 1);
+      expect(uploadRepo.items.length, 1);
+      expect(uploadRepo.items.first.title, 'IMG_NEW.jpg');
+    });
+
+    test('scanAndQueueBackup skips photos that are in trash or marked deleted', () async {
+      DeviceMediaService.debugOverrideIsAndroid = true;
+      addTearDown(() => DeviceMediaService.debugOverrideIsAndroid = false);
+
+      final tempDir = Directory.systemTemp.createTempSync('backup_deleted_test_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+
+      final photo1 = File('${tempDir.path}/DCIM/Camera/IMG_TRASHED.jpg')..createSync(recursive: true);
+      photo1.writeAsBytesSync([1, 2, 3]);
+
+      final photo2 = File('${tempDir.path}/DCIM/Camera/IMG_DELETED.jpg')..createSync(recursive: true);
+      photo2.writeAsBytesSync([4, 5, 6]);
+
+      final photo3 = File('${tempDir.path}/DCIM/Camera/IMG_VALID.jpg')..createSync(recursive: true);
+      photo3.writeAsBytesSync([7, 8, 9]);
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('com.homespace.homespace/permissions'),
+        (call) async {
+          if (call.method == 'checkStoragePermission') return true;
+          if (call.method == 'requestStoragePermission') return true;
+          if (call.method == 'queryCameraMedia') {
+            return [
+              {
+                'path': photo1.path,
+                'name': 'IMG_TRASHED.jpg',
+                'size': 3,
+                'mimeType': 'image/jpeg',
+                'isVideo': false,
+                'dateTaken': 30000,
+              },
+              {
+                'path': photo2.path,
+                'name': 'IMG_DELETED.jpg',
+                'size': 3,
+                'mimeType': 'image/jpeg',
+                'isVideo': false,
+                'dateTaken': 30000,
+              },
+              {
+                'path': photo3.path,
+                'name': 'IMG_VALID.jpg',
+                'size': 3,
+                'mimeType': 'image/jpeg',
+                'isVideo': false,
+                'dateTaken': 30000,
+              },
+            ];
+          }
+          return null;
+        },
+      );
+
+      final uploadRepo = HttpUploadRepository(
+        getServerAddress: () => Uri.parse('http://127.0.0.1:8080'),
+        getAuthToken: () => 'token',
+      );
+
+      final repository = LocalHomeRepository(
+        store: MemorySnapshotStore(),
+        customUploads: uploadRepo,
+      );
+      addTearDown(repository.dispose);
+      await repository.initialize();
+
+      // Create a media item with title IMG_TRASHED.jpg and move it to trash
+      final item = MediaItem(
+        id: 'trashed-1',
+        title: 'IMG_TRASHED.jpg',
+        asset: photo1.path,
+        category: 'Camera',
+        takenAt: DateTime.now(),
+        kind: MediaKind.photo,
+      );
+      await repository.addMedia(item);
+      await repository.moveToTrash('trashed-1');
+
+      // Mark IMG_DELETED.jpg as deleted
+      await AutoBackupService.markMediaDeleted(['IMG_DELETED.jpg']);
+
+      final folders = [
+        const BackupFolderConfig(
+          id: 'camera',
+          name: 'Camera',
+          description: '',
+          paths: [],
+          enabled: true,
+          enabledAt: 0,
+        ),
+      ];
+
+      final queued = await AutoBackupService.scanAndQueueBackup(
+        folders: folders,
+        repository: repository,
+        onlyNewPhotos: false,
+      );
+
+      // Only IMG_VALID.jpg should be queued! IMG_TRASHED and IMG_DELETED must be skipped.
+      expect(queued, 1);
+      expect(uploadRepo.items.length, 1);
+      expect(uploadRepo.items.first.title, 'IMG_VALID.jpg');
     });
   });
 }

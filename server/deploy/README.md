@@ -49,7 +49,14 @@ pm2 save
 
 # 5. Verify Health Check
 curl http://localhost:8888/api/health
+
+# 6. Expose via Tailscale Funnel (Port 8443)
+tailscale serve --https=8443 8888
+tailscale funnel 8443 on
 ```
+
+> [!IMPORTANT]
+> **Tailscale Funnel on Port 8443**: Running `tailscale funnel 8443 on` is required so mobile devices outside the private Tailnet mesh (like the phone app) can connect securely to `https://vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net:8443` with a valid SSL certificate. Without Funnel turned on, incoming connections from devices without the Tailscale app will be terminated during TLS handshake.
 
 Expected output:
 ```json

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../domain/models.dart';
+import 'auto_backup_service.dart';
 
 abstract interface class SessionStore {
   Future<Map<String, dynamic>?> loadSession();
@@ -179,14 +181,21 @@ class FrontendSession extends ChangeNotifier {
         'updatedAt': DateTime.now().toIso8601String(),
       });
     }
+
+    unawaited(
+      AutoBackupService.syncConfigToNative(
+        serverUri: serverUri.toString(),
+        token: token,
+      ).catchError((_) {}),
+    );
   }
 
-  Future<void> updateServerUri(Uri uri) async {
+  Future<void> updateServerUri(Uri? uri) async {
     _serverUri = uri;
     notifyListeners();
     if (_store != null && _authToken != null) {
       await _store.saveSession({
-        'serverUri': uri.toString(),
+        if (uri != null) 'serverUri': uri.toString(),
         'token': _authToken,
         'userId': _userId,
         'email': _userEmail,
@@ -197,6 +206,13 @@ class FrontendSession extends ChangeNotifier {
         'updatedAt': DateTime.now().toIso8601String(),
       });
     }
+
+    unawaited(
+      AutoBackupService.syncConfigToNative(
+        serverUri: uri?.toString(),
+        token: _authToken,
+      ).catchError((_) {}),
+    );
   }
 
   Future<void> logout() async {
@@ -211,6 +227,12 @@ class FrontendSession extends ChangeNotifier {
     if (_store != null) {
       await _store.clearSession();
     }
+
+    unawaited(
+      AutoBackupService.syncConfigToNative(
+        token: '',
+      ).catchError((_) {}),
+    );
   }
 }
 

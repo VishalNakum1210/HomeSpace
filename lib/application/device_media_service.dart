@@ -7,6 +7,7 @@ class DeviceMediaService {
   static const _mediaChannel = MethodChannel('com.homespace.homespace/media_saver');
   static const _permissionChannel = MethodChannel('com.homespace.homespace/permissions');
   static const _observerChannel = EventChannel('com.homespace.homespace/media_observer');
+  static const _backupChannel = MethodChannel('com.homespace.homespace/backup');
 
   @visibleForTesting
   static bool debugOverrideIsAndroid = false;
@@ -64,6 +65,77 @@ class DeviceMediaService {
   }
 
   /// Checks if photo/video reading permission is granted.
+  static final Map<String, String> _thumbnailMemoryCache = {};
+
+  /// Clears in-memory thumbnail cache (e.g. when media is deleted from device).
+  static void clearLocalMediaCache() {
+    _thumbnailMemoryCache.clear();
+  }
+
+  /// Generates or fetches a cached JPEG thumbnail for a local video file using native Android hardware extraction.
+  static Future<String?> getVideoThumbnail(String videoPath, {String? fileName}) async {
+    if (kIsWeb) return null;
+    final cacheKey = '$videoPath|$fileName';
+    if (_thumbnailMemoryCache.containsKey(cacheKey)) {
+      final cachedPath = _thumbnailMemoryCache[cacheKey]!;
+      if (File(cachedPath).existsSync()) return cachedPath;
+      _thumbnailMemoryCache.remove(cacheKey);
+    }
+
+    if (Platform.isAndroid || debugOverrideIsAndroid) {
+      try {
+        final result = await _mediaChannel.invokeMethod<String>('getVideoThumbnail', {
+          'filePath': videoPath,
+          'fileName': fileName,
+        });
+        if (result != null && result.isNotEmpty) {
+          _thumbnailMemoryCache[cacheKey] = result;
+          return result;
+        }
+      } catch (e) {
+        debugPrint('DeviceMediaService: getVideoThumbnail error $e');
+      }
+    }
+    return null;
+  }
+
+  /// Finds the local absolute file path for a media item on device storage using native MediaStore.
+  static Future<String?> findLocalMedia(String fileName, {bool isVideo = false}) async {
+    if (kIsWeb) return null;
+    if (Platform.isAndroid || debugOverrideIsAndroid) {
+      try {
+        return await _mediaChannel.invokeMethod<String>('findLocalMedia', {
+          'fileName': fileName,
+          'isVideo': isVideo,
+        });
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /// Acquires a partial CPU/network wake lock to ensure long background uploads survive screen-off.
+  static Future<void> acquireWakeLock() async {
+    if (kIsWeb) return;
+    if (Platform.isAndroid || debugOverrideIsAndroid) {
+      try {
+        await _mediaChannel.invokeMethod('acquireWakeLock');
+      } catch (_) {}
+    }
+  }
+
+  /// Releases the partial wake lock once all uploads complete or pause.
+  static Future<void> releaseWakeLock() async {
+    if (kIsWeb) return;
+    if (Platform.isAndroid || debugOverrideIsAndroid) {
+      try {
+        await _mediaChannel.invokeMethod('releaseWakeLock');
+      } catch (_) {}
+    }
+  }
+
+  /// Checks if photo/video reading permission is granted.
   static Future<bool> checkStoragePermission() async {
     if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return true;
     try {
@@ -94,6 +166,105 @@ class DeviceMediaService {
       return list.map((item) => Map<String, dynamic>.from(item)).toList();
     } catch (_) {
       return const [];
+    }
+  }
+
+  /// Synchronizes backup configuration (serverUri, token, enabled folders, backupStartTime, folderStartTimes)
+  /// to Native Android so that background jobs can auto-upload photos even when HomeSpace is completely terminated.
+  static Future<bool> syncBackupConfig({
+    String? serverUri,
+    String? token,
+    List<String>? enabledFolders,
+    int? backupStartTime,
+    Map<String, int>? folderStartTimes,
+  }) async {
+    if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return false;
+    try {
+      final result = await _backupChannel.invokeMethod<bool>('syncBackupConfig', {
+        // ignore: use_null_aware_elements
+        if (serverUri != null) 'serverUri': serverUri,
+        // ignore: use_null_aware_elements
+        if (token != null) 'token': token,
+        // ignore: use_null_aware_elements
+        if (enabledFolders != null) 'enabledFolders': enabledFolders,
+        // ignore: use_null_aware_elements
+        if (backupStartTime != null) 'backupStartTime': backupStartTime,
+        // ignore: use_null_aware_elements
+        if (folderStartTimes != null) 'folderStartTimes': folderStartTimes,
+      });
+      return result ?? false;
+    } catch (e) {
+      debugPrint('DeviceMediaService: syncBackupConfig error $e');
+      return false;
+    }
+  }
+
+  /// Schedules or ensures the background AutoBackupJobService is active.
+  static Future<bool> scheduleBackgroundBackup() async {
+    if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return false;
+    try {
+      final result = await _backupChannel.invokeMethod<bool>('scheduleBackgroundBackup');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Checks if background auto-backup job is scheduled in Android JobScheduler.
+  static Future<bool> isBackgroundBackupScheduled() async {
+    if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return false;
+    try {
+      final result = await _backupChannel.invokeMethod<bool>('isBackgroundBackupScheduled');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Records filenames in native Android SharedPreferences so background AutoBackupJobService
+  /// skips them and never re-uploads them.
+  static Future<void> markMediaDeleted(List<String> filenames) async {
+    if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return;
+    if (filenames.isEmpty) return;
+    try {
+      await _backupChannel.invokeMethod<bool>('markMediaDeleted', {
+        'filenames': filenames,
+      });
+    } catch (_) {}
+  }
+
+  /// Removes filenames from native Android SharedPreferences (e.g. if restored from Trash).
+  static Future<void> unmarkMediaDeleted(List<String> filenames) async {
+    if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return;
+    if (filenames.isEmpty) return;
+    try {
+      await _backupChannel.invokeMethod<bool>('unmarkMediaDeleted', {
+        'filenames': filenames,
+      });
+    } catch (_) {}
+  }
+
+  /// Marks an item as uploaded in native Android SharedPreferences so background backup knows it's already synced.
+  static Future<void> markItemUploaded(String filename, [int? size]) async {
+    if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return;
+    if (filename.isEmpty) return;
+    try {
+      await _backupChannel.invokeMethod<bool>('markItemUploaded', {
+        'filename': filename,
+        // ignore: use_null_aware_elements
+        if (size != null) 'size': size,
+      });
+    } catch (_) {}
+  }
+
+  /// Retrieves list of ignored or deleted items from native Android SharedPreferences.
+  static Future<Set<String>> getIgnoredOrDeletedItems() async {
+    if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return const {};
+    try {
+      final list = await _backupChannel.invokeListMethod<String>('getIgnoredOrDeletedItems');
+      return list?.map((s) => s.toLowerCase()).toSet() ?? const {};
+    } catch (_) {
+      return const {};
     }
   }
 }

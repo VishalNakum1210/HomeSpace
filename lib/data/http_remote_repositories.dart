@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
-
+import '../application/auto_backup_service.dart';
+import '../application/device_media_service.dart';
 import '../domain/models.dart';
 import '../domain/repositories.dart';
 import '../domain/server_address.dart';
@@ -102,7 +104,8 @@ class HttpConnectionRepository extends ChangeNotifier implements ConnectionRepos
 
 class _PendingUploadTask {
   final UploadItem item;
-  final List<int> bytes;
+  final List<int>? bytes;
+  final String? filePath;
   final String filename;
   final String? mimeType;
   final String? targetAlbumId;
@@ -110,7 +113,8 @@ class _PendingUploadTask {
 
   _PendingUploadTask({
     required this.item,
-    required this.bytes,
+    this.bytes,
+    this.filePath,
     required this.filename,
     this.mimeType,
     this.targetAlbumId,
@@ -127,12 +131,14 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
   final Uri? Function() _getServerAddress;
   final String? Function() _getAuthToken;
   final void Function(MediaItem item, String? targetAlbumId)? onMediaUploaded;
+  final List<MediaItem> Function()? getExistingMedia;
 
   HttpUploadRepository({
     HomeSpaceApiClient? apiClient,
     required Uri? Function() getServerAddress,
     required String? Function() getAuthToken,
     this.onMediaUploaded,
+    this.getExistingMedia,
   })  : _apiClient = apiClient ?? HomeSpaceApiClient(),
         // ignore: prefer_initializing_formals
         _getServerAddress = getServerAddress,
@@ -146,7 +152,8 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     required String id,
     required String mediaId,
     required int totalBytes,
-    required List<int> bytes,
+    List<int>? bytes,
+    String? filePath,
     required String filename,
     String? mimeType,
     String? targetAlbumId,
@@ -163,6 +170,7 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     final task = _PendingUploadTask(
       item: item,
       bytes: bytes,
+      filePath: filePath,
       filename: filename,
       mimeType: mimeType,
       targetAlbumId: targetAlbumId,
@@ -182,34 +190,31 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
   }
 
   Future<void> _runQueueLoop() async {
-    while (_pendingQueue.isNotEmpty) {
-      final task = _pendingQueue.removeAt(0);
-      final currentIdx = _items.indexWhere((e) => e.id == task.item.id);
-      if (currentIdx == -1 ||
-          _items[currentIdx].phase == UploadPhase.canceled ||
-          _items[currentIdx].phase == UploadPhase.paused) {
-        continue;
+    await DeviceMediaService.acquireWakeLock();
+    try {
+      while (_pendingQueue.isNotEmpty) {
+        final task = _pendingQueue.removeAt(0);
+        final currentIdx = _items.indexWhere((e) => e.id == task.item.id);
+        if (currentIdx == -1 ||
+            _items[currentIdx].phase == UploadPhase.canceled ||
+            _items[currentIdx].phase == UploadPhase.paused) {
+          continue;
+        }
+        await _startUpload(task);
       }
-      await _startUpload(
-        task.item,
-        task.bytes,
-        task.filename,
-        task.mimeType,
-        task.targetAlbumId,
-        task.takenAt,
+    } finally {
+      _isProcessing = false;
+      final hasActive = _items.any(
+        (i) => i.phase == UploadPhase.uploading || i.phase == UploadPhase.queued,
       );
+      if (!hasActive) {
+        await DeviceMediaService.releaseWakeLock();
+      }
     }
-    _isProcessing = false;
   }
 
-  Future<void> _startUpload(
-    UploadItem item,
-    List<int> bytes,
-    String filename,
-    String? mimeType,
-    String? targetAlbumId,
-    DateTime? takenAt,
-  ) async {
+  Future<void> _startUpload(_PendingUploadTask task) async {
+    final item = task.item;
     final serverUri = _getServerAddress();
     final token = _getAuthToken();
 
@@ -229,10 +234,11 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
       final uploadedMedia = await _apiClient.uploadMedia(
         baseUri: serverUri,
         token: token,
-        fileBytes: bytes,
-        filename: filename,
-        mimeType: mimeType,
-        takenAt: takenAt,
+        fileBytes: task.bytes,
+        filePath: task.filePath,
+        filename: task.filename,
+        mimeType: task.mimeType,
+        takenAt: task.takenAt,
         onProgress: (sent, total) {
           final currentIdx = _items.indexWhere((e) => e.id == item.id);
           if (currentIdx != -1) {
@@ -256,8 +262,16 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
         notifyListeners();
       }
 
-      onMediaUploaded?.call(uploadedMedia, targetAlbumId);
-    } catch (_) {
+      unawaited(DeviceMediaService.markItemUploaded(task.filename, item.totalBytes));
+
+      final deletedSignatures = await AutoBackupService.getDeletedSignatures();
+      final isDeleted = deletedSignatures.contains(task.filename.toLowerCase().trim());
+      if (!isDeleted) {
+        onMediaUploaded?.call(uploadedMedia, task.targetAlbumId);
+      }
+    } catch (e, st) {
+      debugPrint('HttpUploadRepository: upload failed for ${task.filename}: $e\n$st');
+      stderr.writeln('HttpUploadRepository: upload failed for ${task.filename}: $e\n$st');
       final currentIdx = _items.indexWhere((e) => e.id == item.id);
       if (currentIdx != -1) {
         _items[currentIdx] = item.copyWith(phase: UploadPhase.failed);
@@ -292,12 +306,17 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
   @override
   void retry(String id) {
     final idx = _items.indexWhere((e) => e.id == id);
-    if (idx != -1 && _items[idx].phase == UploadPhase.failed) {
-      _items[idx] = _items[idx].copyWith(phase: UploadPhase.queued);
+    if (idx != -1) {
+      _items[idx] = _items[idx].copyWith(
+        phase: UploadPhase.queued,
+        bytesSent: 0,
+      );
       notifyListeners();
       final task = _taskRegistry[id];
-      if (task != null && !_pendingQueue.any((t) => t.item.id == id)) {
-        _pendingQueue.add(task);
+      if (task != null) {
+        if (!_pendingQueue.any((t) => t.item.id == id)) {
+          _pendingQueue.add(task);
+        }
         _processQueue();
       }
     }
