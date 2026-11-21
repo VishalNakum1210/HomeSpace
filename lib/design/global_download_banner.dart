@@ -25,7 +25,7 @@ class GlobalDownloadBanner extends StatelessWidget {
           key: const ValueKey('global-download-banner'),
           color: Colors.transparent,
           child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: isCompleted

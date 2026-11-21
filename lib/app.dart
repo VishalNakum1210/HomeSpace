@@ -179,42 +179,38 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
                               Positioned(
                                 left: 0,
                                 right: 0,
-                                bottom: (photoFocused || keyboardOpen) ? 16 : 84,
-                                child: const SafeArea(
-                                  top: false,
-                                  bottom: false,
-                                  child: GlobalDownloadBanner(),
-                                ),
-                              ),
-                              Positioned(
-                                left: 0,
-                                right: 0,
                                 bottom: 16,
                                 child: SafeArea(
                                   top: false,
-                                  child: Center(
-                                    child: IgnorePointer(
-                                      ignoring: keyboardOpen,
-                                      child: AnimatedSlide(
-                                        offset: keyboardOpen
-                                            ? const Offset(0, 2)
-                                            : Offset.zero,
-                                        duration: spaceMotion(context, 180),
-                                        child: AnimatedOpacity(
-                                          opacity: keyboardOpen ? 0 : 1,
-                                          duration: spaceMotion(context, 120),
-                                          child: Offstage(
-                                            offstage:
-                                                page == SpacePage.photos &&
-                                                photoFocused,
-                                            child: SpaceNavigation(
-                                              selected: page,
-                                              onSelected: selectPage,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const GlobalDownloadBanner(),
+                                      Center(
+                                        child: IgnorePointer(
+                                          ignoring: keyboardOpen,
+                                          child: AnimatedSlide(
+                                            offset: keyboardOpen
+                                                ? const Offset(0, 2)
+                                                : Offset.zero,
+                                            duration: spaceMotion(context, 180),
+                                            child: AnimatedOpacity(
+                                              opacity: keyboardOpen ? 0 : 1,
+                                              duration: spaceMotion(context, 120),
+                                              child: Offstage(
+                                                offstage:
+                                                    page == SpacePage.photos &&
+                                                    photoFocused,
+                                                child: SpaceNavigation(
+                                                  selected: page,
+                                                  onSelected: selectPage,
+                                                ),
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ),
+                                    ],
                                   ),
                                 ),
                               ),
