@@ -513,6 +513,31 @@ class HomeSpaceApiClient {
     );
   });
 
+  // 5b. Upload media thumbnail
+  Future<void> uploadMediaThumbnail({
+    required Uri baseUri,
+    required String token,
+    required String mediaId,
+    required String thumbPath,
+  }) => _guard(() async {
+    final file = File(thumbPath);
+    if (!await file.exists()) return;
+
+    final url = _resolve(baseUri, 'api/media/$mediaId/thumb');
+    final request = http.MultipartRequest('POST', url);
+    request.headers['Authorization'] = 'Bearer $token';
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'file',
+        thumbPath,
+        filename: 'thumb_$mediaId.webp',
+        contentType: MediaType('image', 'webp'),
+      ),
+    );
+    final streamed = await _client.send(request).timeout(const Duration(seconds: 30));
+    await http.Response.fromStream(streamed);
+  });
+
   // 6. Toggle favorite
   Future<void> toggleFavorite({
     required Uri baseUri,

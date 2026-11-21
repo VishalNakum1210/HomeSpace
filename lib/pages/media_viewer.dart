@@ -1911,6 +1911,25 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
         });
         _controller = VideoPlayerController.file(localFile);
       } else if (videoUri != null) {
+        // Resolve video poster thumbnail from disk cache so poster is visible before video streams
+        try {
+          getTemporaryDirectory().then((tempDir) {
+            final cachedThumb = File('${tempDir.path}/thumb_${widget.item.id}.webp');
+            if (cachedThumb.existsSync() && cachedThumb.lengthSync() > 0) {
+              if (mounted) setState(() => _posterPath = cachedThumb.path);
+            } else {
+              DeviceMediaService.getVideoThumbnail(
+                '',
+                fileName: widget.item.title.trim(),
+              ).then((thumb) {
+                if (mounted && thumb != null) {
+                  setState(() => _posterPath = thumb);
+                }
+              });
+            }
+          });
+        } catch (_) {}
+
         var playUri = videoUri;
         if (token != null && !playUri.queryParameters.containsKey('token')) {
           final query = Map<String, String>.from(playUri.queryParameters);

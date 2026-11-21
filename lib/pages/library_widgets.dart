@@ -387,18 +387,7 @@ class _VideoThumbnailTileState extends State<_VideoThumbnailTile> {
 
     final fileName = widget.media.title.trim();
 
-    // 1. Hardware video extraction via MediaStore
-    final thumb = await DeviceMediaService.getVideoThumbnail(
-      widget.media.asset,
-      fileName: fileName.isNotEmpty ? fileName : null,
-    );
-    if (mounted && thumb != null && File(thumb).existsSync()) {
-      _diskVideoThumbCache[id] = thumb;
-      setState(() => _localThumbPath = thumb);
-      return;
-    }
-
-    // 2. Check persistent disk cache
+    // 1. Check persistent disk cache first (fastest, survives deletion of original video)
     try {
       final tempDir = await getTemporaryDirectory();
       final cacheFile = File('${tempDir.path}/thumb_$id.webp');
@@ -407,8 +396,30 @@ class _VideoThumbnailTileState extends State<_VideoThumbnailTile> {
         if (mounted) setState(() => _localThumbPath = cacheFile.path);
         return;
       }
+    } catch (_) {}
 
-      // 3. Network download
+    // 2. Hardware video extraction via MediaStore / local file
+    final thumb = await DeviceMediaService.getVideoThumbnail(
+      widget.media.asset,
+      fileName: fileName.isNotEmpty ? fileName : null,
+    );
+    if (mounted && thumb != null && File(thumb).existsSync()) {
+      _diskVideoThumbCache[id] = thumb;
+      try {
+        final tempDir = await getTemporaryDirectory();
+        final cacheFile = File('${tempDir.path}/thumb_$id.webp');
+        if (!cacheFile.existsSync() || cacheFile.lengthSync() == 0) {
+          await File(thumb).copy(cacheFile.path);
+        }
+      } catch (_) {}
+      setState(() => _localThumbPath = thumb);
+      return;
+    }
+
+    // 3. Network download from server
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final cacheFile = File('${tempDir.path}/thumb_$id.webp');
       final session = mounted ? FrontendSessionScope.maybeOf(context) : null;
       final targetUri = resolveMediaUri(
         asset: widget.media.asset,

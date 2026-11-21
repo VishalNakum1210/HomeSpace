@@ -8,12 +8,23 @@ import sharp from 'sharp';
 
 function tryExtractVideoThumbnail(videoPath, thumbPath) {
   return new Promise((resolve) => {
+    // scale=480:-2 ensures height is an even number, avoiding ffmpeg scale filter error
     execFile(
       'ffmpeg',
-      ['-y', '-ss', '00:00:01', '-i', videoPath, '-vframes', '1', '-vf', 'scale=480:-1', thumbPath],
+      ['-y', '-ss', '00:00:00.500', '-i', videoPath, '-vframes', '1', '-vf', 'scale=480:-2', thumbPath],
       (err) => {
         if (err) {
-          resolve(false);
+          execFile(
+            'ffmpeg',
+            ['-y', '-i', videoPath, '-vframes', '1', '-vf', 'scale=480:-2', thumbPath],
+            (err2) => {
+              if (err2) {
+                resolve(false);
+              } else {
+                resolve(fs.existsSync(thumbPath) && fs.statSync(thumbPath).size > 0);
+              }
+            }
+          );
         } else {
           resolve(fs.existsSync(thumbPath) && fs.statSync(thumbPath).size > 0);
         }
@@ -282,7 +293,8 @@ export async function mediaRoutes(fastify, options) {
     if (row.thumbnail_path) {
       const fullThumbPath = path.join(dataDir, row.thumbnail_path);
       if (fs.existsSync(fullThumbPath)) {
-        reply.header('Content-Type', 'image/webp');
+        const isJpeg = fullThumbPath.endsWith('.jpg') || fullThumbPath.endsWith('.jpeg');
+        reply.header('Content-Type', isJpeg ? 'image/jpeg' : 'image/webp');
         reply.header('Cache-Control', 'public, max-age=31536000, immutable');
         return reply.send(fs.createReadStream(fullThumbPath));
       }
@@ -301,6 +313,38 @@ export async function mediaRoutes(fastify, options) {
     return reply.code(404).send({
       error: { code: 'THUMBNAIL_NOT_AVAILABLE', message: 'Thumbnail not available' },
     });
+  });
+
+  // 4b. Upload / update thumbnail for a media item
+  fastify.post('/media/:id/thumb', {
+    preHandler: [fastify.authenticate],
+  }, async (req, reply) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const row = db.prepare('SELECT id FROM media WHERE id = ? AND user_id = ?').get(id, userId);
+    if (!row) {
+      return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Media not found' } });
+    }
+
+    const part = await req.file();
+    if (!part) {
+      return reply.code(400).send({ error: { code: 'NO_FILE', message: 'No thumbnail file uploaded' } });
+    }
+
+    const userThumbsDir = path.join(dataDir, 'users', userId, 'thumbnails');
+    fs.mkdirSync(userThumbsDir, { recursive: true, mode: 0o700 });
+    const targetThumbPath = path.join(userThumbsDir, `${id}.webp`);
+    const writeStream = fs.createWriteStream(targetThumbPath);
+    await pipeline(part.file, writeStream);
+
+    const relPath = path.posix.join('users', userId, 'thumbnails', `${id}.webp`);
+    db.prepare('UPDATE media SET thumbnail_path = ?, updated_at = ? WHERE id = ?').run(
+      relPath,
+      new Date().toISOString(),
+      id
+    );
+
+    return { success: true, thumbUrl: `/api/media/${id}/thumb` };
   });
 
   // 5. Full file streaming & video Range requests

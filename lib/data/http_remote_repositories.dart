@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import '../application/auto_backup_service.dart';
 import '../application/device_media_service.dart';
 import '../domain/models.dart';
@@ -279,6 +280,38 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
       }
 
       unawaited(DeviceMediaService.markItemUploaded(task.filename, item.totalBytes));
+
+      // Pre-cache & upload thumbnail for videos so it survives storage deletion
+      if (!kIsWeb && task.filePath != null && File(task.filePath!).existsSync()) {
+        try {
+          final isVideo = (task.mimeType?.startsWith('video/') ?? false) ||
+              task.filename.toLowerCase().endsWith('.mp4') ||
+              task.filename.toLowerCase().endsWith('.mov');
+          if (isVideo) {
+            final localThumb = await DeviceMediaService.getVideoThumbnail(
+              task.filePath!,
+              fileName: task.filename,
+            );
+            if (localThumb != null && File(localThumb).existsSync()) {
+              final tempDir = await getTemporaryDirectory();
+              final serverThumb = File('${tempDir.path}/thumb_${mediaToSave.id}.webp');
+              if (!serverThumb.existsSync()) {
+                await File(localThumb).copy(serverThumb.path);
+              }
+              if (serverUri != null && token != null) {
+                unawaited(
+                  _apiClient.uploadMediaThumbnail(
+                    baseUri: serverUri,
+                    token: token,
+                    mediaId: mediaToSave.id,
+                    thumbPath: serverThumb.path,
+                  ).catchError((_) {}),
+                );
+              }
+            }
+          }
+        } catch (_) {}
+      }
 
       final deletedSignatures = await AutoBackupService.getDeletedSignatures();
       final isDeleted = deletedSignatures.contains(task.filename.toLowerCase().trim());

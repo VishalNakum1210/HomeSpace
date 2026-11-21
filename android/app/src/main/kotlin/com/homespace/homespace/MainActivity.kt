@@ -120,6 +120,16 @@ class MainActivity : FlutterActivity() {
 
                 Executors.newCachedThreadPool().execute {
                     try {
+                        // Check if we have an existing persistent thumbnail cached by fileName
+                        if (!fileName.isNullOrEmpty()) {
+                            val nameHash = fileName.hashCode().toString()
+                            val nameThumbFile = File(cacheDir, "vid_thumb_name_$nameHash.jpg")
+                            if (nameThumbFile.exists() && nameThumbFile.length() > 0) {
+                                mainHandler.post { result.success(nameThumbFile.absolutePath) }
+                                return@execute
+                            }
+                        }
+
                         var resolvedFile: File? = if (!filePath.isNullOrEmpty()) File(filePath) else null
                         if (resolvedFile == null || !resolvedFile.exists()) {
                             // Try resolving by fileName via MediaStore
@@ -201,6 +211,13 @@ class MainActivity : FlutterActivity() {
                             FileOutputStream(thumbFile).use { out ->
                                 bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
                             }
+                            try {
+                                val nameHash = file.name.hashCode().toString()
+                                val nameThumbFile = File(cacheDir, "vid_thumb_name_$nameHash.jpg")
+                                FileOutputStream(nameThumbFile).use { out ->
+                                    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                                }
+                            } catch (_: Throwable) {}
                             mainHandler.post { result.success(thumbFile.absolutePath) }
                         } else {
                             mainHandler.post { result.success(null) }
