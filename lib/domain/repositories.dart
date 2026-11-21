@@ -73,6 +73,8 @@ abstract class HomeRepository extends ChangeNotifier
   Future<void> initialize();
   void setScenario(DemoScenario scenario);
   String groupFor(MediaItem item);
+  Future<void> clearUserData();
+  Future<void> resetToDemo();
 }
 
 abstract interface class ConnectionRepository implements Listenable {

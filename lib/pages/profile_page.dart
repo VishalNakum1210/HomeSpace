@@ -9,6 +9,7 @@ import '../design/space_symbols.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
 import '../domain/models.dart';
+import '../domain/repositories.dart';
 import 'backup_settings_page.dart';
 import 'connection_page.dart';
 import 'library_widgets.dart';
@@ -133,6 +134,20 @@ class ProfilePage extends StatelessWidget {
                         openSpacePage<void>(context, const TrashPage()),
                   ),
                   _SettingRow(
+                    settingKey: const ValueKey('library-cleanup-setting'),
+                    icon: repository.media.isEmpty
+                        ? Icons.restart_alt_rounded
+                        : Icons.cleaning_services_rounded,
+                    title: repository.media.isEmpty
+                        ? 'Restore Demo Memories'
+                        : 'Clear Demo Memories',
+                    subtitle: repository.media.isEmpty
+                        ? 'Reload sample photos and albums'
+                        : 'Start fresh with your real photos',
+                    tone: const Color(0xFFE65100),
+                    onTap: () => _confirmLibraryReset(context, repository),
+                  ),
+                  _SettingRow(
                     settingKey: const ValueKey('about-setting'),
                     icon: Icons.home_rounded,
                     title: 'About HomeSpace',
@@ -159,6 +174,67 @@ class ProfilePage extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmLibraryReset(
+    BuildContext context,
+    HomeRepository repository,
+  ) async {
+    final isEmpty = repository.media.isEmpty;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          isEmpty ? 'Restore Demo Memories?' : 'Clear Demo Memories?',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          isEmpty
+              ? 'This will restore the bundled demo photos and albums.'
+              : 'This will clear all demo photos, albums, and trash so you can test HomeSpace with your real camera roll photos.\n\nYou can add real photos anytime using the + button.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor:
+                  isEmpty ? const Color(0xFF2E7D32) : const Color(0xFFE74742),
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(isEmpty ? 'Restore Demo' : 'Start Fresh (Clear All)'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      if (isEmpty) {
+        await repository.resetToDemo();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              behavior: SnackBarBehavior.floating,
+              content: Text('Demo memories restored.'),
+            ),
+          );
+        }
+      } else {
+        await repository.clearUserData();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              behavior: SnackBarBehavior.floating,
+              content: Text(
+                'Library cleared! Tap + on the Photos tab to add real photos.',
+              ),
+            ),
+          );
+        }
+      }
+    }
   }
 
   Future<void> showMotionInfo(BuildContext context) => showSpaceSheet<void>(

@@ -60,6 +60,8 @@ class MediaItem {
   final String category;
   final DateTime takenAt;
   final MediaKind kind;
+  final Duration? duration;
+  final bool isSynced;
   const MediaItem({
     required this.id,
     required this.asset,
@@ -67,6 +69,8 @@ class MediaItem {
     required this.category,
     required this.takenAt,
     this.kind = MediaKind.photo,
+    this.duration,
+    this.isSynced = false,
   });
 
   MediaItem copyWith({
@@ -76,6 +80,8 @@ class MediaItem {
     String? category,
     DateTime? takenAt,
     MediaKind? kind,
+    Duration? duration,
+    bool? isSynced,
   }) => MediaItem(
     id: id ?? this.id,
     asset: asset ?? this.asset,
@@ -83,7 +89,17 @@ class MediaItem {
     category: category ?? this.category,
     takenAt: takenAt ?? this.takenAt,
     kind: kind ?? this.kind,
+    duration: duration ?? this.duration,
+    isSynced: isSynced ?? this.isSynced,
   );
+
+  String? get formattedDuration {
+    if (duration == null) return null;
+    final totalSeconds = duration!.inSeconds;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
 
   String dateLabel(DateTime now) {
     final local = takenAt.toLocal();

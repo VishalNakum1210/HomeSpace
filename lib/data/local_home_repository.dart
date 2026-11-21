@@ -304,6 +304,7 @@ class LocalHomeRepository extends HomeRepository {
     });
   }
 
+  @override
   Future<void> clearUserData() async {
     await _commit((state) {
       return state.copyWith(
@@ -311,6 +312,16 @@ class LocalHomeRepository extends HomeRepository {
         albums: [],
         favorites: {},
         trash: [],
+      );
+    });
+  }
+
+  @override
+  Future<void> resetToDemo() async {
+    await _commit((state) {
+      final seed = seedLibrary(clock());
+      return seed.copyWith(
+        profile: state.profile,
       );
     });
   }

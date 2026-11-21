@@ -50,6 +50,8 @@ class DashboardUploadBanner extends StatelessWidget {
         if (uploads is DemoUploadRepository) {
           return const SizedBox.shrink();
         }
+        final theme = Theme.of(context);
+        final style = SpaceStyle.of(context);
         final remaining = uploads.remainingCount;
         final completed = uploads.completedCount;
         final total = uploads.items.length;
@@ -58,8 +60,6 @@ class DashboardUploadBanner extends StatelessWidget {
         }
 
         final progress = total > 0 ? (completed / total).clamp(0.0, 1.0) : 0.0;
-        final theme = Theme.of(context);
-        final style = SpaceStyle.of(context);
 
         return Padding(
           padding: const EdgeInsets.only(top: 8, bottom: 4),
@@ -225,6 +225,7 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
   bool searching = false;
   final selected = <String>{};
   int selectionRevision = 0;
+  int? _userColumns;
 
   StreamSubscription<void>? _mediaChangeSubscription;
   Timer? _mediaChangeDebounceTimer;
@@ -352,7 +353,7 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
     final groups = selecting || searching
         ? {'Search results': photos}
         : groupMediaTimeline(photos, repository.groupFor);
-    final columns = libraryColumns(context);
+    final columns = _userColumns ?? libraryColumns(context);
     final ids = selected
         .where((id) => repository.media.any((item) => item.id == id))
         .toList();
@@ -384,19 +385,19 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
             children: [
               RefreshIndicator(
                 onRefresh: () async {
-                  final session = FrontendSessionScope.maybeOf(context);
-                  final targetUri = session?.serverUri;
-                  final token = session?.authToken;
-                  if (targetUri != null &&
-                      token != null &&
-                      repository is LocalHomeRepository) {
-                    await repository.syncWithServer(
-                      serverUri: targetUri,
-                      token: token,
-                    );
-                  }
-                },
-                child: CustomScrollView(
+                    final session = FrontendSessionScope.maybeOf(context);
+                    final targetUri = session?.serverUri;
+                    final token = session?.authToken;
+                    if (targetUri != null &&
+                        token != null &&
+                        repository is LocalHomeRepository) {
+                      await repository.syncWithServer(
+                        serverUri: targetUri,
+                        token: token,
+                      );
+                    }
+                  },
+                  child: CustomScrollView(
                   key: const PageStorageKey('photos-scroll'),
                   keyboardDismissBehavior:
                       ScrollViewKeyboardDismissBehavior.onDrag,
@@ -510,6 +511,27 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                                   ),
                                 ),
                               ),
+                              if (!focused) ...[
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  key: const ValueKey('grid-density-toggle'),
+                                  tooltip: 'Grid view ($columns columns)',
+                                  icon: Icon(
+                                    columns == 2
+                                        ? Icons.grid_view_rounded
+                                        : columns == 3
+                                            ? Icons.grid_on_rounded
+                                            : Icons.view_comfy_rounded,
+                                    color: style.muted,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      final current = _userColumns ?? libraryColumns(context);
+                                      _userColumns = current == 2 ? 3 : (current == 3 ? 4 : 2);
+                                    });
+                                  },
+                                ),
+                              ],
                             ],
                           ),
                           if (!focused) ...[
@@ -694,6 +716,35 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                         ),
                         Row(
                           children: [
+                            Expanded(
+                              child: PhotoAction(
+                                filled: true,
+                                key: const ValueKey('bulk-share'),
+                                icon: Icons.share_rounded,
+                                tone: const Color(0xFF1677E8),
+                                tooltip: 'Share selected memories',
+                                label: 'Share',
+                                onPressed: !enabled
+                                    ? null
+                                    : () async {
+                                        final revision = selectionRevision;
+                                        final count = ids.length;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Sharing $count ${count == 1 ? 'memory' : 'memories'}…',
+                                            ),
+                                            behavior: SnackBarBehavior.floating,
+                                          ),
+                                        );
+                                        if (mounted &&
+                                            revision == selectionRevision) {
+                                          clearSelection();
+                                        }
+                                      },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
                             Expanded(
                               child: PhotoAction(
                                 filled: true,

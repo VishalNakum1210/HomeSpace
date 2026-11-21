@@ -507,14 +507,14 @@ class _VideoThumbnailTileState extends State<_VideoThumbnailTile> {
               color: Colors.black.withValues(alpha: 0.65),
               borderRadius: BorderRadius.circular(6),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.play_arrow_rounded, color: Colors.white, size: 14),
-                SizedBox(width: 3),
+                const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 14),
+                const SizedBox(width: 3),
                 Text(
-                  'Video',
-                  style: TextStyle(
+                  widget.media.formattedDuration ?? 'Video',
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
@@ -583,6 +583,29 @@ class MemoryTile extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   MediaThumbnail(media: media),
+                if (selected == null)
+                  Positioned(
+                    left: 7,
+                    top: 7,
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(
+                        color: Color(0x77000000),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
+                          (media.isSynced || media.asset.startsWith('http'))
+                              ? Icons.cloud_done_rounded
+                              : Icons.cloud_queue_rounded,
+                          color: (media.isSynced || media.asset.startsWith('http'))
+                              ? const Color(0xFF8BE84E)
+                              : Colors.white70,
+                          size: 13,
+                        ),
+                      ),
+                    ),
+                  ),
                 if (selected != null || favorite)
                   Positioned(
                     right: 7,

@@ -24,6 +24,8 @@ class SnapshotCodec {
           'category': item.category,
           'takenAt': item.takenAt.toUtc().toIso8601String(),
           'kind': item.kind.name,
+          'durationMs': item.duration?.inMilliseconds,
+          'isSynced': item.isSynced,
         },
     ],
     'albums': [
@@ -143,6 +145,10 @@ class SnapshotCodec {
     category: _text(value['category']),
     takenAt: _date(value['takenAt']),
     kind: _enum(MediaKind.values, value['kind'], MediaKind.photo),
+    duration: value['durationMs'] == null
+        ? null
+        : Duration(milliseconds: (value['durationMs'] as num).toInt()),
+    isSynced: value['isSynced'] == true,
   );
   static Album _album(Map<String, Object?> value) => Album(
     id: _text(value['id']),
