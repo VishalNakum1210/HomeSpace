@@ -87,6 +87,7 @@ class _AlbumEditorPageState extends State<AlbumEditorPage> {
     final style = SpaceStyle.of(context);
     final disabled = busy || repository.pendingWrites > 0 || !editable;
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: Text(widget.album == null ? 'Create album' : 'Edit album'),
         centerTitle: true,
@@ -95,7 +96,7 @@ class _AlbumEditorPageState extends State<AlbumEditorPage> {
         key: form,
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
