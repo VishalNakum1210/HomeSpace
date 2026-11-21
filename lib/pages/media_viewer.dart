@@ -1454,6 +1454,9 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
       if (_diskPreviewCache.containsKey(id)) {
         final cached = _diskPreviewCache[id];
         if (cached != null && File(cached).existsSync() && File(cached).lengthSync() > 0) {
+          if (thumbCache.existsSync() && thumbCache.lengthSync() > 0) {
+            _fallbackThumbPath = thumbCache.path;
+          }
           if (mounted) setState(() => _resolvedPath = cached);
           return;
         } else {
@@ -1463,6 +1466,9 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
 
       if (previewCache.existsSync() && previewCache.lengthSync() > 0) {
         _diskPreviewCache[id] = previewCache.path;
+        if (thumbCache.existsSync() && thumbCache.lengthSync() > 0) {
+          _fallbackThumbPath = thumbCache.path;
+        }
         if (mounted) setState(() => _resolvedPath = previewCache.path);
         return;
       }
@@ -1594,12 +1600,43 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
         );
       }
       if (File(_resolvedPath!).existsSync()) {
-        return Image.file(
+        final highResImage = Image.file(
           File(_resolvedPath!),
           fit: BoxFit.contain,
           semanticLabel: title,
           errorBuilder: (_, _, _) => _buildErrorFallback(),
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded) {
+              return child;
+            }
+            return AnimatedOpacity(
+              opacity: frame == null ? 0.0 : 1.0,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              child: child,
+            );
+          },
         );
+
+        // Keep the thumbnail underneath while high-res file is being read & decoded
+        // from disk to completely eliminate any black screen flash!
+        if (_fallbackThumbPath != null &&
+            _fallbackThumbPath != _resolvedPath &&
+            File(_fallbackThumbPath!).existsSync()) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.file(
+                File(_fallbackThumbPath!),
+                fit: BoxFit.contain,
+                semanticLabel: title,
+              ),
+              highResImage,
+            ],
+          );
+        }
+
+        return highResImage;
       } else {
         // Local file was removed/deleted from device; clear stale cache and re-resolve
         _resolvedPath = null;
