@@ -102,23 +102,27 @@ Future<void> main() async {
   }
 
   if (hasSession && session.isAuthenticated && activeServerUri != null) {
-    if (repository.profile.userId != session.userId ||
-        (session.userName != null && repository.profile.name != session.userName)) {
-      await repository.initForAuthenticatedUser(
-        userId: session.userId!,
-        name: session.userName ?? 'HomeSpace User',
-        avatarTone: session.avatarTone ?? AvatarTone.orange,
-        serverUri: activeServerUri,
-        token: session.authToken!,
-      );
-    } else {
-      unawaited(
-        repository.syncWithServer(
+    try {
+      if (repository.profile.userId != session.userId ||
+          (session.userName != null && repository.profile.name != session.userName)) {
+        await repository.initForAuthenticatedUser(
+          userId: session.userId!,
+          name: session.userName ?? 'HomeSpace User',
+          avatarTone: session.avatarTone ?? AvatarTone.orange,
           serverUri: activeServerUri,
           token: session.authToken!,
-          clearLocalFirst: false,
-        ).catchError((_) {}),
-      );
+        );
+      } else {
+        unawaited(
+          repository.syncWithServer(
+            serverUri: activeServerUri,
+            token: session.authToken!,
+            clearLocalFirst: false,
+          ).catchError((_) {}),
+        );
+      }
+    } catch (e, st) {
+      debugPrint('Startup sync/init error: $e\n$st');
     }
   }
 

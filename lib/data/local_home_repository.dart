@@ -295,12 +295,31 @@ class LocalHomeRepository extends HomeRepository {
     String? token,
   }) async {
     await _commit((state) {
+      final oldUserId = state.profile.userId;
+      final updatedAlbums = state.albums.map((album) {
+        final updatedMemberships = album.memberships.map((m) {
+          if (m.userId == oldUserId) {
+            return AlbumMembership(userId, m.role);
+          }
+          return m;
+        }).toList();
+        final updatedAddedBy = <String, String>{};
+        album.addedBy.forEach((mediaId, adderId) {
+          updatedAddedBy[mediaId] = adderId == oldUserId ? userId : adderId;
+        });
+        return album.copyWith(
+          memberships: updatedMemberships,
+          addedBy: updatedAddedBy,
+        );
+      }).toList();
+
       return state.copyWith(
         profile: state.profile.copyWith(
           userId: userId,
           name: name,
           avatarTone: avatarTone,
         ),
+        albums: updatedAlbums,
       );
     });
   }

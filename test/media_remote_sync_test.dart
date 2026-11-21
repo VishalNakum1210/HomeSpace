@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:homespace/data/homespace_api_client.dart';
-import 'package:homespace/data/http_remote_repositories.dart';
 import 'package:homespace/data/local_home_repository.dart';
 import 'package:homespace/data/snapshot_store.dart';
 import 'package:homespace/domain/models.dart';
