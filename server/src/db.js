@@ -75,6 +75,7 @@ export function initDatabase(dbPath = ':memory:') {
       title TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       cover_media_id TEXT REFERENCES media(id) ON DELETE SET NULL,
+      is_shared INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -88,6 +89,10 @@ export function initDatabase(dbPath = ':memory:') {
 
     CREATE INDEX IF NOT EXISTS idx_album_media_media ON album_media(media_id);
   `);
+
+  try {
+    db.exec('ALTER TABLE albums ADD COLUMN is_shared INTEGER NOT NULL DEFAULT 0;');
+  } catch (_) {}
 
   return db;
 }

@@ -605,4 +605,181 @@ class HomeSpaceApiClient {
 
     if (response.statusCode != 200) _handleError(response);
   });
+
+  // 10. Fetch albums
+  Future<List<Album>> fetchAlbums({
+    required Uri baseUri,
+    required String token,
+    String? currentUserId,
+    bool sharedOnly = false,
+  }) => _guard(() async {
+    final query = <String, dynamic>{
+      if (sharedOnly) 'shared': 'true',
+    };
+    final url = _resolve(baseUri, 'api/albums', query);
+    final response = await _client.get(
+      url,
+      headers: _headers(token),
+    ).timeout(const Duration(seconds: 20));
+
+    if (response.statusCode != 200) _handleError(response);
+
+    final data = jsonDecode(response.body);
+    final albums = (data['albums'] as List<dynamic>? ?? []);
+    final fallbackUser = currentUserId ?? 'member-maya';
+
+    return albums.map((raw) {
+      final a = raw as Map<String, dynamic>;
+      final id = a['id'] as String;
+      final rawOwner = a['userId'] as String?;
+      final isOwner = rawOwner == null || rawOwner == fallbackUser || rawOwner == 'user-me';
+      final ownerId = isOwner ? fallbackUser : rawOwner;
+      final mediaIds = (a['mediaIds'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList();
+      final memberships = [
+        AlbumMembership(ownerId, AlbumRole.owner),
+        if (!isOwner)
+          AlbumMembership(fallbackUser, AlbumRole.contributor),
+      ];
+
+      return Album(
+        id: id,
+        title: a['title'] as String? ?? 'Album',
+        description: a['description'] as String? ?? '',
+        mediaIds: mediaIds,
+        coverId: a['coverMediaId'] as String?,
+        memberships: memberships,
+        addedBy: {for (final m in mediaIds) m: fallbackUser},
+      );
+    }).toList();
+  });
+
+  // 11. Create remote album
+  Future<Album> createRemoteAlbum({
+    required Uri baseUri,
+    required String token,
+    required String title,
+    String description = '',
+    List<String> mediaIds = const [],
+    String? coverMediaId,
+    bool isShared = false,
+    String? id,
+    String? currentUserId,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/albums');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({
+        'id': ?id,
+        'title': title,
+        'description': description,
+        'mediaIds': mediaIds,
+        'coverMediaId': ?coverMediaId,
+        'isShared': isShared,
+      }),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 201 && response.statusCode != 200) {
+      _handleError(response);
+    }
+
+    final data = jsonDecode(response.body);
+    final a = data['album'] as Map<String, dynamic>;
+    final albumId = a['id'] as String;
+    final ownerId = a['userId'] as String? ?? (currentUserId ?? 'user-me');
+    final returnedMediaIds = (a['mediaIds'] as List<dynamic>? ?? [])
+        .map((e) => e.toString())
+        .toList();
+
+    return Album(
+      id: albumId,
+      title: a['title'] as String? ?? title,
+      description: a['description'] as String? ?? description,
+      mediaIds: returnedMediaIds,
+      coverId: a['coverMediaId'] as String? ?? coverMediaId,
+      memberships: [AlbumMembership(ownerId, AlbumRole.owner)],
+      addedBy: {for (final m in returnedMediaIds) m: ownerId},
+    );
+  });
+
+  // 12. Update remote album
+  Future<void> updateRemoteAlbum({
+    required Uri baseUri,
+    required String token,
+    required String albumId,
+    String? title,
+    String? description,
+    String? coverMediaId,
+    bool? isShared,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/albums/$albumId');
+    final body = <String, dynamic>{
+      'title': ?title,
+      'description': ?description,
+      'coverMediaId': ?coverMediaId,
+      'isShared': ?isShared,
+    };
+    if (body.isEmpty) return;
+
+    final response = await _client.patch(
+      url,
+      headers: _headers(token),
+      body: jsonEncode(body),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+  });
+
+  // 13. Add media to remote album
+  Future<void> addMediaToRemoteAlbum({
+    required Uri baseUri,
+    required String token,
+    required String albumId,
+    required List<String> mediaIds,
+  }) => _guard(() async {
+    if (mediaIds.isEmpty) return;
+    final url = _resolve(baseUri, 'api/albums/$albumId/media');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'mediaIds': mediaIds}),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+  });
+
+  // 14. Remove media from remote album
+  Future<void> removeMediaFromRemoteAlbum({
+    required Uri baseUri,
+    required String token,
+    required String albumId,
+    required List<String> mediaIds,
+  }) => _guard(() async {
+    if (mediaIds.isEmpty) return;
+    final url = _resolve(baseUri, 'api/albums/$albumId/media/remove');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'mediaIds': mediaIds}),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+  });
+
+  // 15. Delete remote album
+  Future<void> deleteRemoteAlbum({
+    required Uri baseUri,
+    required String token,
+    required String albumId,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/albums/$albumId');
+    final response = await _client.delete(
+      url,
+      headers: _headers(token),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+  });
 }

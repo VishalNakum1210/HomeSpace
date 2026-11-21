@@ -362,28 +362,49 @@ class LocalHomeRepository extends HomeRepository {
         baseUri: activeUri,
         token: activeToken,
       );
-      if (remoteItems.isEmpty) return;
+      if (remoteItems.isNotEmpty) {
+        await _commit((state) {
+          final existingMap = {for (final m in state.media) m.id: m};
+          final existingFilenames = {
+            for (final m in state.media) m.title.trim().toLowerCase(): m
+          };
 
-      await _commit((state) {
-        final existingMap = {for (final m in state.media) m.id: m};
-        final existingFilenames = {
-          for (final m in state.media) m.title.trim().toLowerCase(): m
-        };
-
-        final updatedMedia = [...state.media];
-        for (final remote in remoteItems) {
-          final byName = existingFilenames[remote.title.trim().toLowerCase()];
-          if (byName != null) {
-            final idx = updatedMedia.indexWhere((m) => m.id == byName.id);
-            if (idx != -1) {
-              updatedMedia[idx] = updatedMedia[idx].copyWith(isSynced: true);
+          final updatedMedia = [...state.media];
+          for (final remote in remoteItems) {
+            final byName = existingFilenames[remote.title.trim().toLowerCase()];
+            if (byName != null) {
+              final idx = updatedMedia.indexWhere((m) => m.id == byName.id);
+              if (idx != -1) {
+                updatedMedia[idx] = updatedMedia[idx].copyWith(isSynced: true);
+              }
+            } else if (!existingMap.containsKey(remote.id)) {
+              updatedMedia.add(remote);
             }
-          } else if (!existingMap.containsKey(remote.id)) {
-            updatedMedia.add(remote);
           }
-        }
-        return state.copyWith(media: updatedMedia);
-      });
+          return state.copyWith(media: updatedMedia);
+        });
+      }
+
+      // Fetch remote albums
+      final remoteAlbums = await client.fetchAlbums(
+        baseUri: activeUri,
+        token: activeToken,
+        currentUserId: _data.profile.userId,
+      );
+      if (remoteAlbums.isNotEmpty) {
+        await _commit((state) {
+          final updatedAlbums = [...state.albums];
+          for (final remote in remoteAlbums) {
+            final existingIdx = updatedAlbums.indexWhere((a) => a.id == remote.id);
+            if (existingIdx != -1) {
+              updatedAlbums[existingIdx] = remote;
+            } else {
+              updatedAlbums.add(remote);
+            }
+          }
+          return state.copyWith(albums: updatedAlbums);
+        });
+      }
     } catch (e) {
       debugPrint('syncWithServer error: $e');
     }
@@ -501,15 +522,51 @@ class LocalHomeRepository extends HomeRepository {
       );
       return state.copyWith(albums: [...state.albums, album]);
     });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(() async {
+        try {
+          await _apiClient.createRemoteAlbum(
+            baseUri: activeUri,
+            token: activeToken,
+            id: createdId,
+            title: title,
+            description: description.trim(),
+            mediaIds: requested,
+            coverMediaId: coverId ?? requested.firstOrNull,
+            currentUserId: _data.profile.userId,
+          );
+        } catch (e) {
+          debugPrint('Error syncing createAlbum: $e');
+        }
+      }());
+    }
+
     return createdId!;
   }
 
   @override
-  Future<void> renameAlbum(String id, String title) => _commit((state) {
-    final album = _album(state, id);
-    _owner(state, album);
-    return _replace(state, album.copyWith(title: _name(title, 80)));
-  });
+  Future<void> renameAlbum(String id, String title) async {
+    final clean = _name(title, 80);
+    await _commit((state) {
+      final album = _album(state, id);
+      _owner(state, album);
+      return _replace(state, album.copyWith(title: clean));
+    });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(_apiClient.updateRemoteAlbum(
+        baseUri: activeUri,
+        token: activeToken,
+        albumId: id,
+        title: clean,
+      ).catchError((e) => debugPrint('Error syncing renameAlbum: $e')));
+    }
+  }
 
   @override
   Future<void> updateAlbum(
@@ -517,61 +574,101 @@ class LocalHomeRepository extends HomeRepository {
     String title,
     String description, {
     String? coverId,
-  }) => _commit((state) {
-    final album = _album(state, id);
-    _owner(state, album);
-    if (coverId != null) {
-      _activeIds(state, [coverId]);
-      if (!album.mediaIds.contains(coverId)) {
+  }) async {
+    final cleanTitle = _name(title, 80);
+    final cleanDesc = description.trim();
+    await _commit((state) {
+      final album = _album(state, id);
+      _owner(state, album);
+      if (coverId != null) {
+        _activeIds(state, [coverId]);
+        if (!album.mediaIds.contains(coverId)) {
+          throw const LocalActionException(
+            'Add the cover photo to this album first.',
+          );
+        }
+      }
+      if (description.length > 4096) {
         throw const LocalActionException(
-          'Add the cover photo to this album first.',
+          'Keep descriptions under 4096 characters.',
         );
       }
-    }
-    if (description.length > 4096) {
-      throw const LocalActionException(
-        'Keep descriptions under 4096 characters.',
+      return _replace(
+        state,
+        album.copyWith(
+          title: cleanTitle,
+          description: cleanDesc,
+          coverId: coverId,
+        ),
       );
+    });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(_apiClient.updateRemoteAlbum(
+        baseUri: activeUri,
+        token: activeToken,
+        albumId: id,
+        title: cleanTitle,
+        description: cleanDesc,
+        coverMediaId: coverId,
+      ).catchError((e) => debugPrint('Error syncing updateAlbum: $e')));
     }
-    return _replace(
-      state,
-      album.copyWith(
-        title: _name(title, 80),
-        description: description.trim(),
-        coverId: coverId,
-      ),
-    );
-  });
+  }
 
   @override
-  Future<void> deleteAlbum(String id) => _commit((state) {
-    _owner(state, _album(state, id));
-    return state.copyWith(
-      albums: state.albums.where((album) => album.id != id).toList(),
-    );
-  });
+  Future<void> deleteAlbum(String id) async {
+    await _commit((state) {
+      _owner(state, _album(state, id));
+      return state.copyWith(
+        albums: state.albums.where((album) => album.id != id).toList(),
+      );
+    });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(_apiClient.deleteRemoteAlbum(
+        baseUri: activeUri,
+        token: activeToken,
+        albumId: id,
+      ).catchError((e) => debugPrint('Error syncing deleteAlbum: $e')));
+    }
+  }
 
   @override
-  Future<void> setAlbumCover(String albumId, String mediaId) => _commit((
-    state,
-  ) {
-    final album = _album(state, albumId);
-    _owner(state, album);
-    _activeIds(state, [mediaId]);
-    if (!album.mediaIds.contains(mediaId)) {
-      throw const LocalActionException('Add this memory to the album first.');
+  Future<void> setAlbumCover(String albumId, String mediaId) async {
+    await _commit((state) {
+      final album = _album(state, albumId);
+      _owner(state, album);
+      _activeIds(state, [mediaId]);
+      if (!album.mediaIds.contains(mediaId)) {
+        throw const LocalActionException('Add this memory to the album first.');
+      }
+      return _replace(state, album.copyWith(coverId: mediaId));
+    });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(_apiClient.updateRemoteAlbum(
+        baseUri: activeUri,
+        token: activeToken,
+        albumId: albumId,
+        coverMediaId: mediaId,
+      ).catchError((e) => debugPrint('Error syncing setAlbumCover: $e')));
     }
-    return _replace(state, album.copyWith(coverId: mediaId));
-  });
+  }
 
   @override
   Future<void> addToAlbum(String albumId, String mediaId) =>
       addManyToAlbum(albumId, [mediaId]);
 
   @override
-  Future<void> addManyToAlbum(String albumId, List<String> mediaIds) {
+  Future<void> addManyToAlbum(String albumId, List<String> mediaIds) async {
     final requested = List<String>.of(mediaIds);
-    return _commit((state) {
+    await _commit((state) {
       final album = _album(state, albumId);
       final ids = _activeIds(state, requested);
       final role = album.roleFor(state.profile.userId);
@@ -593,6 +690,17 @@ class LocalHomeRepository extends HomeRepository {
         ),
       );
     });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(_apiClient.addMediaToRemoteAlbum(
+        baseUri: activeUri,
+        token: activeToken,
+        albumId: albumId,
+        mediaIds: requested,
+      ).catchError((e) => debugPrint('Error syncing addManyToAlbum: $e')));
+    }
   }
 
   @override
@@ -600,9 +708,9 @@ class LocalHomeRepository extends HomeRepository {
       removeManyFromAlbum(albumId, [mediaId]);
 
   @override
-  Future<void> removeManyFromAlbum(String albumId, List<String> mediaIds) {
+  Future<void> removeManyFromAlbum(String albumId, List<String> mediaIds) async {
     final requested = mediaIds.toSet();
-    return _commit((state) {
+    await _commit((state) {
       final album = _album(state, albumId);
       final role = album.roleFor(state.profile.userId);
       if (role != AlbumRole.owner &&
@@ -631,6 +739,17 @@ class LocalHomeRepository extends HomeRepository {
         ),
       );
     });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(_apiClient.removeMediaFromRemoteAlbum(
+        baseUri: activeUri,
+        token: activeToken,
+        albumId: albumId,
+        mediaIds: mediaIds,
+      ).catchError((e) => debugPrint('Error syncing removeManyFromAlbum: $e')));
+    }
   }
 
   @override

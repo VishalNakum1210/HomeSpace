@@ -11,6 +11,7 @@ import '../domain/repositories.dart';
 import 'album_editor_page.dart';
 import 'album_page.dart';
 import 'library_widgets.dart';
+import 'smart_collection_page.dart';
 
 class CollectionsPage extends StatefulWidget {
   final VoidCallback? onProfile;
@@ -57,7 +58,7 @@ class _CollectionsPageState extends State<CollectionsPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text('Collections', style: text.headlineMedium),
-                              const SizedBox(height: 5),
+                              const SizedBox(height: 4),
                               Text(
                                 'Little moments, together.',
                                 style: text.bodyMedium,
@@ -68,7 +69,9 @@ class _CollectionsPageState extends State<CollectionsPage> {
                         const AlbumSticker(),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
+                    _SmartFoldersRow(repository: repository),
+                    const SizedBox(height: 8),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
@@ -323,6 +326,161 @@ class _AlbumCard extends StatelessWidget {
                     ],
                   ),
                 ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SmartFoldersRow extends StatelessWidget {
+  final HomeRepository repository;
+  const _SmartFoldersRow({required this.repository});
+
+  @override
+  Widget build(BuildContext context) {
+    final favCount = repository.media
+        .where((m) => repository.favorites.contains(m.id))
+        .length;
+    final videoCount = repository.media
+        .where((m) => m.kind == MediaKind.video)
+        .length;
+    final deviceCount = repository.media
+        .where((m) => !m.isSynced || !m.asset.startsWith('http'))
+        .length;
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _SmartFolderCard(
+            key: const ValueKey('smart-tile-favorites'),
+            label: 'Favorites',
+            subtitle: '$favCount memories',
+            icon: Icons.favorite_rounded,
+            iconColor: const Color(0xFFFF4B6E),
+            bgColor: const Color(0xFFFFE8EC),
+            onTap: () => openSpacePage<void>(
+              context,
+              const SmartCollectionPage(type: SmartCollectionType.favorites),
+            ),
+          ),
+          const SizedBox(width: 10),
+          _SmartFolderCard(
+            key: const ValueKey('smart-tile-videos'),
+            label: 'Videos',
+            subtitle: '$videoCount videos',
+            icon: Icons.videocam_rounded,
+            iconColor: const Color(0xFF8B5CF6),
+            bgColor: const Color(0xFFF3E8FF),
+            onTap: () => openSpacePage<void>(
+              context,
+              const SmartCollectionPage(type: SmartCollectionType.videos),
+            ),
+          ),
+          const SizedBox(width: 10),
+          _SmartFolderCard(
+            key: const ValueKey('smart-tile-device'),
+            label: 'On Device',
+            subtitle: '$deviceCount items',
+            icon: Icons.phone_android_rounded,
+            iconColor: const Color(0xFF10B981),
+            bgColor: const Color(0xFFD1FAE5),
+            onTap: () => openSpacePage<void>(
+              context,
+              const SmartCollectionPage(type: SmartCollectionType.onDevice),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SmartFolderCard extends StatelessWidget {
+  final String label;
+  final String subtitle;
+  final IconData icon;
+  final Color iconColor;
+  final Color bgColor;
+  final VoidCallback onTap;
+
+  const _SmartFolderCard({
+    super.key,
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+    required this.iconColor,
+    required this.bgColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceColor = isDark
+        ? Color.alphaBlend(
+            bgColor.withValues(alpha: 0.15),
+            Theme.of(context).colorScheme.surfaceContainer,
+          )
+        : bgColor;
+
+    return Semantics(
+      button: true,
+      label: '$label, $subtitle',
+      child: Material(
+        color: surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: isDark ? 0.15 : 0.85),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: iconColor, size: 18),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: text.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        height: 1.1,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: text.bodySmall?.copyWith(
+                        fontSize: 10,
+                        height: 1.1,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 6),
               ],
             ),
           ),

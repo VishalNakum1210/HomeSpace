@@ -5,6 +5,7 @@ import { authenticate } from './auth.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { mediaRoutes } from './routes/media.js';
+import { albumsRoutes } from './routes/albums.js';
 
 export async function buildApp({ db, dataDir, config }) {
   const fastify = Fastify({
@@ -27,7 +28,7 @@ export async function buildApp({ db, dataDir, config }) {
     timeWindow: '1 minute',
     allowList: (req) => {
       const url = req.url || '';
-      return url.startsWith('/api/health') || url.startsWith('/api/media');
+      return url.startsWith('/api/health') || url.startsWith('/api/media') || url.startsWith('/api/albums');
     },
   });
 
@@ -60,6 +61,10 @@ export async function buildApp({ db, dataDir, config }) {
     prefix: '/api',
     db,
     dataDir,
+  });
+  await fastify.register(albumsRoutes, {
+    prefix: '/api',
+    db,
   });
 
   return fastify;
