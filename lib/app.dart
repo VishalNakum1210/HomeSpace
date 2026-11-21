@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'application/frontend_session.dart';
 import 'application/home_scope.dart';
+import 'design/global_download_banner.dart';
 import 'design/space_navigation.dart';
 import 'design/space_theme.dart';
 import 'design/system_ui.dart';
@@ -173,6 +174,16 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
                                     ),
                                     const ProfilePage(),
                                   ],
+                                ),
+                              ),
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: (photoFocused || keyboardOpen) ? 16 : 84,
+                                child: const SafeArea(
+                                  top: false,
+                                  bottom: false,
+                                  child: GlobalDownloadBanner(),
                                 ),
                               ),
                               Positioned(

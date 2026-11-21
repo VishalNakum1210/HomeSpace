@@ -6,11 +6,11 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:mime/mime.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../application/device_media_service.dart';
+import '../application/download_service.dart';
 import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
 import '../data/homespace_api_client.dart';
@@ -180,17 +180,23 @@ class _MediaViewerState extends State<MediaViewer> {
   Drag? pageDrag;
   int? dragOrigin;
   bool zoomed = false;
-  bool _isDownloading = false;
-  double? _downloadProgress;
-  String? _downloadLabel;
-  String? _downloadDetail;
+
+  bool get _isDownloading => DownloadService.instance.isDownloading;
+  double? get _downloadProgress => DownloadService.instance.progress;
+  String get _downloadLabel => DownloadService.instance.title;
+  String get _downloadDetail => DownloadService.instance.detail;
 
   @override
   void initState() {
     super.initState();
+    DownloadService.instance.addListener(_onDownloadChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _prefetchNeighbors(index);
     });
+  }
+
+  void _onDownloadChanged() {
+    if (mounted) setState(() {});
   }
 
   void _prefetchNeighbors(int currentIndex) {
@@ -231,6 +237,7 @@ class _MediaViewerState extends State<MediaViewer> {
 
   @override
   void dispose() {
+    DownloadService.instance.removeListener(_onDownloadChanged);
     pageDrag?.cancel();
     controller.dispose();
     super.dispose();
@@ -746,8 +753,8 @@ class _MediaViewerState extends State<MediaViewer> {
                               MediaQuery.paddingOf(context).bottom +
                               8,
                           child: _DownloadProgressCard(
-                            title: _downloadLabel ?? 'Downloading…',
-                            detail: _downloadDetail ?? '',
+                            title: _downloadLabel,
+                            detail: _downloadDetail,
                             progress: _downloadProgress,
                           ),
                         ),
@@ -770,189 +777,47 @@ class _MediaViewerState extends State<MediaViewer> {
         ? photo.title
         : (photo.kind == MediaKind.video ? 'video_${photo.id}.mp4' : 'photo_${photo.id}.jpg');
 
-    setState(() {
-      _isDownloading = true;
-      _downloadProgress = null;
-      _downloadLabel = 'Downloading $fileName';
-      _downloadDetail = 'Connecting…';
-    });
+    final session = FrontendSessionScope.maybeOf(context);
+    final fileUri = resolveMediaUri(
+      asset: photo.asset,
+      id: photo.id,
+      serverUri: session?.serverUri,
+      endpoint: 'file',
+    );
 
-    File? tempFile;
-    try {
-      final asset = photo.asset;
-      String? savedTempPath;
+    final savedPath = await DownloadService.instance.startDownload(
+      item: photo,
+      fileUri: fileUri,
+      authToken: session?.authToken,
+    );
 
-      final session = FrontendSessionScope.maybeOf(context);
-      final fileUri = resolveMediaUri(
-        asset: asset,
-        id: photo.id,
-        serverUri: session?.serverUri,
-        endpoint: 'file',
-      );
-
-      if (!kIsWeb && File(asset).existsSync()) {
-        if (mounted) {
-          setState(() {
-            _downloadProgress = 1.0;
-            _downloadDetail = 'Reading local copy…';
-          });
-        }
-        savedTempPath = asset;
-      } else if (fileUri != null) {
-        final token = session?.authToken;
-        final client = createHomeSpaceHttpClient();
-        try {
-          final req = http.Request('GET', fileUri);
-          if (token != null) {
-            req.headers['Authorization'] = 'Bearer $token';
-          }
-          final streamed = await client.send(req).timeout(const Duration(minutes: 10));
-          if (streamed.statusCode != 200) {
-            throw Exception('Server returned ${streamed.statusCode}');
-          }
-
-          final totalBytes = streamed.contentLength ?? 0;
-          var receivedBytes = 0;
-          final tempDir = await getTemporaryDirectory();
-          final dlFile = File('${tempDir.path}/dl_${photo.id}_${DateTime.now().millisecondsSinceEpoch}_$fileName');
-          tempFile = dlFile;
-          final sink = dlFile.openWrite();
-
-          var lastUpdate = 0;
-          try {
-            await for (final chunk in streamed.stream) {
-              sink.add(chunk);
-              receivedBytes += chunk.length;
-              final now = DateTime.now().millisecondsSinceEpoch;
-              if (now - lastUpdate > 80 || (totalBytes > 0 && receivedBytes >= totalBytes)) {
-                lastUpdate = now;
-                if (mounted) {
-                  setState(() {
-                    if (totalBytes > 0) {
-                      _downloadProgress = (receivedBytes / totalBytes).clamp(0.0, 1.0);
-                      final pct = (_downloadProgress! * 100).round();
-                      final recMb = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
-                      final totMb = (totalBytes / (1024 * 1024)).toStringAsFixed(1);
-                      _downloadDetail = '$pct% • $recMb / $totMb MB';
-                    } else {
-                      final recMb = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
-                      _downloadDetail = '$recMb MB downloaded';
-                    }
-                  });
-                }
-              }
-            }
-          } finally {
-            await sink.flush();
-            await sink.close();
-          }
-
-          if (receivedBytes == 0) {
-            throw Exception('No data received');
-          }
-          savedTempPath = dlFile.path;
-        } finally {
-          client.close();
-        }
-      } else if (asset.startsWith('assets/')) {
-        if (mounted) {
-          setState(() {
-            _downloadProgress = 1.0;
-            _downloadDetail = 'Loading asset…';
-          });
-        }
-        final data = await rootBundle.load(asset);
-        final tempDir = await getTemporaryDirectory();
-        final dlFile = File('${tempDir.path}/dl_${photo.id}_$fileName');
-        tempFile = dlFile;
-        await dlFile.writeAsBytes(data.buffer.asUint8List());
-        savedTempPath = dlFile.path;
-      } else {
-        throw Exception('Cannot locate media file to download');
-      }
-
-      if (mounted) {
-        setState(() {
-          _downloadProgress = null;
-          _downloadLabel = 'Saving $fileName';
-          _downloadDetail = 'Saving to device gallery…';
-        });
-      }
-
-      final isVideo = photo.kind == MediaKind.video ||
-          fileName.toLowerCase().endsWith('.mp4') ||
-          fileName.toLowerCase().endsWith('.mov') ||
-          fileName.toLowerCase().endsWith('.webm');
-      final mimeType = lookupMimeType(fileName) ?? (isVideo ? 'video/mp4' : 'image/jpeg');
-
-      final savedPath = await DeviceMediaService.saveMediaToDevice(
-        filePath: savedTempPath,
-        fileName: fileName,
-        mimeType: mimeType,
-      );
-
-      // Clean up temporary download file if created
-      if (tempFile != null && tempFile.existsSync()) {
-        try {
-          await tempFile.delete();
-        } catch (_) {}
-      }
-
-      if (mounted) {
-        setState(() {
-          _isDownloading = false;
-          _downloadProgress = null;
-          _downloadLabel = null;
-          _downloadDetail = null;
-        });
-      }
-
-      if (messenger.mounted) {
-        messenger.hideCurrentSnackBar();
-        if (savedPath != null) {
-          messenger.showSnackBar(
-            SnackBar(
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 4),
-              content: Row(
-                children: [
-                  const Icon(Icons.check_circle_rounded, color: Color(0xFF4CAF50), size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Saved to device gallery ($fileName)',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        } else {
-          messenger.showSnackBar(
-            SnackBar(
-              behavior: SnackBarBehavior.floating,
-              content: Text('Could not save $fileName to device storage.'),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isDownloading = false;
-          _downloadProgress = null;
-          _downloadLabel = null;
-          _downloadDetail = null;
-        });
-      }
-      if (messenger.mounted) {
-        messenger.hideCurrentSnackBar();
+    if (messenger.mounted) {
+      messenger.hideCurrentSnackBar();
+      if (savedPath != null) {
         messenger.showSnackBar(
           SnackBar(
             behavior: SnackBarBehavior.floating,
-            content: Text('Download failed: $e'),
+            duration: const Duration(seconds: 4),
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Color(0xFF4CAF50), size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Saved to device gallery ($fileName)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      } else if (DownloadService.instance.errorMessage != null) {
+        messenger.showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            content: Text('Download failed: ${DownloadService.instance.errorMessage}'),
           ),
         );
       }

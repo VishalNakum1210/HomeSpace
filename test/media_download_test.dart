@@ -141,6 +141,72 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Exiting MediaViewer while downloading retains progress in GlobalDownloadBanner',
+    (tester) async {
+      DeviceMediaService.debugOverrideIsAndroid = true;
+      addTearDown(() => DeviceMediaService.debugOverrideIsAndroid = false);
+
+      final saveCompleter = Completer<String>();
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('com.homespace.homespace/media_saver'),
+        (call) async {
+          if (call.method == 'saveMedia') {
+            return await saveCompleter.future;
+          }
+          return null;
+        },
+      );
+
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final repository = LocalHomeRepository(
+        store: MemorySnapshotStore(),
+        initialAppearance: Appearance.light,
+      );
+      addTearDown(repository.dispose);
+
+      await tester.pumpWidget(HomeSpaceApp(repository: repository));
+      await tester.pumpAndSettle();
+
+      // Open media viewer
+      await tester.tap(find.byKey(const ValueKey('memory-media-01')));
+      await tester.pumpAndSettle();
+
+      // Start download
+      final bottomDownload = find.byKey(const ValueKey('download-memory'));
+      await tester.runAsync(() async {
+        await tester.tap(bottomDownload);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+
+      // Pop MediaViewer back to PhotosPage
+      await tester.tap(find.byTooltip('Close viewer'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      // Verify MediaViewer is gone
+      expect(find.byType(MediaViewer), findsNothing);
+
+      // Verify GlobalDownloadBanner is visible with progress bar
+      expect(find.byKey(const ValueKey('global-download-banner')), findsOneWidget);
+
+      // Complete the save operation
+      await tester.runAsync(() async {
+        saveCompleter.complete('/storage/emulated/0/Pictures/HomeSpace/sample1.jpg');
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pump();
+
+      // Banner shows completion state
+      expect(find.textContaining('Saved to device gallery'), findsWidgets);
+    },
+  );
+
   group('DeviceMediaService & AutoBackupService', () {
     test('saveMediaToDevice invokes media_saver channel on Android', () async {
       DeviceMediaService.debugOverrideIsAndroid = true;
