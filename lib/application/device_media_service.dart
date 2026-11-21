@@ -31,10 +31,11 @@ class DeviceMediaService {
     }
   }
 
-  /// Saves photo or video bytes directly into the public Android MediaStore (Pictures/HomeSpace or Movies/HomeSpace),
+  /// Saves photo or video file or bytes directly into the public Android MediaStore (Pictures/HomeSpace or Movies/HomeSpace),
   /// or Downloads folder on Desktop.
   static Future<String?> saveMediaToDevice({
-    required List<int> bytes,
+    List<int>? bytes,
+    String? filePath,
     required String fileName,
     required String mimeType,
   }) async {
@@ -42,11 +43,18 @@ class DeviceMediaService {
 
     if (Platform.isAndroid || debugOverrideIsAndroid) {
       try {
-        final result = await _mediaChannel.invokeMethod<String>('saveMedia', {
-          'bytes': Uint8List.fromList(bytes),
+        final args = <String, dynamic>{
           'fileName': fileName,
           'mimeType': mimeType,
-        });
+        };
+        if (filePath != null && filePath.isNotEmpty) {
+          args['filePath'] = filePath;
+        } else if (bytes != null) {
+          args['bytes'] = Uint8List.fromList(bytes);
+        } else {
+          return null;
+        }
+        final result = await _mediaChannel.invokeMethod<String>('saveMedia', args);
         return result;
       } catch (e) {
         debugPrint('DeviceMediaService: saveMedia error $e');
@@ -57,7 +65,11 @@ class DeviceMediaService {
     try {
       final dir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(bytes);
+      if (filePath != null && File(filePath).existsSync()) {
+        await File(filePath).copy(file.path);
+      } else if (bytes != null) {
+        await file.writeAsBytes(bytes);
+      }
       return file.path;
     } catch (_) {
       return null;

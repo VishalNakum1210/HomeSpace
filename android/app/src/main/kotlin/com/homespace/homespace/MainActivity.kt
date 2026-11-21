@@ -65,12 +65,13 @@ class MainActivity : FlutterActivity() {
         // 1. Media Saver Channel (Download to Gallery)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, MEDIA_CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "saveMedia") {
+                val filePath = call.argument<String>("filePath")
                 val bytes = call.argument<ByteArray>("bytes")
                 val fileName = call.argument<String>("fileName") ?: "media_${System.currentTimeMillis()}"
                 val mimeType = call.argument<String>("mimeType") ?: "image/jpeg"
 
-                if (bytes == null) {
-                    result.error("INVALID_ARGS", "Bytes cannot be null", null)
+                if (filePath.isNullOrEmpty() && bytes == null) {
+                    result.error("INVALID_ARGS", "Either filePath or bytes must be provided", null)
                     return@setMethodCallHandler
                 }
 
@@ -99,7 +100,13 @@ class MainActivity : FlutterActivity() {
                     val uri = contentResolver.insert(collection, values)
                     if (uri != null) {
                         contentResolver.openOutputStream(uri)?.use { os ->
-                            os.write(bytes)
+                            if (!filePath.isNullOrEmpty()) {
+                                File(filePath).inputStream().use { input ->
+                                    input.copyTo(os, bufferSize = 64 * 1024)
+                                }
+                            } else if (bytes != null) {
+                                os.write(bytes)
+                            }
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             values.clear()

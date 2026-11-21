@@ -168,6 +168,32 @@ void main() {
       expect(passedFile, 'my_download.jpg');
     });
 
+    test('saveMediaToDevice with filePath invokes media_saver channel without allocating bytes', () async {
+      DeviceMediaService.debugOverrideIsAndroid = true;
+      addTearDown(() => DeviceMediaService.debugOverrideIsAndroid = false);
+
+      String? passedPath;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('com.homespace.homespace/media_saver'),
+        (call) async {
+          if (call.method == 'saveMedia') {
+            passedPath = call.arguments['filePath'] as String?;
+            return 'content://media/external/video/456';
+          }
+          return null;
+        },
+      );
+
+      final result = await DeviceMediaService.saveMediaToDevice(
+        filePath: '/tmp/test_video.mp4',
+        fileName: 'test_video.mp4',
+        mimeType: 'video/mp4',
+      );
+
+      expect(result, 'content://media/external/video/456');
+      expect(passedPath, '/tmp/test_video.mp4');
+    });
+
     test('permission and queryCameraMedia channels succeed on Android', () async {
       DeviceMediaService.debugOverrideIsAndroid = true;
       addTearDown(() => DeviceMediaService.debugOverrideIsAndroid = false);

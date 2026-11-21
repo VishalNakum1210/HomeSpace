@@ -777,9 +777,10 @@ class _MediaViewerState extends State<MediaViewer> {
       _downloadDetail = 'Connecting…';
     });
 
+    File? tempFile;
     try {
-      final List<int> bytes;
       final asset = photo.asset;
+      String? savedTempPath;
 
       final session = FrontendSessionScope.maybeOf(context);
       final fileUri = resolveMediaUri(
@@ -796,7 +797,7 @@ class _MediaViewerState extends State<MediaViewer> {
             _downloadDetail = 'Reading local copy…';
           });
         }
-        bytes = await File(asset).readAsBytes();
+        savedTempPath = asset;
       } else if (fileUri != null) {
         final token = session?.authToken;
         final client = createHomeSpaceHttpClient();
@@ -812,39 +813,44 @@ class _MediaViewerState extends State<MediaViewer> {
 
           final totalBytes = streamed.contentLength ?? 0;
           var receivedBytes = 0;
-          final chunks = <List<int>>[];
-          var lastUpdate = 0;
+          final tempDir = await getTemporaryDirectory();
+          final dlFile = File('${tempDir.path}/dl_${photo.id}_${DateTime.now().millisecondsSinceEpoch}_$fileName');
+          tempFile = dlFile;
+          final sink = dlFile.openWrite();
 
-          await for (final chunk in streamed.stream) {
-            chunks.add(chunk);
-            receivedBytes += chunk.length;
-            final now = DateTime.now().millisecondsSinceEpoch;
-            if (now - lastUpdate > 80 || (totalBytes > 0 && receivedBytes >= totalBytes)) {
-              lastUpdate = now;
-              if (mounted) {
-                setState(() {
-                  if (totalBytes > 0) {
-                    _downloadProgress = (receivedBytes / totalBytes).clamp(0.0, 1.0);
-                    final pct = (_downloadProgress! * 100).round();
-                    final recMb = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
-                    final totMb = (totalBytes / (1024 * 1024)).toStringAsFixed(1);
-                    _downloadDetail = '$pct% • $recMb / $totMb MB';
-                  } else {
-                    final recMb = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
-                    _downloadDetail = '$recMb MB downloaded';
-                  }
-                });
+          var lastUpdate = 0;
+          try {
+            await for (final chunk in streamed.stream) {
+              sink.add(chunk);
+              receivedBytes += chunk.length;
+              final now = DateTime.now().millisecondsSinceEpoch;
+              if (now - lastUpdate > 80 || (totalBytes > 0 && receivedBytes >= totalBytes)) {
+                lastUpdate = now;
+                if (mounted) {
+                  setState(() {
+                    if (totalBytes > 0) {
+                      _downloadProgress = (receivedBytes / totalBytes).clamp(0.0, 1.0);
+                      final pct = (_downloadProgress! * 100).round();
+                      final recMb = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
+                      final totMb = (totalBytes / (1024 * 1024)).toStringAsFixed(1);
+                      _downloadDetail = '$pct% • $recMb / $totMb MB';
+                    } else {
+                      final recMb = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
+                      _downloadDetail = '$recMb MB downloaded';
+                    }
+                  });
+                }
               }
             }
+          } finally {
+            await sink.flush();
+            await sink.close();
           }
 
-          final assembled = Uint8List(receivedBytes);
-          var offset = 0;
-          for (final chunk in chunks) {
-            assembled.setRange(offset, offset + chunk.length, chunk);
-            offset += chunk.length;
+          if (receivedBytes == 0) {
+            throw Exception('No data received');
           }
-          bytes = assembled;
+          savedTempPath = dlFile.path;
         } finally {
           client.close();
         }
@@ -856,13 +862,13 @@ class _MediaViewerState extends State<MediaViewer> {
           });
         }
         final data = await rootBundle.load(asset);
-        bytes = data.buffer.asUint8List();
+        final tempDir = await getTemporaryDirectory();
+        final dlFile = File('${tempDir.path}/dl_${photo.id}_$fileName');
+        tempFile = dlFile;
+        await dlFile.writeAsBytes(data.buffer.asUint8List());
+        savedTempPath = dlFile.path;
       } else {
         throw Exception('Cannot locate media file to download');
-      }
-
-      if (bytes.isEmpty) {
-        throw Exception('No data received');
       }
 
       if (mounted) {
@@ -880,10 +886,17 @@ class _MediaViewerState extends State<MediaViewer> {
       final mimeType = lookupMimeType(fileName) ?? (isVideo ? 'video/mp4' : 'image/jpeg');
 
       final savedPath = await DeviceMediaService.saveMediaToDevice(
-        bytes: bytes,
+        filePath: savedTempPath,
         fileName: fileName,
         mimeType: mimeType,
       );
+
+      // Clean up temporary download file if created
+      if (tempFile != null && tempFile.existsSync()) {
+        try {
+          await tempFile.delete();
+        } catch (_) {}
+      }
 
       if (mounted) {
         setState(() {
