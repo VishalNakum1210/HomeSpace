@@ -134,20 +134,6 @@ class ProfilePage extends StatelessWidget {
                         openSpacePage<void>(context, const TrashPage()),
                   ),
                   _SettingRow(
-                    settingKey: const ValueKey('library-cleanup-setting'),
-                    icon: repository.media.isEmpty
-                        ? Icons.restart_alt_rounded
-                        : Icons.cleaning_services_rounded,
-                    title: repository.media.isEmpty
-                        ? 'Restore Demo Memories'
-                        : 'Clear Demo Memories',
-                    subtitle: repository.media.isEmpty
-                        ? 'Reload sample photos and albums'
-                        : 'Start fresh with your real photos',
-                    tone: const Color(0xFFE65100),
-                    onTap: () => _confirmLibraryReset(context, repository),
-                  ),
-                  _SettingRow(
                     settingKey: const ValueKey('about-setting'),
                     icon: Icons.home_rounded,
                     title: 'About HomeSpace',
@@ -324,6 +310,30 @@ class ProfilePage extends StatelessWidget {
           onTap: () {
             Navigator.pop(context);
             openSpacePage<void>(context, const BackupSettingsPage());
+          },
+        ),
+        ListTile(
+          key: const ValueKey('library-cleanup-setting'),
+          leading: Icon(
+            HomeScope.of(context).media.isEmpty
+                ? Icons.restart_alt_rounded
+                : Icons.cleaning_services_rounded,
+            color: const Color(0xFFE65100),
+          ),
+          title: Text(
+            HomeScope.of(context).media.isEmpty
+                ? 'Restore Demo Memories'
+                : 'Clear Demo Memories',
+          ),
+          subtitle: Text(
+            HomeScope.of(context).media.isEmpty
+                ? 'Reload sample photos and albums'
+                : 'Start fresh with your real photos',
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () {
+            Navigator.pop(context);
+            _confirmLibraryReset(context, HomeScope.of(context));
           },
         ),
         const SizedBox(height: 22),

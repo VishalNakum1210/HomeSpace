@@ -40,27 +40,101 @@ class BundledPhotoMetadata {
       : '${(bytes / 1024).toStringAsFixed(0)} KB';
 }
 
-Future<BundledPhotoMetadata> readBundledPhotoMetadata(String asset) async {
+bool _hasImageMagicBytes(Uint8List bytes) {
+  if (bytes.length < 4) return false;
+  // JPEG: FF D8
+  if (bytes[0] == 0xFF && bytes[1] == 0xD8) return true;
+  // PNG: 89 50 4E 47
+  if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) return true;
+  // GIF: 47 49 46
+  if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) return true;
+  // WebP: RIFF ... WEBP
+  if (bytes.length >= 12 &&
+      bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
+      bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) {
+    return true;
+  }
+  // BMP: 42 4D
+  if (bytes[0] == 0x42 && bytes[1] == 0x4D) return true;
+  return false;
+}
+
+Future<BundledPhotoMetadata> readBundledPhotoMetadata(
+  String asset, {
+  MediaKind? kind,
+}) async {
   if (asset.startsWith('http://') || asset.startsWith('https://')) {
     return const BundledPhotoMetadata(0, 0, 0);
   }
-  final data = await rootBundle.load(asset);
-  final buffer = await ui.ImmutableBuffer.fromUint8List(
-    data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-  );
-  try {
-    final descriptor = await ui.ImageDescriptor.encoded(buffer);
+  final isVideo = kind == MediaKind.video ||
+      asset.toLowerCase().endsWith('.mp4') ||
+      asset.toLowerCase().endsWith('.mov') ||
+      asset.toLowerCase().endsWith('.mkv') ||
+      asset.toLowerCase().endsWith('.avi');
+
+  if (!kIsWeb && File(asset).existsSync()) {
     try {
-      return BundledPhotoMetadata(
-        data.lengthInBytes,
-        descriptor.width,
-        descriptor.height,
-      );
-    } finally {
-      descriptor.dispose();
+      final file = File(asset);
+      final len = file.lengthSync();
+      if (isVideo) {
+        return BundledPhotoMetadata(len, 0, 0);
+      }
+      final bytes = await file.readAsBytes();
+      if (!_hasImageMagicBytes(bytes)) {
+        return BundledPhotoMetadata(len, 0, 0);
+      }
+      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      try {
+        final descriptor = await ui.ImageDescriptor.encoded(buffer);
+        try {
+          return BundledPhotoMetadata(
+            len,
+            descriptor.width,
+            descriptor.height,
+          );
+        } finally {
+          descriptor.dispose();
+        }
+      } finally {
+        buffer.dispose();
+      }
+    } catch (_) {
+      try {
+        final len = File(asset).lengthSync();
+        return BundledPhotoMetadata(len, 0, 0);
+      } catch (_) {
+        return const BundledPhotoMetadata(0, 0, 0);
+      }
     }
-  } finally {
-    buffer.dispose();
+  }
+
+  // Bundled asset path (e.g. assets/photos/photo_01.jpg)
+  try {
+    if (isVideo) {
+      return const BundledPhotoMetadata(0, 0, 0);
+    }
+    final data = await rootBundle.load(asset);
+    final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    if (!_hasImageMagicBytes(bytes)) {
+      return BundledPhotoMetadata(bytes.lengthInBytes, 0, 0);
+    }
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    try {
+      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      try {
+        return BundledPhotoMetadata(
+          bytes.lengthInBytes,
+          descriptor.width,
+          descriptor.height,
+        );
+      } finally {
+        descriptor.dispose();
+      }
+    } finally {
+      buffer.dispose();
+    }
+  } catch (_) {
+    return const BundledPhotoMetadata(0, 0, 0);
   }
 }
 
@@ -271,6 +345,7 @@ class _MediaViewerState extends State<MediaViewer> {
                             key: viewportKey,
                             label: photo?.title ?? 'Unavailable memory',
                             canZoom: available && photo.kind == MediaKind.photo,
+                            onSwipeUp: photo == null ? null : () => _showDetails(context, photo),
                             onPageDragStart: startPageDrag,
                             onPageDragUpdate: updatePageDrag,
                             onPageDragEnd: endPageDrag,
@@ -374,6 +449,12 @@ class _MediaViewerState extends State<MediaViewer> {
                                     ),
                                   ),
                                   IconButton(
+                                    key: const ValueKey('viewer-share'),
+                                    icon: const Icon(Icons.share_rounded),
+                                    tooltip: 'Share memory',
+                                    onPressed: photo == null ? null : () => _shareMedia(context, photo),
+                                  ),
+                                  IconButton(
                                     key: const ValueKey('viewer-download'),
                                     icon: const Icon(Icons.download_rounded),
                                     tooltip: 'Download to device',
@@ -386,6 +467,14 @@ class _MediaViewerState extends State<MediaViewer> {
                                         enabled: false,
                                         child: Text(
                                           '${widget.mediaIds.isEmpty ? 0 : index + 1} / ${widget.mediaIds.length}',
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'share',
+                                        enabled: photo != null,
+                                        child: const Tooltip(
+                                          message: 'Share memory',
+                                          child: Text('Share memory'),
                                         ),
                                       ),
                                       PopupMenuItem(
@@ -429,6 +518,9 @@ class _MediaViewerState extends State<MediaViewer> {
                                       ),
                                     ],
                                     onSelected: (action) {
+                                      if (action == 'share' && photo != null) {
+                                        _shareMedia(context, photo);
+                                      }
                                       if (action == 'download' && photo != null) {
                                         _downloadMedia(context, photo);
                                       }
@@ -760,16 +852,40 @@ class _MediaViewerState extends State<MediaViewer> {
     }
   }
 
+  Future<void> _shareMedia(BuildContext context, MediaItem photo) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+
+    if (!kIsWeb && File(photo.asset).existsSync()) {
+      final shared = await DeviceMediaService.shareMedia(
+        filePath: photo.asset,
+        mimeType: photo.kind == MediaKind.video ? 'video/*' : 'image/*',
+      );
+      if (shared) return;
+    }
+
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text('Sharing "${photo.title}"…'),
+      ),
+    );
+  }
+
   Widget _controls(Widget child) =>
       ColoredBox(color: const Color(0xF5101519), child: child);
 
+  bool _showingDetails = false;
+
   void _showDetails(BuildContext context, MediaItem photo) {
+    if (_showingDetails || !mounted) return;
+    _showingDetails = true;
     final repository = HomeScope.of(context);
     final date = photo.takenAt.toLocal();
     final albums = repository.albums.where(
       (album) => album.mediaIds.contains(photo.id),
     );
-    final metadata = readBundledPhotoMetadata(photo.asset);
+    final metadata = readBundledPhotoMetadata(photo.asset, kind: photo.kind);
     final contributors = {for (final album in albums) album.addedBy[photo.id]}
         .whereType<String>()
         .toList();
@@ -828,12 +944,29 @@ class _MediaViewerState extends State<MediaViewer> {
                       icon: Icons.insert_drive_file_outlined,
                       label: 'Filename',
                       value: photo.asset.split('/').last,
-                      note: result.hasData
-                          ? '${result.data!.fileSize} · ${result.data!.width} × ${result.data!.height}'
+                      note: result.hasData && result.data!.bytes > 0
+                          ? (result.data!.width > 0 && result.data!.height > 0)
+                              ? '${result.data!.fileSize} · ${result.data!.width} × ${result.data!.height}'
+                              : (photo.formattedDuration != null
+                                  ? '${result.data!.fileSize} · ${photo.formattedDuration}'
+                                  : result.data!.fileSize)
                           : result.hasError
                           ? 'File details unavailable'
                           : 'Reading file details…',
                     ),
+                  ),
+                  const Divider(height: 1),
+                  _DetailRow(
+                    icon: photo.isSynced
+                        ? Icons.cloud_done_rounded
+                        : Icons.phone_android_rounded,
+                    label: 'Storage & sync',
+                    value: photo.isSynced
+                        ? 'Synced to Home Server ☁️'
+                        : 'Stored locally on this device 📱',
+                    note: photo.isSynced
+                        ? 'Protected in private family cloud'
+                        : 'Ready to back up to your server',
                   ),
                   const Divider(height: 1),
                   Row(
@@ -935,7 +1068,11 @@ class _MediaViewerState extends State<MediaViewer> {
           ),
         ),
       ),
-    );
+    ).whenComplete(() {
+      if (mounted) {
+        _showingDetails = false;
+      }
+    });
   }
 }
 
@@ -1002,6 +1139,7 @@ class _PhotoViewport extends StatefulWidget {
   final GestureDragUpdateCallback onPageDragUpdate;
   final GestureDragEndCallback onPageDragEnd;
   final GestureDragCancelCallback onPageDragCancel;
+  final VoidCallback? onSwipeUp;
   const _PhotoViewport({
     super.key,
     required this.child,
@@ -1012,6 +1150,7 @@ class _PhotoViewport extends StatefulWidget {
     required this.onPageDragUpdate,
     required this.onPageDragEnd,
     required this.onPageDragCancel,
+    this.onSwipeUp,
   });
   @override
   State<_PhotoViewport> createState() => _PhotoViewportState();
@@ -1066,6 +1205,16 @@ class _PhotoViewportState extends State<_PhotoViewport>
     // when it ends at 1x. A fresh one-finger drag then pages normally.
     if (multiplePointers || startedZoomed) return;
     final delta = details.focalPoint - (swipeStart ?? details.focalPoint);
+    if (!paging &&
+        !zoomed &&
+        !multiplePointers &&
+        delta.dy < -50 &&
+        delta.dy.abs() > delta.dx.abs() * 1.8 &&
+        widget.onSwipeUp != null) {
+      swipeStart = null;
+      widget.onSwipeUp!();
+      return;
+    }
     if (!paging && delta.dx.abs() > 8 && delta.dx.abs() > delta.dy.abs()) {
       paging = true;
       widget.onPageDragStart(

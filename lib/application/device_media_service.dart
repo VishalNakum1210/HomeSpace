@@ -64,6 +64,26 @@ class DeviceMediaService {
     }
   }
 
+  /// Shares a local photo or video via the Android system Share sheet.
+  static Future<bool> shareMedia({
+    required String filePath,
+    String? mimeType,
+  }) async {
+    if (kIsWeb) return false;
+    if (Platform.isAndroid || debugOverrideIsAndroid) {
+      try {
+        final result = await _mediaChannel.invokeMethod<bool>('shareMedia', {
+          'filePath': filePath,
+          'mimeType': mimeType ?? 'image/*',
+        });
+        return result == true;
+      } catch (e) {
+        debugPrint('DeviceMediaService: shareMedia error $e');
+      }
+    }
+    return false;
+  }
+
   /// Checks if photo/video reading permission is granted.
   static final Map<String, String> _thumbnailMemoryCache = {};
 

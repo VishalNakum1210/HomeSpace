@@ -2,6 +2,7 @@ package com.homespace.homespace
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.graphics.Bitmap
@@ -16,6 +17,7 @@ import android.provider.MediaStore
 import android.util.Size
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -269,6 +271,34 @@ class MainActivity : FlutterActivity() {
                             result.success(null)
                         }
                     }
+                }
+            } else if (call.method == "shareMedia") {
+                val filePath = call.argument<String>("filePath")
+                val mimeType = call.argument<String>("mimeType") ?: "*/*"
+                if (!filePath.isNullOrEmpty()) {
+                    val file = File(filePath)
+                    if (file.exists()) {
+                        try {
+                            val uri = FileProvider.getUriForFile(
+                                this,
+                                "${applicationContext.packageName}.fileprovider",
+                                file
+                            )
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = mimeType
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            startActivity(Intent.createChooser(shareIntent, "Share memory via"))
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SHARE_ERROR", e.localizedMessage, null)
+                        }
+                    } else {
+                        result.error("NOT_FOUND", "File does not exist: $filePath", null)
+                    }
+                } else {
+                    result.error("INVALID_ARGS", "filePath is required", null)
                 }
             } else if (call.method == "acquireWakeLock") {
                 acquireUploadWakeLock()
