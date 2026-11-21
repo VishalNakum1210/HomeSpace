@@ -346,6 +346,11 @@ class _MediaViewerState extends State<MediaViewer> {
                             label: photo?.title ?? 'Unavailable memory',
                             canZoom: available && photo.kind == MediaKind.photo,
                             onSwipeUp: photo == null ? null : () => _showDetails(context, photo),
+                            onSwipeDown: () {
+                              if (Navigator.of(context).canPop()) {
+                                Navigator.of(context).pop();
+                              }
+                            },
                             onPageDragStart: startPageDrag,
                             onPageDragUpdate: updatePageDrag,
                             onPageDragEnd: endPageDrag,
@@ -1140,6 +1145,7 @@ class _PhotoViewport extends StatefulWidget {
   final GestureDragEndCallback onPageDragEnd;
   final GestureDragCancelCallback onPageDragCancel;
   final VoidCallback? onSwipeUp;
+  final VoidCallback? onSwipeDown;
   const _PhotoViewport({
     super.key,
     required this.child,
@@ -1151,6 +1157,7 @@ class _PhotoViewport extends StatefulWidget {
     required this.onPageDragEnd,
     required this.onPageDragCancel,
     this.onSwipeUp,
+    this.onSwipeDown,
   });
   @override
   State<_PhotoViewport> createState() => _PhotoViewportState();
@@ -1213,6 +1220,16 @@ class _PhotoViewportState extends State<_PhotoViewport>
         widget.onSwipeUp != null) {
       swipeStart = null;
       widget.onSwipeUp!();
+      return;
+    }
+    if (!paging &&
+        !zoomed &&
+        !multiplePointers &&
+        delta.dy > 50 &&
+        delta.dy.abs() > delta.dx.abs() * 1.8 &&
+        widget.onSwipeDown != null) {
+      swipeStart = null;
+      widget.onSwipeDown!();
       return;
     }
     if (!paging && delta.dx.abs() > 8 && delta.dx.abs() > delta.dy.abs()) {

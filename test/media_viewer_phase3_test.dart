@@ -76,5 +76,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Photo details'), findsOneWidget);
+
+    // Close details sheet
+    await tester.tap(find.byTooltip('Close photo details'));
+    await tester.pumpAndSettle();
+
+    // 7. Test swipe down gesture to close viewer
+    await tester.drag(
+      find.byKey(const ValueKey('viewer-pages')),
+      const Offset(0, 200),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MediaViewer), findsNothing);
   });
 }
