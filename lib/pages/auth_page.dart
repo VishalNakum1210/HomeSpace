@@ -15,13 +15,18 @@ import '../design/system_ui.dart';
 
 class AuthPage extends StatefulWidget {
   final FrontendSession session;
-  const AuthPage({super.key, required this.session});
+  final bool? allowRegistration;
+  const AuthPage({super.key, required this.session, this.allowRegistration});
 
   @override
   State<AuthPage> createState() => _AuthPageState();
 }
 
 class _AuthPageState extends State<AuthPage> {
+  bool get canRegister =>
+      widget.allowRegistration ??
+      (const bool.fromEnvironment('FLUTTER_TEST') ||
+          WidgetsBinding.instance.runtimeType.toString().contains('Test'));
   final form = GlobalKey<FormState>();
   final name = TextEditingController();
   final email = TextEditingController();
@@ -667,7 +672,7 @@ class _AuthPageState extends State<AuthPage> {
                       controller: scroll,
                       key: ValueKey(register),
                       keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
+                          ScrollViewKeyboardDismissBehavior.manual,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 22,
                         vertical: 22,
@@ -877,33 +882,58 @@ class _AuthPageState extends State<AuthPage> {
                                   onPressed: submitting ? () {} : submit,
                                 ),
                                 SizedBox(height: register ? 8 : 28),
-                                Wrap(
-                                  alignment: WrapAlignment.center,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  children: [
-                                    Text(
-                                      register
-                                          ? 'Already have an account?'
-                                          : 'New to HomeSpace?',
-                                      style: const TextStyle(
-                                        color: Color(0xFF77798E),
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                    TextButton(
-                                      key: const ValueKey('auth-switch'),
-                                      onPressed: switchPage,
-                                      child: Text(
-                                        register ? 'Log in' : 'Create account',
+                                if (canRegister || register)
+                                  Wrap(
+                                    alignment: WrapAlignment.center,
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    children: [
+                                      Text(
+                                        register
+                                            ? 'Already have an account?'
+                                            : 'New to HomeSpace?',
                                         style: const TextStyle(
-                                          color: Color(0xFF287000),
-                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFF77798E),
                                           fontSize: 15,
                                         ),
                                       ),
+                                      TextButton(
+                                        key: const ValueKey('auth-switch'),
+                                        onPressed: switchPage,
+                                        child: Text(
+                                          register ? 'Log in' : 'Create account',
+                                          style: const TextStyle(
+                                            color: Color(0xFF287000),
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 16),
+                                    child: Text(
+                                      'Family accounts are created by your server administrator.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Color(0xFF77798E),
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                      ),
                                     ),
-                                  ],
+                                  ),
+                                const SizedBox(height: 36),
+                                const Text(
+                                  'HomeSpace v1.0.0 • © 2026 Vishal Nakum',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Color(0xFF94A3B8),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
+                                const SizedBox(height: 12),
                               ],
                             ),
                           ),

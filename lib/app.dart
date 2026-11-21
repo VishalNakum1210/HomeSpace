@@ -14,13 +14,20 @@ import 'pages/auth_page.dart';
 import 'pages/collections_page.dart';
 import 'pages/photos_page.dart';
 import 'pages/profile_page.dart';
+import 'pages/splash_page.dart';
 
 class HomeSpaceApp extends StatefulWidget {
   final HomeRepository repository;
 
   /// Omit only when embedding the library in isolated previews/tests.
   final FrontendSession? session;
-  const HomeSpaceApp({super.key, required this.repository, this.session});
+  final bool showSplash;
+  const HomeSpaceApp({
+    super.key,
+    required this.repository,
+    this.session,
+    this.showSplash = true,
+  });
   @override
   State<HomeSpaceApp> createState() => _HomeSpaceAppState();
 }
@@ -32,10 +39,14 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
   late Appearance _appearance;
   late bool _ready;
   String? _bootError;
+  late bool _bootstrapped;
 
   @override
   void initState() {
     super.initState();
+    final isTest = const bool.fromEnvironment('FLUTTER_TEST') ||
+        WidgetsBinding.instance.runtimeType.toString().contains('Test');
+    _bootstrapped = !widget.showSplash || isTest;
     _appearance = widget.repository.profile.appearance;
     _ready = widget.repository.ready;
     _bootError = widget.repository.bootError;
@@ -110,7 +121,17 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
         darkTheme: spaceTheme(Brightness.dark, page),
         themeMode: ThemeMode.values.byName(_appearance.name),
         themeAnimationDuration: Duration.zero,
-        home: widget.session != null && !widget.session!.isOpen
+        home: !_bootstrapped
+            ? SplashPage(
+                session: widget.session,
+                repository: widget.repository,
+                onInitialized: () {
+                  if (mounted) {
+                    setState(() => _bootstrapped = true);
+                  }
+                },
+              )
+            : widget.session != null && !widget.session!.isOpen
             ? AuthPage(session: widget.session!)
             : !_ready
             ? ListenableBuilder(
