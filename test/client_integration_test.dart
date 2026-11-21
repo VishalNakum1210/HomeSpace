@@ -8,7 +8,7 @@ import 'package:homespace/data/http_remote_repositories.dart';
 import 'package:homespace/domain/models.dart';
 
 void main() {
-  group('HomeSpaceApiClient', () {
+  group('HomeSpaceApiClient Authentication', () {
     test('checkHealth returns true on 200 with service: homespace', () async {
       final mockClient = MockClient((request) async {
         if (request.url.path == '/api/health') {
@@ -98,90 +98,6 @@ void main() {
       expect(result.storageUsedBytes, 500000);
     });
 
-    test('fetchMedia parses items into strongly typed MediaItems', () async {
-      final mockClient = MockClient((request) async {
-        if (request.url.path == '/api/media') {
-          return http.Response(
-            jsonEncode({
-              'items': [
-                {
-                  'id': 'm_photo_1',
-                  'userId': 'u_alice',
-                  'fileName': 'vacation.jpg',
-                  'mimeType': 'image/jpeg',
-                  'byteSize': 123456,
-                  'width': 1920,
-                  'height': 1080,
-                  'takenAt': '2026-11-12T10:00:00.000Z',
-                  'createdAt': '2026-11-12T10:00:00.000Z',
-                  'isFavorite': true,
-                  'isTrashed': false,
-                }
-              ],
-            }),
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-        return http.Response('Not found', 404);
-      });
-
-      final client = HomeSpaceApiClient(client: mockClient);
-      final items = await client.fetchMedia(
-        Uri.parse('http://192.168.0.108:8888'),
-        'token',
-      );
-
-      expect(items.length, 1);
-      expect(items.first.id, 'm_photo_1');
-      expect(items.first.title, 'vacation.jpg');
-      expect(items.first.kind, MediaKind.photo);
-      expect(
-        items.first.asset,
-        'http://192.168.0.108:8888/api/media/m_photo_1/thumb',
-      );
-    });
-
-    test('fetchMedia identifies video items properly', () async {
-      final mockClient = MockClient((request) async {
-        if (request.url.path == '/api/media') {
-          return http.Response(
-            jsonEncode({
-              'items': [
-                {
-                  'id': 'm_video_1',
-                  'userId': 'u_alice',
-                  'fileName': 'clip.mp4',
-                  'mimeType': 'video/mp4',
-                  'byteSize': 5000000,
-                  'width': 1920,
-                  'height': 1080,
-                  'takenAt': '2026-11-12T10:00:00.000Z',
-                  'createdAt': '2026-11-12T10:00:00.000Z',
-                  'isFavorite': false,
-                  'isTrashed': false,
-                }
-              ],
-            }),
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-        return http.Response('Not found', 404);
-      });
-
-      final client = HomeSpaceApiClient(client: mockClient);
-      final items = await client.fetchMedia(
-        Uri.parse('http://192.168.0.108:8888'),
-        'token',
-      );
-
-      expect(items.length, 1);
-      expect(items.first.id, 'm_video_1');
-      expect(items.first.title, 'clip.mp4');
-      expect(items.first.kind, MediaKind.video);
-    });
-
     test('throws HomeSpaceServerException on API error', () async {
       final mockClient = MockClient((request) async {
         return http.Response(
@@ -209,46 +125,6 @@ void main() {
           'INVALID_CREDENTIALS',
         )),
       );
-    });
-
-    test('uploadMedia transmits original phone capture date (takenAt)', () async {
-      final phoneCaptureDate = DateTime.utc(2023, 8, 15, 14, 30, 45);
-      String? recordedQueryDate;
-      String? recordedHeaderDate;
-
-      final mockClient = MockClient((request) async {
-        if (request.url.path == '/api/media/upload') {
-          recordedQueryDate = request.url.queryParameters['takenAt'];
-          recordedHeaderDate = request.headers['x-taken-at'];
-          return http.Response(
-            jsonEncode({
-              'id': 'm_custom_date',
-              'fileName': 'camera_shot.jpg',
-              'mimeType': 'image/jpeg',
-              'byteSize': 1024,
-              'takenAt': recordedQueryDate ?? '2026-11-12T00:00:00.000Z',
-              'createdAt': '2026-11-12T10:00:00.000Z',
-            }),
-            201,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-        return http.Response('Not found', 404);
-      });
-
-      final client = HomeSpaceApiClient(client: mockClient);
-      final item = await client.uploadMedia(
-        baseUri: Uri.parse('http://192.168.0.108:8888'),
-        token: 'auth_token',
-        fileBytes: [1, 2, 3, 4],
-        filename: 'camera_shot.jpg',
-        takenAt: phoneCaptureDate,
-      );
-
-      expect(recordedQueryDate, '2023-08-15T14:30:45.000Z');
-      expect(recordedHeaderDate, '2023-08-15T14:30:45.000Z');
-      expect(item.takenAt, phoneCaptureDate);
-      expect(item.title, 'camera_shot.jpg');
     });
   });
 
@@ -290,23 +166,12 @@ void main() {
   });
 
   group('HttpUploadRepository', () {
-    test('queueUpload tracks progress and status transitions', () async {
-      final mockClient = MockClient((request) async {
-        return http.Response(
-          jsonEncode({
-            'id': 'm_up_1',
-            'fileName': 'test.jpg',
-            'takenAt': '2026-11-12T10:00:00.000Z',
-          }),
-          201,
-          headers: {'content-type': 'application/json'},
-        );
-      });
-
+    test('queueUpload saves locally and completes', () async {
+      MediaItem? savedItem;
       final repo = HttpUploadRepository(
-        apiClient: HomeSpaceApiClient(client: mockClient),
-        getServerAddress: () => Uri.parse('http://192.168.0.108:8888'),
-        getAuthToken: () => 'valid_token',
+        onMediaUploaded: (item, _) {
+          savedItem = item;
+        },
       );
 
       repo.queueUpload(
@@ -318,33 +183,20 @@ void main() {
       );
 
       expect(repo.items.length, 1);
-      // Wait for async startUpload
+      // Wait for async local save
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(repo.items.first.phase, UploadPhase.completed);
       expect(repo.items.first.bytesSent, 500);
       expect(repo.items.first.progress, 1.0);
+      expect(savedItem, isNotNull);
+      expect(savedItem!.title, 'test.jpg');
     });
 
-    test('queueUpload preserves phone capture date into uploaded MediaItem', () async {
+    test('queueUpload preserves phone capture date into MediaItem', () async {
       MediaItem? receivedItem;
       final expectedDate = DateTime.utc(2022, 12, 25, 9, 15, 0);
 
-      final mockClient = MockClient((request) async {
-        return http.Response(
-          jsonEncode({
-            'id': 'm_christmas',
-            'fileName': 'xmas.jpg',
-            'takenAt': request.url.queryParameters['takenAt'] ?? expectedDate.toIso8601String(),
-          }),
-          201,
-          headers: {'content-type': 'application/json'},
-        );
-      });
-
       final repo = HttpUploadRepository(
-        apiClient: HomeSpaceApiClient(client: mockClient),
-        getServerAddress: () => Uri.parse('http://192.168.0.108:8888'),
-        getAuthToken: () => 'valid_token',
         onMediaUploaded: (item, _) {
           receivedItem = item;
         },
@@ -366,10 +218,7 @@ void main() {
     });
 
     test('pause, resume, and cancel work as expected', () {
-      final repo = HttpUploadRepository(
-        getServerAddress: () => null,
-        getAuthToken: () => null,
-      );
+      final repo = HttpUploadRepository();
 
       repo.queueUpload(
         id: 'upload-2',
@@ -385,54 +234,20 @@ void main() {
       expect(repo.items.first.phase, UploadPhase.canceled);
     });
 
-    test('retry re-queues failed upload task and completes on recovery', () async {
-      int attempts = 0;
-      final mockClient = MockClient((request) async {
-        attempts++;
-        if (attempts == 1) {
-          return http.Response('Server error', 500);
-        }
-        return http.Response(
-          jsonEncode({
-            'id': 'm_up_retry',
-            'fileName': 'retry.jpg',
-            'takenAt': '2026-11-12T10:00:00.000Z',
-          }),
-          201,
-          headers: {'content-type': 'application/json'},
-        );
-      });
-
-      final repo = HttpUploadRepository(
-        apiClient: HomeSpaceApiClient(client: mockClient),
-        getServerAddress: () => Uri.parse('http://192.168.0.108:8888'),
-        getAuthToken: () => 'valid_token',
-      );
+    test('clearCompleted cleans up completed uploads', () async {
+      final repo = HttpUploadRepository();
 
       repo.queueUpload(
-        id: 'upload-fail-retry',
-        mediaId: 'm-retry',
+        id: 'upload-clear-test',
+        mediaId: 'm-clear',
         totalBytes: 500,
         bytes: [1, 2, 3],
-        filename: 'retry.jpg',
+        filename: 'clear.jpg',
       );
 
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(repo.items.first.phase, UploadPhase.failed);
-      expect(attempts, 1);
-
-      // Now retry
-      repo.retry('upload-fail-retry');
-      expect(
-        repo.items.first.phase,
-        anyOf(UploadPhase.queued, UploadPhase.uploading),
-      );
-
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(attempts, 2);
       expect(repo.items.first.phase, UploadPhase.completed);
 
-      // Clear completed
       repo.clearCompleted();
       expect(repo.items, isEmpty);
     });

@@ -1,17 +1,12 @@
 import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
-import multipart from '@fastify/multipart';
 import { authenticate } from './auth.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
-import { mediaRoutes } from './routes/media.js';
-import { albumRoutes } from './routes/albums.js';
-import { trashRoutes } from './routes/trash.js';
 
 export async function buildApp({ db, dataDir, config }) {
   const fastify = Fastify({
     logger: false,
-    bodyLimit: 5 * 1024 * 1024 * 1024, // 5GB limit for large video uploads
     connectionTimeout: 0,
     keepAliveTimeout: 120000,
     requestTimeout: 0,
@@ -23,14 +18,7 @@ export async function buildApp({ db, dataDir, config }) {
     timeWindow: '1 minute',
     allowList: (req) => {
       const url = req.url || '';
-      return url.startsWith('/api/media') || url.startsWith('/api/health');
-    },
-  });
-
-  // Multipart file upload support for media uploads (5GB max for high-res videos & photos)
-  await fastify.register(multipart, {
-    limits: {
-      fileSize: 5 * 1024 * 1024 * 1024, // 5GB max per photo/video
+      return url.startsWith('/api/health');
     },
   });
 
@@ -56,24 +44,8 @@ export async function buildApp({ db, dataDir, config }) {
   await fastify.register(authRoutes, {
     prefix: '/api',
     db,
-    dataDir,
     defaultQuotaBytes: config.defaultQuotaBytes,
     tokenExpiryDays: config.tokenExpiryDays,
-  });
-  await fastify.register(mediaRoutes, {
-    prefix: '/api',
-    db,
-    dataDir,
-  });
-  await fastify.register(albumRoutes, {
-    prefix: '/api',
-    db,
-    dataDir,
-  });
-  await fastify.register(trashRoutes, {
-    prefix: '/api',
-    db,
-    dataDir,
   });
 
   return fastify;

@@ -290,8 +290,8 @@ class LocalHomeRepository extends HomeRepository {
     required String userId,
     required String name,
     required AvatarTone avatarTone,
-    required Uri serverUri,
-    required String token,
+    Uri? serverUri,
+    String? token,
   }) async {
     await _commit((state) {
       return state.copyWith(
@@ -300,17 +300,8 @@ class LocalHomeRepository extends HomeRepository {
           name: name,
           avatarTone: avatarTone,
         ),
-        media: [],
-        albums: [],
-        favorites: {},
-        trash: [],
       );
     });
-    await syncWithServer(
-      serverUri: serverUri,
-      token: token,
-      clearLocalFirst: true,
-    );
   }
 
   Future<void> clearUserData() async {
@@ -325,119 +316,16 @@ class LocalHomeRepository extends HomeRepository {
   }
 
   Future<void> syncWithServer({
-    required Uri serverUri,
-    required String token,
+    Uri? serverUri,
+    String? token,
     HomeSpaceApiClient? apiClient,
     bool clearLocalFirst = false,
   }) async {
-    final client = apiClient ?? _apiClient;
-    try {
-      final rawRemoteMedia = await client.fetchMedia(serverUri, token);
-      final remoteAlbums = await client.fetchAlbums(serverUri, token);
-
-      // Deduplicate remote media items by title to eliminate any duplicates
-      final seenTitles = <String>{};
-      final remoteMedia = <MediaItem>[];
-      for (final m in rawRemoteMedia) {
-        final key = m.title.toLowerCase();
-        if (key.isNotEmpty && seenTitles.contains(key)) continue;
-        if (key.isNotEmpty) seenTitles.add(key);
-        remoteMedia.add(m);
-      }
-
-      final deletedSignatures = await AutoBackupService.getDeletedSignatures();
-
-      await _commit((state) {
-        if (clearLocalFirst) {
-          return state.copyWith(
-            media: remoteMedia.where((m) => !deletedSignatures.contains(m.title.toLowerCase())).toList(),
-            albums: remoteAlbums,
-          );
-        }
-        final remoteMapById = {for (final m in remoteMedia) m.id: m};
-        final remoteMapByTitle = {
-          for (final m in remoteMedia)
-            if (m.title.trim().isNotEmpty) m.title.trim().toLowerCase(): m
-        };
-        final idReplacements = <String, String>{};
-        final matchedRemoteIds = <String>{};
-
-        final updatedExistingMedia = state.media.map((m) {
-          final titleKey = m.title.trim().toLowerCase();
-          final remote = remoteMapById[m.id] ?? remoteMapByTitle[titleKey];
-          if (remote != null) {
-            matchedRemoteIds.add(remote.id);
-            if (m.id != remote.id) {
-              idReplacements[m.id] = remote.id;
-            }
-            final fileNameDate = parseDateFromFileName(remote.title);
-            return m.copyWith(
-              id: remote.id,
-              kind: remote.kind,
-              asset: remote.asset,
-              title: remote.title,
-              takenAt: fileNameDate ?? remote.takenAt,
-            );
-          }
-          return m;
-        }).toList();
-
-        final existingMediaIds = updatedExistingMedia.map((m) => m.id).toSet();
-        final existingMediaTitles = updatedExistingMedia.map((m) => m.title.trim().toLowerCase()).toSet();
-        final newMedia = remoteMedia
-            .where((m) =>
-                !existingMediaIds.contains(m.id) &&
-                !matchedRemoteIds.contains(m.id) &&
-                !existingMediaTitles.contains(m.title.trim().toLowerCase()) &&
-                !deletedSignatures.contains(m.title.trim().toLowerCase()))
-            .map((m) {
-          final fileNameDate = parseDateFromFileName(m.title);
-          return fileNameDate != null ? m.copyWith(takenAt: fileNameDate) : m;
-        }).toList();
-
-        final remoteAlbumMap = {for (final a in remoteAlbums) a.id: a};
-        final updatedExistingAlbums = state.albums.map((a) {
-          final remote = remoteAlbumMap[a.id];
-          var album = remote ?? a;
-          if (idReplacements.isNotEmpty) {
-            final nextIds = album.mediaIds.map((id) => idReplacements[id] ?? id).toList();
-            final nextCover = idReplacements[album.coverId] ?? album.coverId;
-            final nextAddedBy = <String, String>{};
-            album.addedBy.forEach((key, val) {
-              nextAddedBy[idReplacements[key] ?? key] = val;
-            });
-            album = album.copyWith(mediaIds: nextIds, coverId: nextCover, addedBy: nextAddedBy);
-          }
-          return album;
-        }).toList();
-
-        final existingAlbumIds = state.albums.map((a) => a.id).toSet();
-        final newAlbums =
-            remoteAlbums.where((a) => !existingAlbumIds.contains(a.id)).toList();
-
-        final nextFavorites = idReplacements.isEmpty
-            ? state.favorites
-            : state.favorites.map((id) => idReplacements[id] ?? id).toSet();
-
-        final nextTrash = idReplacements.isEmpty
-            ? state.trash
-            : state.trash.map((t) => TrashEntry(idReplacements[t.mediaId] ?? t.mediaId, t.deletedAt)).toList();
-
-        return state.copyWith(
-          media: [...newMedia, ...updatedExistingMedia],
-          albums: [...newAlbums, ...updatedExistingAlbums],
-          favorites: nextFavorites,
-          trash: nextTrash,
-        );
-      });
-    } catch (_) {
-      // Offline fallback: keep local data
-    }
+    // Pure local mode: media and albums are managed 100% locally on device.
   }
 
   @override
   Future<void> toggleFavorite(String id) async {
-    bool isNowFavorite = false;
     await _commit((state) {
       _requireMedia(state, id);
       if (state.trash.any((entry) => entry.mediaId == id)) {
@@ -446,21 +334,11 @@ class LocalHomeRepository extends HomeRepository {
       final next = {...state.favorites};
       if (next.contains(id)) {
         next.remove(id);
-        isNowFavorite = false;
       } else {
         next.add(id);
-        isNowFavorite = true;
       }
       return state.copyWith(favorites: next);
     });
-
-    final serverUri = getServerAddress?.call();
-    final token = getAuthToken?.call();
-    if (serverUri != null && token != null) {
-      try {
-        await _apiClient.toggleFavorite(serverUri, token, id, isNowFavorite);
-      } catch (_) {}
-    }
   }
 
   List<String> _activeIds(LibrarySnapshot state, Iterable<String> ids) {
@@ -477,21 +355,12 @@ class LocalHomeRepository extends HomeRepository {
   @override
   Future<void> setFavorites(List<String> ids, bool favorite) async {
     final requested = List<String>.of(ids);
-    List<String> active = const [];
     await _commit((state) {
-      active = _activeIds(state, requested);
+      final active = _activeIds(state, requested);
       final next = {...state.favorites};
       favorite ? next.addAll(active) : next.removeAll(active);
       return state.copyWith(favorites: next);
     });
-
-    final serverUri = getServerAddress?.call();
-    final token = getAuthToken?.call();
-    if (serverUri != null && token != null && active.isNotEmpty) {
-      try {
-        await _apiClient.batchFavoriteMedia(serverUri, token, active, favorite);
-      } catch (_) {}
-    }
   }
 
   @override
@@ -755,14 +624,6 @@ class LocalHomeRepository extends HomeRepository {
         ],
       );
     });
-
-    final serverUri = getServerAddress?.call();
-    final token = getAuthToken?.call();
-    if (serverUri != null && token != null && requested.isNotEmpty) {
-      try {
-        await _apiClient.batchTrashMedia(serverUri, token, requested.toList());
-      } catch (_) {}
-    }
   }
 
   @override
@@ -785,14 +646,6 @@ class LocalHomeRepository extends HomeRepository {
             .toList(),
       );
     });
-
-    final serverUri = getServerAddress?.call();
-    final token = getAuthToken?.call();
-    if (serverUri != null && token != null && requested.isNotEmpty) {
-      try {
-        await _apiClient.batchRestoreMedia(serverUri, token, requested.toList());
-      } catch (_) {}
-    }
   }
 
   @override
@@ -848,14 +701,6 @@ class LocalHomeRepository extends HomeRepository {
         ],
       );
     });
-
-    final serverUri = getServerAddress?.call();
-    final token = getAuthToken?.call();
-    if (serverUri != null && token != null && requested.isNotEmpty) {
-      try {
-        await _apiClient.batchDeleteMedia(serverUri, token, requested.toList());
-      } catch (_) {}
-    }
   }
 
   void _notify() {

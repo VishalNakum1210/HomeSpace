@@ -1,11 +1,10 @@
 import crypto from 'node:crypto';
 import { hashPassword, verifyPassword, createSession } from '../auth.js';
-import { getUserDirs, checkQuota } from '../storage.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function authRoutes(fastify, options) {
-  const { db, dataDir, defaultQuotaBytes, tokenExpiryDays } = options;
+  const { db, defaultQuotaBytes, tokenExpiryDays } = options;
 
   // Registration
   fastify.post('/auth/register', async (req, reply) => {
@@ -41,10 +40,6 @@ export async function authRoutes(fastify, options) {
     const { hash, salt } = hashPassword(password);
     const now = new Date().toISOString();
 
-    // 1. Initialize dedicated user directories
-    getUserDirs(dataDir, userId);
-
-    // 2. Insert user into DB
     const insertStmt = db.prepare(`
       INSERT INTO users (
         id, email, password_hash, password_salt, name, avatar_tone,
@@ -64,7 +59,6 @@ export async function authRoutes(fastify, options) {
       now,
     );
 
-    // 3. Create session token
     const session = createSession(db, userId, tokenExpiryDays);
 
     return reply.code(201).send({
@@ -106,9 +100,6 @@ export async function authRoutes(fastify, options) {
       });
     }
 
-    // Ensure user directories exist on login
-    getUserDirs(dataDir, user.id);
-
     const session = createSession(db, user.id, tokenExpiryDays);
 
     return {
@@ -126,18 +117,21 @@ export async function authRoutes(fastify, options) {
     };
   });
 
-  // Current user & storage profile
+  // Current user profile
   fastify.get('/auth/me', { preHandler: [fastify.authenticate] }, async (req, reply) => {
-    const stats = checkQuota(db, req.user.id, 0);
+    const quotaBytes = req.user.storage_quota_bytes || defaultQuotaBytes;
+    const usedBytes = req.user.storage_used_bytes || 0;
+    const remainingBytes = Math.max(0, quotaBytes - usedBytes);
+    const percentUsed = quotaBytes > 0 ? (usedBytes / quotaBytes) * 100 : 0;
 
     return {
       user: {
         ...req.user,
         storage: {
-          usedBytes: stats.usedBytes,
-          quotaBytes: stats.quotaBytes,
-          remainingBytes: stats.remainingBytes,
-          percentUsed: Number(stats.percentUsed.toFixed(2)),
+          usedBytes,
+          quotaBytes,
+          remainingBytes,
+          percentUsed: Number(percentUsed.toFixed(2)),
         },
       },
     };

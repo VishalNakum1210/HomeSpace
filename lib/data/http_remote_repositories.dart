@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../application/auto_backup_service.dart';
 import '../application/device_media_service.dart';
@@ -127,23 +126,16 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
   final List<_PendingUploadTask> _pendingQueue = [];
   final Map<String, _PendingUploadTask> _taskRegistry = {};
   bool _isProcessing = false;
-  final HomeSpaceApiClient _apiClient;
-  final Uri? Function() _getServerAddress;
-  final String? Function() _getAuthToken;
   final void Function(MediaItem item, String? targetAlbumId)? onMediaUploaded;
   final List<MediaItem> Function()? getExistingMedia;
 
   HttpUploadRepository({
     HomeSpaceApiClient? apiClient,
-    required Uri? Function() getServerAddress,
-    required String? Function() getAuthToken,
+    Uri? Function()? getServerAddress,
+    String? Function()? getAuthToken,
     this.onMediaUploaded,
     this.getExistingMedia,
-  })  : _apiClient = apiClient ?? HomeSpaceApiClient(),
-        // ignore: prefer_initializing_formals
-        _getServerAddress = getServerAddress,
-        // ignore: prefer_initializing_formals
-        _getAuthToken = getAuthToken;
+  });
 
   @override
   List<UploadItem> get items => List.unmodifiable(_items);
@@ -215,41 +207,27 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
 
   Future<void> _startUpload(_PendingUploadTask task) async {
     final item = task.item;
-    final serverUri = _getServerAddress();
-    final token = _getAuthToken();
-
     final idx = _items.indexWhere((e) => e.id == item.id);
     if (idx == -1) return;
-
-    if (serverUri == null || token == null) {
-      _items[idx] = item.copyWith(phase: UploadPhase.failed);
-      notifyListeners();
-      return;
-    }
 
     _items[idx] = item.copyWith(phase: UploadPhase.uploading);
     notifyListeners();
 
     try {
-      final uploadedMedia = await _apiClient.uploadMedia(
-        baseUri: serverUri,
-        token: token,
-        fileBytes: task.bytes,
-        filePath: task.filePath,
-        filename: task.filename,
-        mimeType: task.mimeType,
-        takenAt: task.takenAt,
-        onProgress: (sent, total) {
-          final currentIdx = _items.indexWhere((e) => e.id == item.id);
-          if (currentIdx != -1) {
-            _items[currentIdx] = _items[currentIdx].copyWith(
-              bytesSent: sent,
-              totalBytes: total,
-              phase: UploadPhase.uploading,
-            );
-            notifyListeners();
-          }
-        },
+      final isVideo = (task.mimeType?.startsWith('video/') ?? false) ||
+          task.filename.toLowerCase().endsWith('.mp4') ||
+          task.filename.toLowerCase().endsWith('.mov') ||
+          task.filename.toLowerCase().endsWith('.mkv');
+
+      final localMedia = MediaItem(
+        id: task.item.mediaId.isNotEmpty
+            ? task.item.mediaId
+            : 'm_${DateTime.now().millisecondsSinceEpoch}',
+        asset: task.filePath ?? task.filename,
+        title: task.filename,
+        category: 'Camera',
+        takenAt: task.takenAt ?? DateTime.now(),
+        kind: isVideo ? MediaKind.video : MediaKind.photo,
       );
 
       final currentIdx = _items.indexWhere((e) => e.id == item.id);
@@ -267,11 +245,10 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
       final deletedSignatures = await AutoBackupService.getDeletedSignatures();
       final isDeleted = deletedSignatures.contains(task.filename.toLowerCase().trim());
       if (!isDeleted) {
-        onMediaUploaded?.call(uploadedMedia, task.targetAlbumId);
+        onMediaUploaded?.call(localMedia, task.targetAlbumId);
       }
     } catch (e, st) {
-      debugPrint('HttpUploadRepository: upload failed for ${task.filename}: $e\n$st');
-      stderr.writeln('HttpUploadRepository: upload failed for ${task.filename}: $e\n$st');
+      debugPrint('HttpUploadRepository: local save failed for ${task.filename}: $e\n$st');
       final currentIdx = _items.indexWhere((e) => e.id == item.id);
       if (currentIdx != -1) {
         _items[currentIdx] = item.copyWith(phase: UploadPhase.failed);
