@@ -180,6 +180,10 @@ class _MediaViewerState extends State<MediaViewer> {
   Drag? pageDrag;
   int? dragOrigin;
   bool zoomed = false;
+  bool _isDownloading = false;
+  double? _downloadProgress;
+  String? _downloadLabel;
+  String? _downloadDetail;
 
   @override
   void initState() {
@@ -461,9 +465,20 @@ class _MediaViewerState extends State<MediaViewer> {
                                   ),
                                   IconButton(
                                     key: const ValueKey('viewer-download'),
-                                    icon: const Icon(Icons.download_rounded),
-                                    tooltip: 'Download to device',
-                                    onPressed: photo == null ? null : () => _downloadMedia(context, photo),
+                                    icon: _isDownloading
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Color(0xFF818CF8),
+                                            ),
+                                          )
+                                        : const Icon(Icons.download_rounded),
+                                    tooltip: _isDownloading ? 'Downloading…' : 'Download to device',
+                                    onPressed: (photo == null || _isDownloading)
+                                        ? null
+                                        : () => _downloadMedia(context, photo),
                                   ),
                                   PopupMenuButton<String>(
                                     tooltip: 'More photo options',
@@ -484,10 +499,10 @@ class _MediaViewerState extends State<MediaViewer> {
                                       ),
                                       PopupMenuItem(
                                         value: 'download',
-                                        enabled: photo != null,
-                                        child: const Tooltip(
-                                          message: 'Download to device',
-                                          child: Text('Download original'),
+                                        enabled: photo != null && !_isDownloading,
+                                        child: Tooltip(
+                                          message: _isDownloading ? 'Downloading…' : 'Download to device',
+                                          child: Text(_isDownloading ? 'Downloading…' : 'Download original'),
                                         ),
                                       ),
                                       PopupMenuItem(
@@ -609,10 +624,12 @@ class _MediaViewerState extends State<MediaViewer> {
                                       Expanded(
                                         child: PhotoAction(
                                           key: const ValueKey('download-trash-memory'),
-                                          label: 'Download',
-                                          tooltip: 'Download to device',
+                                          label: _isDownloading ? 'Downloading…' : 'Download',
+                                          tooltip: _isDownloading ? 'Downloading to device…' : 'Download to device',
                                           icon: Icons.download_rounded,
-                                          onPressed: () => _downloadMedia(context, photo),
+                                          onPressed: _isDownloading
+                                              ? null
+                                              : () => _downloadMedia(context, photo),
                                         ),
                                       ),
                                       Expanded(
@@ -674,10 +691,12 @@ class _MediaViewerState extends State<MediaViewer> {
                                       Expanded(
                                         child: PhotoAction(
                                           key: const ValueKey('download-memory'),
-                                          label: 'Download',
-                                          tooltip: 'Download to device',
+                                          label: _isDownloading ? 'Downloading…' : 'Download',
+                                          tooltip: _isDownloading ? 'Downloading to device…' : 'Download to device',
                                           icon: Icons.download_rounded,
-                                          onPressed: () => _downloadMedia(context, photo),
+                                          onPressed: _isDownloading
+                                              ? null
+                                              : () => _downloadMedia(context, photo),
                                         ),
                                       ),
                                       Expanded(
@@ -719,6 +738,19 @@ class _MediaViewerState extends State<MediaViewer> {
                             ),
                           ),
                         ),
+                      if (_isDownloading)
+                        Positioned(
+                          left: 16,
+                          right: 16,
+                          bottom: (available ? bottom : 24) +
+                              MediaQuery.paddingOf(context).bottom +
+                              8,
+                          child: _DownloadProgressCard(
+                            title: _downloadLabel ?? 'Downloading…',
+                            detail: _downloadDetail ?? '',
+                            progress: _downloadProgress,
+                          ),
+                        ),
                     ],
                   );
                 },
@@ -731,38 +763,23 @@ class _MediaViewerState extends State<MediaViewer> {
   }
 
   Future<void> _downloadMedia(BuildContext context, MediaItem photo) async {
+    if (_isDownloading) return;
+
     final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-        content: Row(
-          children: [
-            const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Downloading ${photo.title}…',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    final fileName = photo.title.isNotEmpty
+        ? photo.title
+        : (photo.kind == MediaKind.video ? 'video_${photo.id}.mp4' : 'photo_${photo.id}.jpg');
+
+    setState(() {
+      _isDownloading = true;
+      _downloadProgress = null;
+      _downloadLabel = 'Downloading $fileName';
+      _downloadDetail = 'Connecting…';
+    });
 
     try {
       final List<int> bytes;
       final asset = photo.asset;
-      final fileName = photo.title.isNotEmpty
-          ? photo.title
-          : (photo.kind == MediaKind.video ? 'video_${photo.id}.mp4' : 'photo_${photo.id}.jpg');
 
       final session = FrontendSessionScope.maybeOf(context);
       final fileUri = resolveMediaUri(
@@ -773,25 +790,71 @@ class _MediaViewerState extends State<MediaViewer> {
       );
 
       if (!kIsWeb && File(asset).existsSync()) {
+        if (mounted) {
+          setState(() {
+            _downloadProgress = 1.0;
+            _downloadDetail = 'Reading local copy…';
+          });
+        }
         bytes = await File(asset).readAsBytes();
       } else if (fileUri != null) {
         final token = session?.authToken;
         final client = createHomeSpaceHttpClient();
         try {
-          final response = await client.get(
-            fileUri,
-            headers: token != null ? {'Authorization': 'Bearer $token'} : null,
-          ).timeout(const Duration(minutes: 5));
-
-          if (response.statusCode == 200) {
-            bytes = response.bodyBytes;
-          } else {
-            throw Exception('Server returned ${response.statusCode}');
+          final req = http.Request('GET', fileUri);
+          if (token != null) {
+            req.headers['Authorization'] = 'Bearer $token';
           }
+          final streamed = await client.send(req).timeout(const Duration(minutes: 10));
+          if (streamed.statusCode != 200) {
+            throw Exception('Server returned ${streamed.statusCode}');
+          }
+
+          final totalBytes = streamed.contentLength ?? 0;
+          var receivedBytes = 0;
+          final chunks = <List<int>>[];
+          var lastUpdate = 0;
+
+          await for (final chunk in streamed.stream) {
+            chunks.add(chunk);
+            receivedBytes += chunk.length;
+            final now = DateTime.now().millisecondsSinceEpoch;
+            if (now - lastUpdate > 80 || (totalBytes > 0 && receivedBytes >= totalBytes)) {
+              lastUpdate = now;
+              if (mounted) {
+                setState(() {
+                  if (totalBytes > 0) {
+                    _downloadProgress = (receivedBytes / totalBytes).clamp(0.0, 1.0);
+                    final pct = (_downloadProgress! * 100).round();
+                    final recMb = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
+                    final totMb = (totalBytes / (1024 * 1024)).toStringAsFixed(1);
+                    _downloadDetail = '$pct% • $recMb / $totMb MB';
+                  } else {
+                    final recMb = (receivedBytes / (1024 * 1024)).toStringAsFixed(1);
+                    _downloadDetail = '$recMb MB downloaded';
+                  }
+                });
+              }
+            }
+          }
+
+          final assembled = Uint8List(receivedBytes);
+          var offset = 0;
+          for (final chunk in chunks) {
+            assembled.setRange(offset, offset + chunk.length, chunk);
+            offset += chunk.length;
+          }
+          bytes = assembled;
         } finally {
           client.close();
         }
       } else if (asset.startsWith('assets/')) {
+        if (mounted) {
+          setState(() {
+            _downloadProgress = 1.0;
+            _downloadDetail = 'Loading asset…';
+          });
+        }
         final data = await rootBundle.load(asset);
         bytes = data.buffer.asUint8List();
       } else {
@@ -800,6 +863,14 @@ class _MediaViewerState extends State<MediaViewer> {
 
       if (bytes.isEmpty) {
         throw Exception('No data received');
+      }
+
+      if (mounted) {
+        setState(() {
+          _downloadProgress = null;
+          _downloadLabel = 'Saving $fileName';
+          _downloadDetail = 'Saving to device gallery…';
+        });
       }
 
       final isVideo = photo.kind == MediaKind.video ||
@@ -814,46 +885,64 @@ class _MediaViewerState extends State<MediaViewer> {
         mimeType: mimeType,
       );
 
-      if (!context.mounted) return;
-      messenger.hideCurrentSnackBar();
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = null;
+          _downloadLabel = null;
+          _downloadDetail = null;
+        });
+      }
 
-      if (savedPath != null) {
-        messenger.showSnackBar(
-          SnackBar(
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 4),
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle_rounded, color: Color(0xFF4CAF50), size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Saved to device gallery ($fileName)',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+      if (messenger.mounted) {
+        messenger.hideCurrentSnackBar();
+        if (savedPath != null) {
+          messenger.showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 4),
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded, color: Color(0xFF4CAF50), size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Saved to device gallery ($fileName)',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        );
-      } else {
+          );
+        } else {
+          messenger.showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              content: Text('Could not save $fileName to device storage.'),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = null;
+          _downloadLabel = null;
+          _downloadDetail = null;
+        });
+      }
+      if (messenger.mounted) {
+        messenger.hideCurrentSnackBar();
         messenger.showSnackBar(
           SnackBar(
             behavior: SnackBarBehavior.floating,
-            content: Text('Could not save $fileName to device storage.'),
+            content: Text('Download failed: $e'),
           ),
         );
       }
-    } catch (e) {
-      if (!context.mounted) return;
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text('Download failed: $e'),
-        ),
-      );
     }
   }
 
@@ -1127,6 +1216,107 @@ class _DetailRow extends StatelessWidget {
                     style: theme.textTheme.bodyMedium!.copyWith(fontSize: 12),
                   ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DownloadProgressCard extends StatelessWidget {
+  final String title;
+  final String detail;
+  final double? progress;
+
+  const _DownloadProgressCard({
+    required this.title,
+    required this.detail,
+    required this.progress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('viewer-download-progress-card'),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xEE1E2630),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black45,
+            blurRadius: 16,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF818CF8),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                    if (detail.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        detail,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              key: const ValueKey('viewer-download-progress-bar'),
+              value: progress,
+              minHeight: 4,
+              backgroundColor: Colors.white12,
+              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
             ),
           ),
         ],

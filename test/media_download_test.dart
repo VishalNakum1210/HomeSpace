@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -72,6 +74,69 @@ void main() {
       expect(log.any((call) => call.method == 'saveMedia'), isTrue);
 
       // Verify success snackbar appears
+      expect(find.textContaining('Saved to device gallery'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'MediaViewer displays floating download progress card while downloading',
+    (tester) async {
+      DeviceMediaService.debugOverrideIsAndroid = true;
+      addTearDown(() => DeviceMediaService.debugOverrideIsAndroid = false);
+
+      final saveCompleter = Completer<String>();
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('com.homespace.homespace/media_saver'),
+        (call) async {
+          if (call.method == 'saveMedia') {
+            return await saveCompleter.future;
+          }
+          return null;
+        },
+      );
+
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final repository = LocalHomeRepository(
+        store: MemorySnapshotStore(),
+        initialAppearance: Appearance.light,
+      );
+      addTearDown(repository.dispose);
+
+      await tester.pumpWidget(HomeSpaceApp(repository: repository));
+      await tester.pumpAndSettle();
+
+      // Open media viewer
+      await tester.tap(find.byKey(const ValueKey('memory-media-01')));
+      await tester.pumpAndSettle();
+
+      // Tap download in bottom action bar
+      final bottomDownload = find.byKey(const ValueKey('download-memory'));
+      await tester.runAsync(() async {
+        await tester.tap(bottomDownload);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+
+      // While saving to device, verify progress card and progress bar are rendered
+      expect(find.byKey(const ValueKey('viewer-download-progress-card')), findsOneWidget);
+      expect(find.byKey(const ValueKey('viewer-download-progress-bar')), findsOneWidget);
+
+      // Verify bottom action shows "Downloading…"
+      expect(find.text('Downloading…'), findsWidgets);
+
+      // Complete the save operation
+      await tester.runAsync(() async {
+        saveCompleter.complete('/storage/emulated/0/Pictures/HomeSpace/sample1.jpg');
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pump();
+
+      // Progress card dismissed and success snackbar visible
+      expect(find.byKey(const ValueKey('viewer-download-progress-card')), findsNothing);
       expect(find.textContaining('Saved to device gallery'), findsOneWidget);
     },
   );
