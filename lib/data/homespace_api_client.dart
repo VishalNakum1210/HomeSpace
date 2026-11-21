@@ -121,6 +121,39 @@ Uri? resolveMediaUri({
   return null;
 }
 
+class _MultipartRequestWithProgress extends http.MultipartRequest {
+  final void Function(int bytesSent, int totalBytes)? onProgress;
+
+  _MultipartRequestWithProgress(
+    super.method,
+    super.url, {
+    this.onProgress,
+  });
+
+  @override
+  http.ByteStream finalize() {
+    final byteStream = super.finalize();
+    final total = contentLength;
+    var sent = 0;
+
+    final controller = StreamController<List<int>>(sync: true);
+    byteStream.listen(
+      (chunk) {
+        sent += chunk.length;
+        if (onProgress != null && total > 0) {
+          onProgress!(sent, total);
+        }
+        controller.add(chunk);
+      },
+      onDone: () => controller.close(),
+      onError: (e, st) => controller.addError(e, st),
+      cancelOnError: true,
+    );
+
+    return http.ByteStream(controller.stream);
+  }
+}
+
 class HomeSpaceApiClient {
   final http.Client _client;
 
@@ -422,6 +455,7 @@ class HomeSpaceApiClient {
     required String filename,
     String? mimeType,
     DateTime? takenAt,
+    void Function(int bytesSent, int totalBytes)? onProgress,
   }) => _guard(() async {
     final file = File(filePath);
     if (!await file.exists()) {
@@ -435,7 +469,11 @@ class HomeSpaceApiClient {
     final takenIso = (takenAt ?? DateTime.now()).toUtc().toIso8601String();
     final url = _resolve(baseUri, 'api/media/upload', {'takenAt': takenIso});
 
-    final request = http.MultipartRequest('POST', url);
+    final request = _MultipartRequestWithProgress(
+      'POST',
+      url,
+      onProgress: onProgress,
+    );
     request.headers['Authorization'] = 'Bearer $token';
     request.headers['x-taken-at'] = takenIso;
 

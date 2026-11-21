@@ -59,7 +59,32 @@ class DashboardUploadBanner extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final progress = total > 0 ? (completed / total).clamp(0.0, 1.0) : 0.0;
+        final uploadingItem = uploads.items.where((u) => u.phase == UploadPhase.uploading).firstOrNull;
+        final progress = total > 0
+            ? ((completed + (uploadingItem?.progress ?? 0.0)) / total).clamp(0.0, 1.0)
+            : 0.0;
+
+        final isNearEnd = uploadingItem != null &&
+            uploadingItem.totalBytes > 0 &&
+            uploadingItem.bytesSent >= (uploadingItem.totalBytes * 0.98).round();
+        final String titleText;
+        if (isNearEnd) {
+          titleText = 'Saving to server… ($remaining in queue)';
+        } else if (uploadingItem != null && uploadingItem.title != null && uploadingItem.title!.isNotEmpty) {
+          titleText = 'Uploading ${uploadingItem.title} ($remaining in queue)';
+        } else {
+          titleText = 'Backing up memories ($remaining remaining)';
+        }
+
+        final String subtitleText;
+        if (uploadingItem != null && uploadingItem.totalBytes > 0) {
+          final sentMb = (uploadingItem.bytesSent / (1024 * 1024)).toStringAsFixed(1);
+          final totalMb = (uploadingItem.totalBytes / (1024 * 1024)).toStringAsFixed(1);
+          final pct = (uploadingItem.progress * 100).round();
+          subtitleText = '$pct% • $sentMb of $totalMb MB • Tap to view queue';
+        } else {
+          subtitleText = '$completed of $total uploaded • Tap to view queue';
+        }
 
         return Padding(
           padding: const EdgeInsets.only(top: 8, bottom: 4),
@@ -102,19 +127,16 @@ class DashboardUploadBanner extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                uploads.items.any((u) =>
-                                        u.phase == UploadPhase.uploading &&
-                                        u.totalBytes > 0 &&
-                                        u.bytesSent >= (u.totalBytes * 0.97).round())
-                                    ? 'Saving to server… ($remaining in queue)'
-                                    : 'Backing up memories ($remaining remaining)',
+                                titleText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.titleSmall?.copyWith(
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                '$completed of $total uploaded • Tap to view queue',
+                                subtitleText,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.8),
                                 ),

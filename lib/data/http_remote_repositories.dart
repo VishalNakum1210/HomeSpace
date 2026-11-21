@@ -226,6 +226,7 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
           token != null &&
           task.filePath != null &&
           File(task.filePath!).existsSync()) {
+        var lastReport = 0;
         mediaToSave = await _apiClient.uploadMediaFile(
           baseUri: serverUri,
           token: token,
@@ -233,6 +234,21 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
           filename: task.filename,
           mimeType: task.mimeType,
           takenAt: task.takenAt,
+          onProgress: (sent, total) {
+            final now = DateTime.now().millisecondsSinceEpoch;
+            if (now - lastReport > 80 || sent >= total) {
+              lastReport = now;
+              final currentIdx = _items.indexWhere((e) => e.id == item.id);
+              if (currentIdx != -1) {
+                _items[currentIdx] = _items[currentIdx].copyWith(
+                  phase: UploadPhase.uploading,
+                  bytesSent: sent,
+                  totalBytes: total > 0 ? total : _items[currentIdx].totalBytes,
+                );
+                notifyListeners();
+              }
+            }
+          },
         );
       } else {
         final isVideo = (task.mimeType?.startsWith('video/') ?? false) ||
