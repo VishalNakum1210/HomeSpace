@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
+import 'package:http_parser/http_parser.dart';
 
 import '../domain/models.dart';
 
@@ -365,5 +366,180 @@ class HomeSpaceApiClient {
       }
       rethrow;
     }
+  });
+
+  // 4. Fetch media timeline
+  Future<List<MediaItem>> fetchMedia({
+    required Uri baseUri,
+    required String token,
+    int limit = 150,
+    int offset = 0,
+    bool favoriteOnly = false,
+  }) => _guard(() async {
+    final query = <String, dynamic>{
+      'limit': limit,
+      'offset': offset,
+      if (favoriteOnly) 'favorite': 'true',
+    };
+    final url = _resolve(baseUri, 'api/media', query);
+    final response = await _client.get(
+      url,
+      headers: _headers(token),
+    ).timeout(const Duration(seconds: 20));
+
+    if (response.statusCode != 200) _handleError(response);
+
+    final data = jsonDecode(response.body);
+    final items = (data['items'] as List<dynamic>? ?? []);
+    return items.map((raw) {
+      final m = raw as Map<String, dynamic>;
+      final isVideo = m['kind'] == 'video';
+      final id = m['id'] as String;
+      final fileUri = resolveMediaUri(
+        asset: '',
+        id: id,
+        serverUri: baseUri,
+        endpoint: 'file',
+      );
+
+      return MediaItem(
+        id: id,
+        asset: fileUri?.toString() ?? '',
+        title: m['filename'] as String? ?? 'Memory',
+        category: 'Camera',
+        takenAt: DateTime.tryParse(m['takenAt'] as String? ?? '') ?? DateTime.now(),
+        kind: isVideo ? MediaKind.video : MediaKind.photo,
+        isSynced: true,
+      );
+    }).toList();
+  });
+
+  // 5. Upload media file
+  Future<MediaItem> uploadMediaFile({
+    required Uri baseUri,
+    required String token,
+    required String filePath,
+    required String filename,
+    String? mimeType,
+    DateTime? takenAt,
+  }) => _guard(() async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      throw HomeSpaceServerException(
+        code: 'FILE_NOT_FOUND',
+        message: 'File not found on device: $filePath',
+        statusCode: 400,
+      );
+    }
+
+    final takenIso = (takenAt ?? DateTime.now()).toUtc().toIso8601String();
+    final url = _resolve(baseUri, 'api/media/upload', {'takenAt': takenIso});
+
+    final request = http.MultipartRequest('POST', url);
+    request.headers['Authorization'] = 'Bearer $token';
+    request.headers['x-taken-at'] = takenIso;
+
+    final resolvedMime = mimeType ??
+        (filename.toLowerCase().endsWith('.mp4') || filename.toLowerCase().endsWith('.mov')
+            ? 'video/mp4'
+            : 'image/jpeg');
+
+    final multipartFile = await http.MultipartFile.fromPath(
+      'file',
+      filePath,
+      filename: filename,
+      contentType: MediaType.parse(resolvedMime),
+    );
+    request.files.add(multipartFile);
+
+    final streamed = await _client.send(request).timeout(const Duration(minutes: 10));
+    final response = await http.Response.fromStream(streamed);
+
+    if (response.statusCode != 201 && response.statusCode != 200) {
+      _handleError(response);
+    }
+
+    final data = jsonDecode(response.body);
+    final media = data['media'] as Map<String, dynamic>;
+    final id = media['id'] as String;
+    final isVideo = media['kind'] == 'video';
+
+    return MediaItem(
+      id: id,
+      asset: filePath,
+      title: media['filename'] as String? ?? filename,
+      category: 'Camera',
+      takenAt: DateTime.tryParse(media['takenAt'] as String? ?? '') ?? (takenAt ?? DateTime.now()),
+      kind: isVideo ? MediaKind.video : MediaKind.photo,
+      isSynced: true,
+    );
+  });
+
+  // 6. Toggle favorite
+  Future<void> toggleFavorite({
+    required Uri baseUri,
+    required String token,
+    required String mediaId,
+    required bool isFavorite,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/media/$mediaId');
+    final response = await _client.patch(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'isFavorite': isFavorite}),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+  });
+
+  // 7. Move to trash (bulk)
+  Future<void> trashMedia({
+    required Uri baseUri,
+    required String token,
+    required List<String> mediaIds,
+  }) => _guard(() async {
+    if (mediaIds.isEmpty) return;
+    final url = _resolve(baseUri, 'api/media/trash');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'ids': mediaIds}),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+  });
+
+  // 8. Restore from trash (bulk)
+  Future<void> restoreMedia({
+    required Uri baseUri,
+    required String token,
+    required List<String> mediaIds,
+  }) => _guard(() async {
+    if (mediaIds.isEmpty) return;
+    final url = _resolve(baseUri, 'api/media/restore');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'ids': mediaIds}),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+  });
+
+  // 9. Delete permanently (bulk)
+  Future<void> deleteMediaPermanently({
+    required Uri baseUri,
+    required String token,
+    required List<String> mediaIds,
+  }) => _guard(() async {
+    if (mediaIds.isEmpty) return;
+    final url = _resolve(baseUri, 'api/media/delete');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'ids': mediaIds}),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
   });
 }

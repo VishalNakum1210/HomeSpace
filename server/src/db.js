@@ -48,6 +48,45 @@ export function initDatabase(dbPath = ':memory:') {
     );
 
     CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+
+    CREATE TABLE IF NOT EXISTS media (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      taken_at TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'photo',
+      original_path TEXT NOT NULL,
+      thumbnail_path TEXT,
+      is_favorite INTEGER NOT NULL DEFAULT 0,
+      is_trashed INTEGER NOT NULL DEFAULT 0,
+      trashed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_media_user_timeline ON media(user_id, is_trashed, taken_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_media_user_favorites ON media(user_id, is_favorite, is_trashed, taken_at DESC);
+
+    CREATE TABLE IF NOT EXISTS albums (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      cover_media_id TEXT REFERENCES media(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS album_media (
+      album_id TEXT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+      media_id TEXT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (album_id, media_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_album_media_media ON album_media(media_id);
   `);
 
   return db;

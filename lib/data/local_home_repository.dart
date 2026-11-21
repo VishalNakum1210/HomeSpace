@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 
 import '../application/auto_backup_service.dart';
 import '../domain/models.dart';
@@ -332,11 +333,46 @@ class LocalHomeRepository extends HomeRepository {
     HomeSpaceApiClient? apiClient,
     bool clearLocalFirst = false,
   }) async {
-    // Pure local mode: media and albums are managed 100% locally on device.
+    final activeUri = serverUri ?? getServerAddress?.call();
+    final activeToken = token ?? getAuthToken?.call();
+    if (activeUri == null || activeToken == null) return;
+
+    final client = apiClient ?? _apiClient;
+    try {
+      final remoteItems = await client.fetchMedia(
+        baseUri: activeUri,
+        token: activeToken,
+      );
+      if (remoteItems.isEmpty) return;
+
+      await _commit((state) {
+        final existingMap = {for (final m in state.media) m.id: m};
+        final existingFilenames = {
+          for (final m in state.media) m.title.trim().toLowerCase(): m
+        };
+
+        final updatedMedia = [...state.media];
+        for (final remote in remoteItems) {
+          final byName = existingFilenames[remote.title.trim().toLowerCase()];
+          if (byName != null) {
+            final idx = updatedMedia.indexWhere((m) => m.id == byName.id);
+            if (idx != -1) {
+              updatedMedia[idx] = updatedMedia[idx].copyWith(isSynced: true);
+            }
+          } else if (!existingMap.containsKey(remote.id)) {
+            updatedMedia.add(remote);
+          }
+        }
+        return state.copyWith(media: updatedMedia);
+      });
+    } catch (e) {
+      debugPrint('syncWithServer error: $e');
+    }
   }
 
   @override
   Future<void> toggleFavorite(String id) async {
+    bool isNowFav = false;
     await _commit((state) {
       _requireMedia(state, id);
       if (state.trash.any((entry) => entry.mediaId == id)) {
@@ -345,11 +381,26 @@ class LocalHomeRepository extends HomeRepository {
       final next = {...state.favorites};
       if (next.contains(id)) {
         next.remove(id);
+        isNowFav = false;
       } else {
         next.add(id);
+        isNowFav = true;
       }
       return state.copyWith(favorites: next);
     });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(
+        _apiClient.toggleFavorite(
+          baseUri: activeUri,
+          token: activeToken,
+          mediaId: id,
+          isFavorite: isNowFav,
+        ).catchError((_) {}),
+      );
+    }
   }
 
   List<String> _activeIds(LibrarySnapshot state, Iterable<String> ids) {
@@ -635,6 +686,18 @@ class LocalHomeRepository extends HomeRepository {
         ],
       );
     });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(
+        _apiClient.trashMedia(
+          baseUri: activeUri,
+          token: activeToken,
+          mediaIds: ids,
+        ).catchError((_) {}),
+      );
+    }
   }
 
   @override
@@ -657,6 +720,18 @@ class LocalHomeRepository extends HomeRepository {
             .toList(),
       );
     });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(
+        _apiClient.restoreMedia(
+          baseUri: activeUri,
+          token: activeToken,
+          mediaIds: ids,
+        ).catchError((_) {}),
+      );
+    }
   }
 
   @override
@@ -712,6 +787,18 @@ class LocalHomeRepository extends HomeRepository {
         ],
       );
     });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      unawaited(
+        _apiClient.deleteMediaPermanently(
+          baseUri: activeUri,
+          token: activeToken,
+          mediaIds: ids,
+        ).catchError((_) {}),
+      );
+    }
   }
 
   void _notify() {

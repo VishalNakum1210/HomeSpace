@@ -1,8 +1,10 @@
 import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
 import { authenticate } from './auth.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
+import { mediaRoutes } from './routes/media.js';
 
 export async function buildApp({ db, dataDir, config }) {
   const fastify = Fastify({
@@ -12,13 +14,20 @@ export async function buildApp({ db, dataDir, config }) {
     requestTimeout: 0,
   });
 
+  // Multipart upload support (up to 500 MB per file)
+  await fastify.register(multipart, {
+    limits: {
+      fileSize: 500 * 1024 * 1024,
+    },
+  });
+
   // Rate limiting to protect authentication endpoints from brute force
   await fastify.register(rateLimit, {
     max: 100,
     timeWindow: '1 minute',
     allowList: (req) => {
       const url = req.url || '';
-      return url.startsWith('/api/health');
+      return url.startsWith('/api/health') || url.startsWith('/api/media');
     },
   });
 
@@ -46,6 +55,11 @@ export async function buildApp({ db, dataDir, config }) {
     db,
     defaultQuotaBytes: config.defaultQuotaBytes,
     tokenExpiryDays: config.tokenExpiryDays,
+  });
+  await fastify.register(mediaRoutes, {
+    prefix: '/api',
+    db,
+    dataDir,
   });
 
   return fastify;

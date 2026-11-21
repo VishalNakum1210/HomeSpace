@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../application/auto_backup_service.dart';
 import '../application/device_media_service.dart';
@@ -122,20 +123,23 @@ class _PendingUploadTask {
 }
 
 class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
+  final HomeSpaceApiClient _apiClient;
   final List<UploadItem> _items = [];
   final List<_PendingUploadTask> _pendingQueue = [];
   final Map<String, _PendingUploadTask> _taskRegistry = {};
   bool _isProcessing = false;
+  final Uri? Function()? getServerAddress;
+  final String? Function()? getAuthToken;
   final void Function(MediaItem item, String? targetAlbumId)? onMediaUploaded;
   final List<MediaItem> Function()? getExistingMedia;
 
   HttpUploadRepository({
     HomeSpaceApiClient? apiClient,
-    Uri? Function()? getServerAddress,
-    String? Function()? getAuthToken,
+    this.getServerAddress,
+    this.getAuthToken,
     this.onMediaUploaded,
     this.getExistingMedia,
-  });
+  }) : _apiClient = apiClient ?? HomeSpaceApiClient();
 
   @override
   List<UploadItem> get items => List.unmodifiable(_items);
@@ -214,21 +218,39 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     notifyListeners();
 
     try {
-      final isVideo = (task.mimeType?.startsWith('video/') ?? false) ||
-          task.filename.toLowerCase().endsWith('.mp4') ||
-          task.filename.toLowerCase().endsWith('.mov') ||
-          task.filename.toLowerCase().endsWith('.mkv');
+      final serverUri = getServerAddress?.call();
+      final token = getAuthToken?.call();
 
-      final localMedia = MediaItem(
-        id: task.item.mediaId.isNotEmpty
-            ? task.item.mediaId
-            : 'm_${DateTime.now().millisecondsSinceEpoch}',
-        asset: task.filePath ?? task.filename,
-        title: task.filename,
-        category: 'Camera',
-        takenAt: task.takenAt ?? DateTime.now(),
-        kind: isVideo ? MediaKind.video : MediaKind.photo,
-      );
+      MediaItem mediaToSave;
+      if (serverUri != null &&
+          token != null &&
+          task.filePath != null &&
+          File(task.filePath!).existsSync()) {
+        mediaToSave = await _apiClient.uploadMediaFile(
+          baseUri: serverUri,
+          token: token,
+          filePath: task.filePath!,
+          filename: task.filename,
+          mimeType: task.mimeType,
+          takenAt: task.takenAt,
+        );
+      } else {
+        final isVideo = (task.mimeType?.startsWith('video/') ?? false) ||
+            task.filename.toLowerCase().endsWith('.mp4') ||
+            task.filename.toLowerCase().endsWith('.mov') ||
+            task.filename.toLowerCase().endsWith('.mkv');
+
+        mediaToSave = MediaItem(
+          id: task.item.mediaId.isNotEmpty
+              ? task.item.mediaId
+              : 'm_${DateTime.now().millisecondsSinceEpoch}',
+          asset: task.filePath ?? task.filename,
+          title: task.filename,
+          category: 'Camera',
+          takenAt: task.takenAt ?? DateTime.now(),
+          kind: isVideo ? MediaKind.video : MediaKind.photo,
+        );
+      }
 
       final currentIdx = _items.indexWhere((e) => e.id == item.id);
       if (currentIdx != -1) {
@@ -245,10 +267,10 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
       final deletedSignatures = await AutoBackupService.getDeletedSignatures();
       final isDeleted = deletedSignatures.contains(task.filename.toLowerCase().trim());
       if (!isDeleted) {
-        onMediaUploaded?.call(localMedia, task.targetAlbumId);
+        onMediaUploaded?.call(mediaToSave, task.targetAlbumId);
       }
     } catch (e, st) {
-      debugPrint('HttpUploadRepository: local save failed for ${task.filename}: $e\n$st');
+      debugPrint('HttpUploadRepository: upload failed for ${task.filename}: $e\n$st');
       final currentIdx = _items.indexWhere((e) => e.id == item.id);
       if (currentIdx != -1) {
         _items[currentIdx] = item.copyWith(phase: UploadPhase.failed);
