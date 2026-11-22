@@ -25,8 +25,14 @@ fi
 cd "${TARGET_DIR}/server"
 
 echo "3. Installing backend dependencies..."
-corepack enable || true
-corepack pnpm install
+if command -v pnpm &> /dev/null; then
+  pnpm install
+elif command -v corepack &> /dev/null; then
+  corepack enable || true
+  corepack pnpm install || npm install
+else
+  npm install
+fi
 
 echo "4. Setting up .env configuration..."
 cat <<EOF > .env
@@ -34,11 +40,18 @@ HOST=0.0.0.0
 PORT=8888
 DATA_DIR=${DATA_DIR}
 NODE_ENV=production
-# 10 GiB per user quota
+# 10 GiB per user default quota
 DEFAULT_USER_QUOTA_BYTES=10737418240
 EOF
 
-echo "5. Starting / restarting service with PM2..."
+echo "5. Checking Xubuntu lid-close settings (Keep server alive with closed lid)..."
+if grep -q "^HandleLidSwitch=ignore" /etc/systemd/logind.conf 2>/dev/null; then
+  echo "✓ Lid-close sleep is already disabled (HandleLidSwitch=ignore)."
+else
+  echo "Tip: Run 'sudo sed -i \"s/#HandleLidSwitch=suspend/HandleLidSwitch=ignore/\" /etc/systemd/logind.conf && sudo systemctl restart systemd-logind' to keep the server running with lid closed."
+fi
+
+echo "6. Starting / restarting service with PM2..."
 if command -v pm2 &> /dev/null; then
   pm2 delete homespace 2>/dev/null || true
   pm2 start src/index.js --name homespace --time
@@ -49,23 +62,30 @@ else
   nohup node src/index.js > homespace.log 2>&1 &
 fi
 
-echo "6. Verifying health check on port 8888..."
+echo "7. Verifying health check on port 8888..."
 sleep 2
 curl -s http://127.0.0.1:8888/api/health || {
   echo "Health check failed. Check homespace.log or pm2 logs homespace."
   exit 1
 }
 
-echo "7. Enabling Tailscale Funnel on port 8443..."
+echo ""
+echo "8. Checking Remote Tunnel Options..."
 if command -v tailscale &> /dev/null; then
+  echo "Setting up Tailscale Funnel on port 8443..."
   tailscale serve --https=8443 8888 || true
   tailscale funnel 8443 on || true
-  echo "Tailscale Funnel enabled on port 8443."
+  echo "✓ Tailscale Funnel enabled on port 8443."
+fi
+
+if command -v cloudflared &> /dev/null; then
+  echo "✓ cloudflared is installed. Cloudflare Tunnel is available."
 fi
 
 echo ""
 echo "================================================="
-echo "  SUCCESS! HomeSpace is running on port 8888     "
-echo "  Tailscale Funnel URL: https://vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net:8443"
-echo "  Tailscale Mesh URL:   http://100.113.105.20:8888"
+echo "  SUCCESS! HomeSpace Server is running on port 8888"
+echo "  Local Network:   http://$(hostname -I | awk '{print $1}'):8888"
+echo "  Tailscale Mesh:  http://100.113.105.20:8888"
+echo "  Tailscale Funnel: https://vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net:8443"
 echo "================================================="

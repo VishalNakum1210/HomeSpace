@@ -56,7 +56,28 @@ tailscale funnel 8443 on
 ```
 
 > [!IMPORTANT]
-> **Tailscale Funnel on Port 8443**: Running `tailscale funnel 8443 on` is required so mobile devices outside the private Tailnet mesh (like the phone app) can connect securely to `https://vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net:8443` with a valid SSL certificate. Without Funnel turned on, incoming connections from devices without the Tailscale app will be terminated during TLS handshake.
+> **Remote Access Options (Tailscale Funnel or Cloudflare Tunnel)**:
+> 
+> ### Option A: Tailscale Funnel (Zero-config SSL)
+> ```bash
+> tailscale serve --https=8443 8888
+> tailscale funnel 8443 on
+> ```
+> Permanent HTTPS URL: `https://vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net:8443`
+> 
+> ### Option B: Cloudflare Tunnel (Custom Domain)
+> If you have a custom domain managed by Cloudflare:
+> ```bash
+> cloudflared tunnel create homespace
+> # In ~/.cloudflared/config.yml:
+> # ingress:
+> #   - hostname: photos.yourdomain.com
+> #     service: http://localhost:8888
+> #   - service: http_status:404
+> cloudflared tunnel run homespace
+> ```
+> 
+> Both options provide permanent encrypted HTTPS with zero port forwarding on your home router!
 
 Expected output:
 ```json
