@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -248,6 +249,8 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
   final selected = <String>{};
   int selectionRevision = 0;
   int? _userColumns;
+  DateTimeRange? selectedDateRange;
+  int? jumpYear;
 
   StreamSubscription<void>? _mediaChangeSubscription;
   Timer? _mediaChangeDebounceTimer;
@@ -344,7 +347,155 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
     changeMode(() {
       searching = false;
       search.clear();
+      jumpYear = null;
+      selectedDateRange = null;
     });
+  }
+
+  void _openTimelineJumpSheet(BuildContext context, HomeRepository repository) {
+    final availableYears = repository.media
+        .map((m) => m.takenAt.year)
+        .toSet()
+        .toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (bottomSheetContext) {
+        final text = Theme.of(bottomSheetContext).textTheme;
+        final style = SpaceStyle.of(bottomSheetContext);
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Icon(Icons.calendar_month_rounded, color: style.accent),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Jump in Timeline',
+                      style: text.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const Spacer(),
+                    if (jumpYear != null || selectedDateRange != null)
+                      TextButton.icon(
+                        key: const ValueKey('reset-date-filter-btn'),
+                        icon: const Icon(Icons.clear_all_rounded, size: 18),
+                        label: const Text('Reset'),
+                        onPressed: () {
+                          Navigator.pop(bottomSheetContext);
+                          changeMode(() {
+                            jumpYear = null;
+                            selectedDateRange = null;
+                          });
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'YEARS IN LIBRARY',
+                  style: text.labelSmall?.copyWith(
+                    letterSpacing: 1.1,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (availableYears.isEmpty)
+                  Text('No dated photos found.', style: text.bodySmall)
+                else
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final yr in availableYears)
+                        ActionChip(
+                          key: ValueKey('year-jump-$yr'),
+                          avatar: Icon(
+                            Icons.calendar_today_rounded,
+                            size: 16,
+                            color: jumpYear == yr ? Colors.white : style.accent,
+                          ),
+                          label: Text('$yr'),
+                          backgroundColor: jumpYear == yr ? style.accent : style.accentSoft,
+                          labelStyle: TextStyle(
+                            color: jumpYear == yr ? Colors.white : style.accent,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          onPressed: () {
+                            Navigator.pop(bottomSheetContext);
+                            changeMode(() {
+                              jumpYear = (jumpYear == yr) ? null : yr;
+                              selectedDateRange = null;
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                const SizedBox(height: 18),
+                Text(
+                  'CUSTOM DATE RANGE',
+                  style: text.labelSmall?.copyWith(
+                    letterSpacing: 1.1,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  key: const ValueKey('pick-date-range-btn'),
+                  icon: const Icon(Icons.date_range_rounded),
+                  label: Text(
+                    selectedDateRange != null
+                        ? '${selectedDateRange!.start.day}/${selectedDateRange!.start.month}/${selectedDateRange!.start.year} – ${selectedDateRange!.end.day}/${selectedDateRange!.end.month}/${selectedDateRange!.end.year}'
+                        : 'Select date range',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 48),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(bottomSheetContext);
+                    final range = await showDateRangePicker(
+                      context: context,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                      initialDateRange: selectedDateRange,
+                    );
+                    if (range != null && mounted) {
+                      changeMode(() {
+                        selectedDateRange = range;
+                        jumpYear = null;
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void toggle(String id) => changeMode(() {
@@ -359,18 +510,107 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
     final text = Theme.of(context).textTheme;
     final style = SpaceStyle.of(context);
     final query = search.text.trim().toLowerCase();
-    final photos = repository.media
-        .where(
-          (photo) =>
-              (filter == 'All' ||
-                  (filter == 'Favorites'
-                      ? repository.favorites.contains(photo.id)
-                      : photo.kind == MediaKind.video)) &&
-              (query.isEmpty ||
-                  photo.title.toLowerCase().contains(query) ||
-                  photo.category.toLowerCase().contains(query)),
-        )
-        .toList();
+
+    const monthNames = {
+      'jan': 1, 'january': 1,
+      'feb': 2, 'february': 2,
+      'mar': 3, 'march': 3,
+      'apr': 4, 'april': 4,
+      'may': 5,
+      'jun': 6, 'june': 6,
+      'jul': 7, 'july': 7,
+      'aug': 8, 'august': 8,
+      'sep': 9, 'september': 9,
+      'oct': 10, 'october': 10,
+      'nov': 11, 'november': 11,
+      'dec': 12, 'december': 12,
+    };
+
+    final matchingAlbumMediaIds = <String>{};
+    if (query.isNotEmpty) {
+      for (final album in repository.albums) {
+        if (album.title.toLowerCase().contains(query) ||
+            album.description.toLowerCase().contains(query)) {
+          matchingAlbumMediaIds.addAll(album.mediaIds);
+        }
+      }
+    }
+
+    final queryMonth = monthNames[query];
+    final queryYear = int.tryParse(query);
+
+    final photos = repository.media.where((photo) {
+      // 1. One-tap filter chips
+      if (filter == 'Favorites' && !repository.favorites.contains(photo.id)) {
+        return false;
+      }
+      if (filter == 'Videos' && photo.kind != MediaKind.video) {
+        return false;
+      }
+      if (filter == 'Photos' && photo.kind != MediaKind.photo) {
+        return false;
+      }
+      if (filter == 'Backed up' && !photo.isSynced) {
+        return false;
+      }
+      if (filter == 'On Device' && photo.isSynced) {
+        if (photo.asset.isEmpty || !File(photo.asset).existsSync()) {
+          return false;
+        }
+      }
+
+      // 2. Timeline Jumping (Year / Date Range)
+      if (jumpYear != null && photo.takenAt.year != jumpYear) {
+        return false;
+      }
+      if (selectedDateRange != null) {
+        final taken = photo.takenAt;
+        final start = DateTime(
+          selectedDateRange!.start.year,
+          selectedDateRange!.start.month,
+          selectedDateRange!.start.day,
+        );
+        final end = DateTime(
+          selectedDateRange!.end.year,
+          selectedDateRange!.end.month,
+          selectedDateRange!.end.day,
+          23,
+          59,
+          59,
+        );
+        if (taken.isBefore(start) || taken.isAfter(end)) {
+          return false;
+        }
+      }
+
+      // 3. Search query matching
+      if (query.isEmpty) return true;
+
+      // File name / Title match
+      if (photo.title.toLowerCase().contains(query)) return true;
+
+      // Category / Folder match
+      if (photo.category.toLowerCase().contains(query)) return true;
+
+      // Asset path match (e.g. DCIM, Camera, WhatsApp, Screenshots)
+      if (photo.asset.toLowerCase().contains(query)) return true;
+
+      // Album membership match
+      if (matchingAlbumMediaIds.contains(photo.id)) return true;
+
+      // Month name match (e.g. "November" or "Nov")
+      if (queryMonth != null && photo.takenAt.month == queryMonth) return true;
+
+      // Year match (e.g. "2026")
+      if (queryYear != null && query.length == 4 && photo.takenAt.year == queryYear) {
+        return true;
+      }
+
+      // Date label match (e.g. "22 Nov", "Today", "Yesterday")
+      if (photo.dateLabel(DateTime.now()).toLowerCase().contains(query)) return true;
+
+      return false;
+    }).toList();
     photos.sort(MediaItem.compareNewestFirst);
     final groups = selecting || searching
         ? {'Search results': photos}
@@ -533,8 +773,21 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                                   ),
                                 ),
                               ),
+                              const SizedBox(width: 4),
+                              IconButton(
+                                key: const ValueKey('timeline-jump-btn'),
+                                tooltip: 'Jump in timeline',
+                                icon: Icon(
+                                  Icons.calendar_month_rounded,
+                                  color: (jumpYear != null || selectedDateRange != null)
+                                      ? const Color(0xFF1677E8)
+                                      : style.muted,
+                                ),
+                                onPressed: () =>
+                                    _openTimelineJumpSheet(context, repository),
+                              ),
                               if (!focused) ...[
-                                const SizedBox(width: 8),
+                                const SizedBox(width: 4),
                                 IconButton(
                                   key: const ValueKey('grid-density-toggle'),
                                   tooltip: 'Grid view ($columns columns)',
@@ -556,26 +809,61 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                               ],
                             ],
                           ),
-                          if (!focused) ...[
-                            const SizedBox(height: 16),
+                          if (jumpYear != null || selectedDateRange != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Container(
+                                key: const ValueKey('active-date-badge'),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: style.accentSoft,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: style.accent.withValues(alpha: 0.35)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.event_rounded, size: 16, color: style.accent),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      jumpYear != null
+                                          ? 'Year: $jumpYear'
+                                          : '${selectedDateRange!.start.day}/${selectedDateRange!.start.month}/${selectedDateRange!.start.year} – ${selectedDateRange!.end.day}/${selectedDateRange!.end.month}/${selectedDateRange!.end.year}',
+                                      style: text.bodySmall?.copyWith(color: style.accent, fontWeight: FontWeight.bold),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    GestureDetector(
+                                      key: const ValueKey('clear-date-filter-btn'),
+                                      onTap: () => changeMode(() {
+                                        jumpYear = null;
+                                        selectedDateRange = null;
+                                      }),
+                                      child: Icon(Icons.close_rounded, size: 16, color: style.accent),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          if (!selecting) ...[
+                            const SizedBox(height: 12),
                             SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
                               child: Row(
                                 children: [
-                                  for (final label in [
-                                    'All',
-                                    'Favorites',
-                                    'Videos',
+                                  for (final (label, icon) in [
+                                    ('All', null),
+                                    ('Favorites', Icons.favorite_border_rounded),
+                                    ('Videos', Icons.play_arrow_outlined),
+                                    ('Photos', Icons.photo_outlined),
+                                    ('Backed up', Icons.cloud_done_outlined),
+                                    ('On Device', Icons.phone_android_outlined),
                                   ])
                                     Padding(
                                       padding: const EdgeInsets.only(right: 8),
                                       child: SpaceFilter(
+                                        key: ValueKey('filter-chip-$label'),
                                         label: label,
-                                        icon: label == 'Favorites'
-                                            ? Icons.favorite_border_rounded
-                                            : label == 'Videos'
-                                            ? Icons.play_arrow_outlined
-                                            : null,
+                                        icon: icon,
                                         selected: filter == label,
                                         onTap: () =>
                                             changeMode(() => filter = label),
@@ -583,6 +871,68 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                                     ),
                                 ],
                               ),
+                            ),
+                          ],
+                          if (searching && search.text.isEmpty) ...[
+                            const SizedBox(height: 14),
+                            Text(
+                              'QUICK DISCOVERY & SUGGESTIONS',
+                              style: text.labelSmall?.copyWith(
+                                letterSpacing: 1.1,
+                                color: Colors.grey.shade600,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                ActionChip(
+                                  key: const ValueKey('suggestion-favorites'),
+                                  avatar: const Icon(Icons.favorite_rounded, size: 16, color: Color(0xFFE91E63)),
+                                  label: const Text('Favorites'),
+                                  onPressed: () => changeMode(() => filter = 'Favorites'),
+                                ),
+                                ActionChip(
+                                  key: const ValueKey('suggestion-videos'),
+                                  avatar: const Icon(Icons.videocam_rounded, size: 16, color: Color(0xFF1976D2)),
+                                  label: const Text('Videos'),
+                                  onPressed: () => changeMode(() => filter = 'Videos'),
+                                ),
+                                ActionChip(
+                                  key: const ValueKey('suggestion-backed-up'),
+                                  avatar: const Icon(Icons.cloud_done_rounded, size: 16, color: Color(0xFF388E3C)),
+                                  label: const Text('Backed up'),
+                                  onPressed: () => changeMode(() => filter = 'Backed up'),
+                                ),
+                                ActionChip(
+                                  key: const ValueKey('suggestion-on-device'),
+                                  avatar: const Icon(Icons.phone_android_rounded, size: 16, color: Color(0xFF7B1FA2)),
+                                  label: const Text('On Device'),
+                                  onPressed: () => changeMode(() => filter = 'On Device'),
+                                ),
+                                for (final yr in repository.media.map((m) => m.takenAt.year).toSet().take(3))
+                                  ActionChip(
+                                    key: ValueKey('suggestion-year-$yr'),
+                                    avatar: const Icon(Icons.calendar_today_rounded, size: 16, color: Color(0xFF009688)),
+                                    label: Text('$yr'),
+                                    onPressed: () => changeMode(() {
+                                      jumpYear = yr;
+                                      selectedDateRange = null;
+                                    }),
+                                  ),
+                                for (final album in repository.albums.take(3))
+                                  ActionChip(
+                                    key: ValueKey('suggestion-album-${album.id}'),
+                                    avatar: const Icon(Icons.photo_album_rounded, size: 16, color: Color(0xFFF57C00)),
+                                    label: Text(album.title),
+                                    onPressed: () {
+                                      search.text = album.title;
+                                      changeMode(() => searching = true);
+                                    },
+                                  ),
+                              ],
                             ),
                           ],
                         ],
@@ -628,23 +978,39 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                   if (photos.isEmpty)
                     SliverToBoxAdapter(
                       child: SpaceEmpty(
-                        icon: Icons.photo_library_outlined,
+                        icon: (searching || filter != 'All' || jumpYear != null || selectedDateRange != null)
+                            ? Icons.search_off_rounded
+                            : Icons.photo_library_outlined,
                         title: repository.media.isEmpty
                             ? 'Your memories start here'
                             : 'A little quiet here',
-                        action: repository.scenario == DemoScenario.empty
+                        action: (searching || filter != 'All' || jumpYear != null || selectedDateRange != null)
                             ? SpaceButton(
-                                label: 'Explore sample library',
-                                onPressed: () => repository.setScenario(
-                                  DemoScenario.populated,
-                                ),
+                                key: const ValueKey('reset-filters-btn'),
+                                label: 'Reset search & filters',
+                                onPressed: () => changeMode(() {
+                                  filter = 'All';
+                                  search.clear();
+                                  searching = false;
+                                  jumpYear = null;
+                                  selectedDateRange = null;
+                                }),
                               )
-                            : null,
-                        message: repository.media.isEmpty
-                            ? repository.scenario == DemoScenario.empty
-                                  ? 'Your saved library is safe. Explore the sample memories when you are ready.'
-                                  : 'Photos you add will appear here, all together.'
-                            : 'Try another search or choose a different filter.',
+                            : repository.scenario == DemoScenario.empty
+                                ? SpaceButton(
+                                    label: 'Explore sample library',
+                                    onPressed: () => repository.setScenario(
+                                      DemoScenario.populated,
+                                    ),
+                                  )
+                                : null,
+                        message: (searching || filter != 'All' || jumpYear != null || selectedDateRange != null)
+                            ? 'Try searching by filename, month (e.g. Nov), year (e.g. 2026), or reset your filters.'
+                            : repository.media.isEmpty
+                                ? repository.scenario == DemoScenario.empty
+                                    ? 'Your saved library is safe. Explore the sample memories when you are ready.'
+                                    : 'Photos you add will appear here, all together.'
+                                : 'Try another search or choose a different filter.',
                       ),
                     ),
                   for (final group in groups.entries) ...[
