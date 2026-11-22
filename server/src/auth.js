@@ -113,6 +113,8 @@ export function authenticate(db) {
       email: user.email,
       name: user.name,
       avatarTone: user.avatar_tone,
+      is_admin: Boolean(user.is_admin),
+      isAdmin: Boolean(user.is_admin),
       storageQuotaBytes: Number(user.storage_quota_bytes),
       storageUsedBytes: Number(user.storage_used_bytes),
       createdAt: user.created_at,
