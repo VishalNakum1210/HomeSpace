@@ -48,120 +48,197 @@ class ProfilePage extends StatelessWidget {
               spaceBottomPadding(context),
             ),
             sliver: SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CartoonHeader(
-                    profile: profile,
-                    onProfile: () =>
-                        openSpacePage<void>(context, const EditProfilePage()),
-                  ),
-                  const SizedBox(height: 4),
-                  SpaceCard(
-                    color: style.accentSoft,
-                    borderColor: style.accent.withValues(alpha: .35),
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        SizedBox(
-                          height: 90,
-                          child: Stack(
-                            children: [
-                              Center(
-                                child: MemberPortrait(
-                                  member: FamilyMember(
-                                    profile.userId,
-                                    profile.name,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CartoonHeader(
+                      profile: profile,
+                      onProfile: () =>
+                          openSpacePage<void>(context, const EditProfilePage()),
+                    ),
+                    const SizedBox(height: 4),
+                    SpaceCard(
+                      color: style.accentSoft,
+                      borderColor: style.accent.withValues(alpha: .35),
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            height: 90,
+                            child: Stack(
+                              children: [
+                                Center(
+                                  child: MemberPortrait(
+                                    member: FamilyMember(
+                                      profile.userId,
+                                      profile.name,
+                                    ),
+                                    size: 82,
                                   ),
-                                  size: 82,
                                 ),
+                                const Positioned(
+                                  right: 0,
+                                  top: 0,
+                                  child: HouseGreeting(profile: true),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: [
+                              Text(
+                                'Hi, ${profile.name}!',
+                                textAlign: TextAlign.center,
+                                style: text.titleLarge,
                               ),
-                              const Positioned(
-                                right: 0,
-                                top: 0,
-                                child: HouseGreeting(profile: true),
-                              ),
+                              if (profile.isAdmin)
+                                ExcludeSemantics(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1A73E8).withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFF1A73E8),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      'Admin',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF1A73E8),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Hi, ${profile.name}!',
-                          textAlign: TextAlign.center,
-                          style: text.titleLarge,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Your family. Your memories. Your space.',
-                          textAlign: TextAlign.center,
-                          style: text.bodyMedium,
-                        ),
-                        const SizedBox(height: 14),
-                        SpaceButton(
-                          key: const ValueKey('edit-profile'),
-                          label: 'Edit profile',
-                          onPressed: () => openSpacePage<void>(
-                            context,
-                            const EditProfilePage(),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Your family. Your memories. Your space.',
+                            textAlign: TextAlign.center,
+                            style: text.bodyMedium,
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SpaceButton(
+                                  key: const ValueKey('edit-profile'),
+                                  label: 'Edit profile',
+                                  onPressed: () => openSpacePage<void>(
+                                    context,
+                                    const EditProfilePage(),
+                                  ),
+                                ),
+                              ),
+                              if (FrontendSessionScope.maybeOf(context) != null) ...[
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: SpaceButton(
+                                    key: const ValueKey('logout'),
+                                    label: 'Log out',
+                                    icon: Icons.logout_rounded,
+                                    backgroundColor: const Color(0xFFFFE7E5),
+                                    foregroundColor: const Color(0xFFAD302C),
+                                    onPressed: () =>
+                                        FrontendSessionScope.maybeOf(context)!.logout(),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  _SettingRow(
-                    settingKey: const ValueKey('appearance-setting'),
-                    icon: Icons.palette_outlined,
-                    title: 'Appearance',
-                    subtitle: themeLabel(mode),
-                    tone: const Color(0xFFFF9600),
-                    onTap: () =>
-                        openSpacePage<void>(context, const AppearancePage()),
-                  ),
-                  _SettingRow(
-                    icon: Icons.accessibility_new_rounded,
-                    title: 'Motion & accessibility',
-                    subtitle: 'Follows your device preferences',
-                    tone: const Color(0xFFA560F5),
-                    onTap: () => showMotionInfo(context),
-                  ),
-                  _SettingRow(
-                    settingKey: const ValueKey('trash-setting'),
-                    icon: Icons.delete_outline_rounded,
-                    title: 'Trash',
-                    subtitle: repository.trash.isEmpty
-                        ? 'Nothing left behind'
-                        : '${repository.trash.length} memories to restore',
-                    tone: const Color(0xFFE74742),
-                    onTap: () =>
-                        openSpacePage<void>(context, const TrashPage()),
-                  ),
-                  _SettingRow(
-                    settingKey: const ValueKey('about-setting'),
-                    icon: Icons.home_rounded,
-                    title: 'About HomeSpace',
-                    subtitle: 'Server, backup, and app info',
-                    tone: const Color(0xFF58A800),
-                    onTap: () => showAbout(context),
-                  ),
-                  if (FrontendSessionScope.maybeOf(context) != null) ...[
-                    const SizedBox(height: 8),
-                    SpaceButton(
-                      key: const ValueKey('logout'),
-                      label: 'Log out',
-                      icon: Icons.logout_rounded,
-                      backgroundColor: const Color(0xFFFFE7E5),
-                      foregroundColor: const Color(0xFFAD302C),
-                      onPressed: () =>
-                          FrontendSessionScope.maybeOf(context)!.logout(),
+                    const SizedBox(height: 14),
+                    _SettingRow(
+                      settingKey: const ValueKey('appearance-setting'),
+                      icon: Icons.palette_outlined,
+                      title: 'Appearance',
+                      subtitle: themeLabel(mode),
+                      tone: const Color(0xFFFF9600),
+                      onTap: () =>
+                          openSpacePage<void>(context, const AppearancePage()),
+                    ),
+                    _SettingRow(
+                      settingKey: const ValueKey('storage-setting'),
+                      icon: Icons.cloud_outlined,
+                      title: 'Storage & Space',
+                      subtitle: 'Google Photos style meter & cache cleaner',
+                      tone: const Color(0xFF1677E8),
+                      onTap: () => openSpacePage<void>(
+                        context,
+                        StorageDetailsPage(repository: repository),
+                      ),
+                    ),
+                    _SettingRow(
+                      settingKey: const ValueKey('about-setting'),
+                      icon: Icons.home_rounded,
+                      title: 'About HomeSpace',
+                      subtitle: 'Server, backup, and app info',
+                      tone: const Color(0xFF58A800),
+                      onTap: () => showAbout(context),
+                    ),
+                    if (profile.isAdmin)
+                      _SettingRow(
+                        settingKey: const ValueKey('family-admin-setting'),
+                        icon: Icons.group_outlined,
+                        title: 'Family members & quotas',
+                        subtitle: 'Manage family accounts & storage limits',
+                        tone: const Color(0xFF00897B),
+                        onTap: () => openSpacePage<void>(
+                          context,
+                          AdminUsersPage(repository: repository),
+                        ),
+                      ),
+                    _SettingRow(
+                      settingKey: const ValueKey('app-lock-setting'),
+                      icon: Icons.lock_outline_rounded,
+                      title: 'App lock & PIN',
+                      subtitle: profile.appLockEnabled
+                          ? 'PIN lock active'
+                          : 'Off (Touch to set PIN)',
+                      tone: const Color(0xFF1E88E5),
+                      onTap: () => openSpacePage<void>(
+                        context,
+                        AppLockPage(repository: repository),
+                      ),
+                    ),
+                    _SettingRow(
+                      icon: Icons.accessibility_new_rounded,
+                      title: 'Motion & accessibility',
+                      subtitle: 'Follows your device preferences',
+                      tone: const Color(0xFFA560F5),
+                      onTap: () => showMotionInfo(context),
+                    ),
+                    _SettingRow(
+                      settingKey: const ValueKey('trash-setting'),
+                      icon: Icons.delete_outline_rounded,
+                      title: 'Trash',
+                      subtitle: repository.trash.isEmpty
+                          ? 'Nothing left behind'
+                          : '${repository.trash.length} memories to restore',
+                      tone: const Color(0xFFE74742),
+                      onTap: () =>
+                          openSpacePage<void>(context, const TrashPage()),
                     ),
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
     );
   }
 
@@ -275,51 +352,6 @@ class ProfilePage extends StatelessWidget {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 18),
-        ListTile(
-          key: const ValueKey('storage-setting'),
-          leading: const Icon(Icons.cloud_outlined, color: Color(0xFF1677E8)),
-          title: const Text('Storage & Space'),
-          subtitle: const Text('Google Photos style meter & cache cleaner'),
-          trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: () {
-            Navigator.pop(context);
-            openSpacePage<void>(
-              context,
-              StorageDetailsPage(repository: HomeScope.of(context)),
-            );
-          },
-        ),
-        ListTile(
-          key: const ValueKey('app-lock-setting'),
-          leading: const Icon(Icons.lock_outline_rounded, color: Color(0xFF1E88E5)),
-          title: const Text('App Lock & Privacy'),
-          subtitle: Text(
-            HomeScope.of(context).profile.appLockEnabled ? 'PIN lock active' : 'Off (Touch to set PIN)',
-          ),
-          trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: () {
-            Navigator.pop(context);
-            openSpacePage<void>(
-              context,
-              AppLockPage(repository: HomeScope.of(context)),
-            );
-          },
-        ),
-        if (HomeScope.of(context).profile.isAdmin)
-          ListTile(
-            key: const ValueKey('family-admin-setting'),
-            leading: const Icon(Icons.group_outlined, color: Color(0xFF00897B)),
-            title: const Text('Family Management'),
-            subtitle: const Text('Add family accounts & storage quotas (Admin)'),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () {
-              Navigator.pop(context);
-              openSpacePage<void>(
-                context,
-                AdminUsersPage(repository: HomeScope.of(context)),
-              );
-            },
-          ),
         ListenableBuilder(
           listenable: HomeScope.of(context).connection,
           builder: (context, _) => ListTile(

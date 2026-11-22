@@ -67,11 +67,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('tab-profile')));
       await tester.pumpAndSettle();
 
-      // Open About HomeSpace
-      await tester.tap(key('about-setting'));
-      await tester.pumpAndSettle();
-
-      // Tap Storage & Space
+      // Open Storage & Space directly from Profile page
       expect(key('storage-setting'), findsOneWidget);
       await tester.tap(key('storage-setting'));
       await tester.pumpAndSettle();
@@ -97,11 +93,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('tab-profile')));
       await tester.pumpAndSettle();
 
-      // Open About HomeSpace
-      await tester.tap(key('about-setting'));
-      await tester.pumpAndSettle();
-
-      // Open Family Management
+      // Open Family Management directly from Profile page
       expect(key('family-admin-setting'), findsOneWidget);
       await tester.tap(key('family-admin-setting'));
       await tester.pumpAndSettle();
@@ -147,11 +139,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('tab-profile')));
       await tester.pumpAndSettle();
 
-      // Open About HomeSpace
-      await tester.tap(key('about-setting'));
-      await tester.pumpAndSettle();
-
-      // Open App Lock & Privacy
+      // Open App Lock & Privacy directly from Profile page
       expect(key('app-lock-setting'), findsOneWidget);
       await tester.tap(key('app-lock-setting'));
       await tester.pumpAndSettle();

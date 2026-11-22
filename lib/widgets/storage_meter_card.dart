@@ -161,28 +161,36 @@ class _StorageMeterCardState extends State<StorageMeterCard> {
           ),
           const Divider(height: 24),
           // Cache management row
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              Icon(Icons.cached_rounded, color: style.muted, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'App Cache',
-                      style: text.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      _cacheBytes > 0
-                          ? '${CacheService.formatBytes(_cacheBytes)} of temporary previews'
-                          : 'Cache is clean (0 B)',
-                      style: text.bodySmall?.copyWith(color: style.muted),
-                    ),
-                  ],
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cached_rounded, color: dark ? Colors.grey.shade300 : const Color(0xFF424242), size: 20),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'App Cache',
+                        style: text.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        _cacheBytes > 0
+                            ? '${CacheService.formatBytes(_cacheBytes)} of temporary previews'
+                            : 'Cache is clean (0 B)',
+                        style: text.bodySmall?.copyWith(
+                          color: dark ? Colors.grey.shade300 : const Color(0xFF424242),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
               OutlinedButton(
                 key: const ValueKey('clear-cache-btn'),
                 style: OutlinedButton.styleFrom(
@@ -216,6 +224,7 @@ class _LegendItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -231,10 +240,19 @@ class _LegendItem extends StatelessWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: text.bodySmall?.copyWith(fontSize: 11)),
+            Text(
+              label,
+              style: text.bodySmall?.copyWith(
+                fontSize: 12,
+                color: dark ? Colors.grey.shade200 : const Color(0xFF212121),
+              ),
+            ),
             Text(
               value,
-              style: text.labelSmall?.copyWith(fontWeight: FontWeight.bold),
+              style: text.labelSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: dark ? Colors.white : const Color(0xFF212121),
+              ),
             ),
           ],
         ),
