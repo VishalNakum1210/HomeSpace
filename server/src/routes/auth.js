@@ -40,11 +40,14 @@ export async function authRoutes(fastify, options) {
     const { hash, salt } = hashPassword(password);
     const now = new Date().toISOString();
 
+    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+    const isAdmin = userCount === 0 ? 1 : 0;
+
     const insertStmt = db.prepare(`
       INSERT INTO users (
         id, email, password_hash, password_salt, name, avatar_tone,
-        storage_quota_bytes, storage_used_bytes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        is_admin, storage_quota_bytes, storage_used_bytes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
     `);
 
     insertStmt.run(
@@ -54,6 +57,7 @@ export async function authRoutes(fastify, options) {
       salt,
       name.trim(),
       avatarTone,
+      isAdmin,
       defaultQuotaBytes,
       now,
       now,
@@ -69,6 +73,7 @@ export async function authRoutes(fastify, options) {
         email: normalizedEmail,
         name: name.trim(),
         avatarTone,
+        isAdmin: Boolean(isAdmin),
         storageQuotaBytes: defaultQuotaBytes,
         storageUsedBytes: 0,
         createdAt: now,
@@ -89,7 +94,7 @@ export async function authRoutes(fastify, options) {
     const normalizedEmail = email.trim().toLowerCase();
     const user = db.prepare(`
       SELECT id, email, password_hash, password_salt, name, avatar_tone,
-             storage_quota_bytes, storage_used_bytes, created_at
+             is_admin, storage_quota_bytes, storage_used_bytes, created_at
       FROM users
       WHERE email = ?
     `).get(normalizedEmail);
@@ -110,6 +115,7 @@ export async function authRoutes(fastify, options) {
         email: user.email,
         name: user.name,
         avatarTone: user.avatar_tone,
+        isAdmin: Boolean(user.is_admin),
         storageQuotaBytes: Number(user.storage_quota_bytes),
         storageUsedBytes: Number(user.storage_used_bytes),
         createdAt: user.created_at,
@@ -127,6 +133,7 @@ export async function authRoutes(fastify, options) {
     return {
       user: {
         ...req.user,
+        isAdmin: Boolean(req.user.is_admin),
         storage: {
           usedBytes,
           quotaBytes,

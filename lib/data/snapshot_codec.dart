@@ -59,6 +59,9 @@ class SnapshotCodec {
       'name': data.profile.name,
       'appearance': data.profile.appearance.name,
       'avatarTone': data.profile.avatarTone.name,
+      'isAdmin': data.profile.isAdmin,
+      'appLockEnabled': data.profile.appLockEnabled,
+      'appLockPin': data.profile.appLockPin,
     },
   });
 
@@ -82,6 +85,9 @@ class SnapshotCodec {
         name: _text(profile['name']),
         appearance: _enum(Appearance.values, profile['appearance']),
         avatarTone: _enum(AvatarTone.values, profile['avatarTone']),
+        isAdmin: profile['isAdmin'] == null || profile['isAdmin'] == true,
+        appLockEnabled: profile['appLockEnabled'] == true,
+        appLockPin: profile['appLockPin'] as String?,
       ),
     );
     validate(data);

@@ -858,4 +858,122 @@ class HomeSpaceApiClient {
 
     if (response.statusCode != 200) _handleError(response);
   });
+
+  // 16. Fetch storage breakdown
+  Future<StorageBreakdown> fetchStorageBreakdown({
+    required Uri baseUri,
+    required String token,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/media/storage-breakdown');
+    final response = await _client.get(
+      url,
+      headers: _headers(token),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return StorageBreakdown(
+      photosBytes: (data['photosBytes'] as num?)?.toInt() ?? 0,
+      videosBytes: (data['videosBytes'] as num?)?.toInt() ?? 0,
+      totalUsedBytes: (data['totalUsedBytes'] as num?)?.toInt() ?? 0,
+      quotaBytes: (data['quotaBytes'] as num?)?.toInt() ?? 15 * 1024 * 1024 * 1024,
+    );
+  });
+
+  // 17. Fetch family admin users
+  Future<List<FamilyAccount>> fetchAdminUsers({
+    required Uri baseUri,
+    required String token,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/admin/users');
+    final response = await _client.get(
+      url,
+      headers: _headers(token),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final users = (data['users'] as List<dynamic>? ?? []);
+    return users.map((u) {
+      final map = u as Map<String, dynamic>;
+      final rawTone = map['avatarTone'] as String? ?? 'orange';
+      final tone = AvatarTone.values.firstWhere(
+        (t) => t.name == rawTone,
+        orElse: () => AvatarTone.orange,
+      );
+      return FamilyAccount(
+        id: map['id'] as String,
+        email: map['email'] as String? ?? '',
+        name: map['name'] as String? ?? '',
+        avatarTone: tone,
+        isAdmin: map['isAdmin'] == true,
+        storageQuotaBytes: (map['storageQuotaBytes'] as num?)?.toInt() ?? 15 * 1024 * 1024 * 1024,
+        storageUsedBytes: (map['storageUsedBytes'] as num?)?.toInt() ?? 0,
+        createdAt: map['createdAt'] != null ? DateTime.tryParse(map['createdAt'] as String) : null,
+      );
+    }).toList();
+  });
+
+  // 18. Create family user (admin)
+  Future<FamilyAccount> createAdminUser({
+    required Uri baseUri,
+    required String token,
+    required String name,
+    required String email,
+    required String password,
+    String avatarTone = 'orange',
+    int storageQuotaBytes = 15 * 1024 * 1024 * 1024,
+    bool isAdmin = false,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/admin/users');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({
+        'name': name,
+        'email': email,
+        'password': password,
+        'avatarTone': avatarTone,
+        'storageQuotaBytes': storageQuotaBytes,
+        'isAdmin': isAdmin,
+      }),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 201) _handleError(response);
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final map = data['user'] as Map<String, dynamic>;
+    final rawTone = map['avatarTone'] as String? ?? 'orange';
+    final tone = AvatarTone.values.firstWhere(
+      (t) => t.name == rawTone,
+      orElse: () => AvatarTone.orange,
+    );
+    return FamilyAccount(
+      id: map['id'] as String,
+      email: map['email'] as String? ?? '',
+      name: map['name'] as String? ?? '',
+      avatarTone: tone,
+      isAdmin: map['isAdmin'] == true,
+      storageQuotaBytes: (map['storageQuotaBytes'] as num?)?.toInt() ?? storageQuotaBytes,
+      storageUsedBytes: (map['storageUsedBytes'] as num?)?.toInt() ?? 0,
+      createdAt: map['createdAt'] != null ? DateTime.tryParse(map['createdAt'] as String) : null,
+    );
+  });
+
+  // 19. Delete family user (admin)
+  Future<void> deleteAdminUser({
+    required Uri baseUri,
+    required String token,
+    required String userId,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/admin/users/$userId');
+    final response = await _client.delete(
+      url,
+      headers: _headers(token),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+  });
 }

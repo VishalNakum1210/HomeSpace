@@ -32,6 +32,7 @@ export function initDatabase(dbPath = ':memory:') {
       password_salt TEXT NOT NULL,
       name TEXT NOT NULL,
       avatar_tone TEXT NOT NULL DEFAULT 'orange',
+      is_admin INTEGER NOT NULL DEFAULT 0,
       storage_quota_bytes INTEGER NOT NULL,
       storage_used_bytes INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
@@ -92,6 +93,10 @@ export function initDatabase(dbPath = ':memory:') {
 
   try {
     db.exec('ALTER TABLE albums ADD COLUMN is_shared INTEGER NOT NULL DEFAULT 0;');
+  } catch (_) {}
+
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;');
   } catch (_) {}
 
   return db;

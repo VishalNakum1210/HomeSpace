@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../application/auto_backup_service.dart';
@@ -539,6 +540,137 @@ class LocalHomeRepository extends HomeRepository {
       profile: state.profile.copyWith(name: _name(name, 60), avatarTone: tone),
     ),
   );
+
+  @override
+  Future<void> setAppLock({required bool enabled, String? pin}) => _commit(
+    (state) => state.copyWith(
+      profile: state.profile.copyWith(
+        appLockEnabled: enabled,
+        appLockPin: pin,
+      ),
+    ),
+  );
+
+  @override
+  Future<StorageBreakdown> getStorageBreakdown() async {
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      try {
+        return await _apiClient.fetchStorageBreakdown(
+          baseUri: activeUri,
+          token: activeToken,
+        );
+      } catch (_) {}
+    }
+    var photoBytes = 0;
+    var videoBytes = 0;
+    for (final m in media) {
+      final int sz = (m.asset.isNotEmpty && File(m.asset).existsSync())
+          ? File(m.asset).lengthSync()
+          : (m.kind == MediaKind.video ? 18 * 1024 * 1024 : 2 * 1024 * 1024);
+      if (m.kind == MediaKind.video) {
+        videoBytes += sz;
+      } else {
+        photoBytes += sz;
+      }
+    }
+    final totalUsed = photoBytes + videoBytes;
+    const totalQuota = 15 * 1024 * 1024 * 1024;
+    return StorageBreakdown(
+      photosBytes: photoBytes,
+      videosBytes: videoBytes,
+      totalUsedBytes: totalUsed,
+      quotaBytes: totalQuota,
+    );
+  }
+
+  final List<FamilyAccount> _localFamilyAccounts = [
+    const FamilyAccount(
+      id: 'member-maya',
+      email: 'maya@homespace.local',
+      name: 'Maya',
+      avatarTone: AvatarTone.orange,
+      isAdmin: true,
+      storageQuotaBytes: 15 * 1024 * 1024 * 1024,
+      storageUsedBytes: 2 * 1024 * 1024 * 1024,
+    ),
+    const FamilyAccount(
+      id: 'member-alex',
+      email: 'alex@homespace.local',
+      name: 'Alex',
+      avatarTone: AvatarTone.blue,
+      isAdmin: false,
+      storageQuotaBytes: 15 * 1024 * 1024 * 1024,
+      storageUsedBytes: 1024 * 1024 * 1024,
+    ),
+  ];
+
+  @override
+  Future<List<FamilyAccount>> getFamilyAccounts() async {
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      try {
+        return await _apiClient.fetchAdminUsers(
+          baseUri: activeUri,
+          token: activeToken,
+        );
+      } catch (_) {}
+    }
+    return List.unmodifiable(_localFamilyAccounts);
+  }
+
+  @override
+  Future<void> createFamilyMember({
+    required String name,
+    required String email,
+    required String password,
+    AvatarTone avatarTone = AvatarTone.orange,
+    int storageQuotaBytes = 15 * 1024 * 1024 * 1024,
+    bool isAdmin = false,
+  }) async {
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      await _apiClient.createAdminUser(
+        baseUri: activeUri,
+        token: activeToken,
+        name: name,
+        email: email,
+        password: password,
+        avatarTone: avatarTone.name,
+        storageQuotaBytes: storageQuotaBytes,
+        isAdmin: isAdmin,
+      );
+    }
+    _localFamilyAccounts.add(FamilyAccount(
+      id: 'u_${DateTime.now().millisecondsSinceEpoch}',
+      email: email,
+      name: name,
+      avatarTone: avatarTone,
+      isAdmin: isAdmin,
+      storageQuotaBytes: storageQuotaBytes,
+      storageUsedBytes: 0,
+      createdAt: DateTime.now(),
+    ));
+    notifyListeners();
+  }
+
+  @override
+  Future<void> deleteFamilyMember(String userId) async {
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      await _apiClient.deleteAdminUser(
+        baseUri: activeUri,
+        token: activeToken,
+        userId: userId,
+      );
+    }
+    _localFamilyAccounts.removeWhere((acc) => acc.id == userId);
+    notifyListeners();
+  }
 
   @override
   Future<String> createAlbum(

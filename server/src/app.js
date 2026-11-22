@@ -6,6 +6,7 @@ import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { mediaRoutes } from './routes/media.js';
 import { albumsRoutes } from './routes/albums.js';
+import { adminRoutes } from './routes/admin.js';
 
 export async function buildApp({ db, dataDir, config }) {
   const fastify = Fastify({
@@ -65,6 +66,12 @@ export async function buildApp({ db, dataDir, config }) {
   await fastify.register(albumsRoutes, {
     prefix: '/api',
     db,
+  });
+  await fastify.register(adminRoutes, {
+    prefix: '/api',
+    db,
+    defaultQuotaBytes: config.defaultQuotaBytes,
+    dataDir,
   });
 
   return fastify;

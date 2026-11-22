@@ -85,6 +85,7 @@ export function authenticate(db) {
         u.email,
         u.name,
         u.avatar_tone,
+        u.is_admin,
         u.storage_quota_bytes,
         u.storage_used_bytes,
         u.created_at

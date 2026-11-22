@@ -16,6 +16,9 @@ import 'library_widgets.dart';
 import 'settings_pages.dart';
 import 'trash_page.dart';
 import 'uploads_page.dart';
+import 'admin_users_page.dart';
+import 'app_lock_page.dart';
+import 'storage_details_page.dart';
 
 String themeLabel(ThemeMode mode) => switch (mode) {
   ThemeMode.light => 'Light',
@@ -272,6 +275,51 @@ class ProfilePage extends StatelessWidget {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 18),
+        ListTile(
+          key: const ValueKey('storage-setting'),
+          leading: const Icon(Icons.cloud_outlined, color: Color(0xFF1677E8)),
+          title: const Text('Storage & Space'),
+          subtitle: const Text('Google Photos style meter & cache cleaner'),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () {
+            Navigator.pop(context);
+            openSpacePage<void>(
+              context,
+              StorageDetailsPage(repository: HomeScope.of(context)),
+            );
+          },
+        ),
+        ListTile(
+          key: const ValueKey('app-lock-setting'),
+          leading: const Icon(Icons.lock_outline_rounded, color: Color(0xFF1E88E5)),
+          title: const Text('App Lock & Privacy'),
+          subtitle: Text(
+            HomeScope.of(context).profile.appLockEnabled ? 'PIN lock active' : 'Off (Touch to set PIN)',
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () {
+            Navigator.pop(context);
+            openSpacePage<void>(
+              context,
+              AppLockPage(repository: HomeScope.of(context)),
+            );
+          },
+        ),
+        if (HomeScope.of(context).profile.isAdmin)
+          ListTile(
+            key: const ValueKey('family-admin-setting'),
+            leading: const Icon(Icons.group_outlined, color: Color(0xFF00897B)),
+            title: const Text('Family Management'),
+            subtitle: const Text('Add family accounts & storage quotas (Admin)'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () {
+              Navigator.pop(context);
+              openSpacePage<void>(
+                context,
+                AdminUsersPage(repository: HomeScope.of(context)),
+              );
+            },
+          ),
         ListenableBuilder(
           listenable: HomeScope.of(context).connection,
           builder: (context, _) => ListTile(

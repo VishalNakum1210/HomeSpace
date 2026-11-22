@@ -59,6 +59,7 @@ abstract interface class ProfileRepository {
   ProfileSettings get profile;
   Future<void> setAppearance(Appearance appearance);
   Future<void> updateProfile(String name, AvatarTone tone);
+  Future<void> setAppLock({required bool enabled, String? pin});
 }
 
 abstract class HomeRepository extends ChangeNotifier
@@ -76,6 +77,17 @@ abstract class HomeRepository extends ChangeNotifier
   String groupFor(MediaItem item);
   Future<void> clearUserData();
   Future<void> resetToDemo();
+  Future<StorageBreakdown> getStorageBreakdown();
+  Future<List<FamilyAccount>> getFamilyAccounts();
+  Future<void> createFamilyMember({
+    required String name,
+    required String email,
+    required String password,
+    AvatarTone avatarTone = AvatarTone.orange,
+    int storageQuotaBytes = 15 * 1024 * 1024 * 1024,
+    bool isAdmin = false,
+  });
+  Future<void> deleteFamilyMember(String userId);
 }
 
 abstract interface class ConnectionRepository implements Listenable {

@@ -196,11 +196,18 @@ class ProfileSettings {
   final String name;
   final Appearance appearance;
   final AvatarTone avatarTone;
+  final bool isAdmin;
+  final bool appLockEnabled;
+  final String? appLockPin;
+
   const ProfileSettings({
     this.userId = 'member-maya',
     this.name = 'Maya',
     this.appearance = Appearance.system,
     this.avatarTone = AvatarTone.orange,
+    this.isAdmin = true,
+    this.appLockEnabled = false,
+    this.appLockPin,
   });
   String get initial => FamilyMember(userId, name).initial;
   ProfileSettings copyWith({
@@ -208,12 +215,66 @@ class ProfileSettings {
     String? name,
     Appearance? appearance,
     AvatarTone? avatarTone,
+    bool? isAdmin,
+    bool? appLockEnabled,
+    String? appLockPin,
   }) => ProfileSettings(
     userId: userId ?? this.userId,
     name: name ?? this.name,
     appearance: appearance ?? this.appearance,
     avatarTone: avatarTone ?? this.avatarTone,
+    isAdmin: isAdmin ?? this.isAdmin,
+    appLockEnabled: appLockEnabled ?? this.appLockEnabled,
+    appLockPin: appLockPin ?? this.appLockPin,
   );
+}
+
+class StorageBreakdown {
+  final int photosBytes;
+  final int videosBytes;
+  final int totalUsedBytes;
+  final int quotaBytes;
+
+  const StorageBreakdown({
+    required this.photosBytes,
+    required this.videosBytes,
+    required this.totalUsedBytes,
+    required this.quotaBytes,
+  });
+
+  int get freeBytes => quotaBytes > totalUsedBytes ? quotaBytes - totalUsedBytes : 0;
+  double get photosRatio => quotaBytes > 0 ? (photosBytes / quotaBytes).clamp(0.0, 1.0) : 0.0;
+  double get videosRatio => quotaBytes > 0 ? (videosBytes / quotaBytes).clamp(0.0, 1.0) : 0.0;
+  double get usedRatio => quotaBytes > 0 ? (totalUsedBytes / quotaBytes).clamp(0.0, 1.0) : 0.0;
+
+  static String formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+}
+
+class FamilyAccount {
+  final String id;
+  final String email;
+  final String name;
+  final AvatarTone avatarTone;
+  final bool isAdmin;
+  final int storageQuotaBytes;
+  final int storageUsedBytes;
+  final DateTime? createdAt;
+
+  const FamilyAccount({
+    required this.id,
+    required this.email,
+    required this.name,
+    this.avatarTone = AvatarTone.orange,
+    this.isAdmin = false,
+    this.storageQuotaBytes = 15 * 1024 * 1024 * 1024,
+    this.storageUsedBytes = 0,
+    this.createdAt,
+  });
 }
 
 class TrashEntry {

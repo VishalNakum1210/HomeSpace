@@ -16,6 +16,7 @@ import 'pages/collections_page.dart';
 import 'pages/photos_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/splash_page.dart';
+import 'widgets/app_lock_overlay.dart';
 
 class HomeSpaceApp extends StatefulWidget {
   final HomeRepository repository;
@@ -149,8 +150,10 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
                         onPopInvokedWithResult: (didPop, _) {
                           if (!didPop) selectPage(SpacePage.photos);
                         },
-                        child: Scaffold(
-                          body: Stack(
+                        child: AppLockOverlay(
+                          repository: widget.repository,
+                          child: Scaffold(
+                            body: Stack(
                             children: [
                               Positioned.fill(
                                 child: IndexedStack(
@@ -219,6 +222,7 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
                                 ),
                               ),
                             ],
+                          ),
                           ),
                         ),
                       ),
