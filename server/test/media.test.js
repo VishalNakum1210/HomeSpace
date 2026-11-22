@@ -345,4 +345,59 @@ test('Media Pipeline: upload, thumbnail, timeline, streaming, favorites, and tra
     const userRow = db.prepare('SELECT storage_used_bytes FROM users WHERE id = ?').get(userId);
     assert.equal(Number(userRow.storage_used_bytes), 0);
   });
+
+  await t.test('Delete and trash by filenames (matching local device uploads)', async () => {
+    // Upload a photo
+    const payload = Buffer.from('filename-delete-test');
+    const mp = buildMultipart('my_camera_shot.jpg', payload);
+    const upRes = await app.inject({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': mp.contentType,
+      },
+      payload: mp.payload,
+    });
+    assert.equal(upRes.statusCode, 201);
+
+    // Trash by filename (e.g. client only knew local ID but passed filename)
+    const trashRes = await app.inject({
+      method: 'POST',
+      url: '/api/media/trash',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { ids: ['non_existent_local_id'], filenames: ['my_camera_shot.jpg'] },
+    });
+    assert.equal(trashRes.statusCode, 200);
+    assert.equal(JSON.parse(trashRes.payload).count, 1);
+
+    // Verify it is in trash
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/api/trash',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(JSON.parse(listRes.payload).total, 1);
+
+    // Delete permanently by filename
+    const delRes = await app.inject({
+      method: 'POST',
+      url: '/api/media/delete',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { ids: ['non_existent_local_id'], filenames: ['my_camera_shot.jpg'] },
+    });
+    assert.equal(delRes.statusCode, 200);
+    assert.equal(JSON.parse(delRes.payload).count, 1);
+
+    // Verify completely gone
+    const checkRes = await app.inject({
+      method: 'GET',
+      url: '/api/trash',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(JSON.parse(checkRes.payload).total, 0);
+
+    const userRow = db.prepare('SELECT storage_used_bytes FROM users WHERE id = ?').get(userId);
+    assert.equal(Number(userRow.storage_used_bytes), 0);
+  });
 });

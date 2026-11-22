@@ -489,16 +489,33 @@ export async function mediaRoutes(fastify, options) {
   fastify.post('/media/trash', {
     preHandler: [fastify.authenticate],
   }, async (req) => {
-    const { ids } = req.body || {};
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return { success: true, count: 0 };
+    const { ids, filenames } = req.body || {};
+    let targetIds = [];
+    if (Array.isArray(ids) && ids.length > 0) {
+      const byId = db.prepare(`SELECT id FROM media WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(req.user.id, ...ids);
+      targetIds.push(...byId.map(r => r.id));
     }
+    if (Array.isArray(filenames) && filenames.length > 0) {
+      const cleanNames = filenames.map(f => String(f).toLowerCase().trim()).filter(Boolean);
+      if (cleanNames.length > 0) {
+        const byName = db.prepare(`SELECT id FROM media WHERE user_id = ? AND LOWER(filename) IN (${cleanNames.map(() => '?').join(',')})`).all(req.user.id, ...cleanNames);
+        const existing = new Set(targetIds);
+        for (const r of byName) {
+          if (!existing.has(r.id)) targetIds.push(r.id);
+        }
+      }
+    }
+
+    if (targetIds.length === 0) {
+      return { success: true, count: 0, isTrashed: true };
+    }
+
     const nowIso = new Date().toISOString();
     const stmt = db.prepare('UPDATE media SET is_trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ? AND user_id = ?');
 
     db.exec('BEGIN IMMEDIATE;');
     try {
-      for (const id of ids) {
+      for (const id of targetIds) {
         stmt.run(nowIso, nowIso, id, req.user.id);
       }
       db.exec('COMMIT;');
@@ -506,22 +523,39 @@ export async function mediaRoutes(fastify, options) {
       db.exec('ROLLBACK;');
       throw e;
     }
-    return { success: true, count: ids.length, isTrashed: true };
+    return { success: true, count: targetIds.length, isTrashed: true };
   });
 
   fastify.post('/media/restore', {
     preHandler: [fastify.authenticate],
   }, async (req) => {
-    const { ids } = req.body || {};
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return { success: true, count: 0 };
+    const { ids, filenames } = req.body || {};
+    let targetIds = [];
+    if (Array.isArray(ids) && ids.length > 0) {
+      const byId = db.prepare(`SELECT id FROM media WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(req.user.id, ...ids);
+      targetIds.push(...byId.map(r => r.id));
     }
+    if (Array.isArray(filenames) && filenames.length > 0) {
+      const cleanNames = filenames.map(f => String(f).toLowerCase().trim()).filter(Boolean);
+      if (cleanNames.length > 0) {
+        const byName = db.prepare(`SELECT id FROM media WHERE user_id = ? AND LOWER(filename) IN (${cleanNames.map(() => '?').join(',')})`).all(req.user.id, ...cleanNames);
+        const existing = new Set(targetIds);
+        for (const r of byName) {
+          if (!existing.has(r.id)) targetIds.push(r.id);
+        }
+      }
+    }
+
+    if (targetIds.length === 0) {
+      return { success: true, count: 0, isTrashed: false };
+    }
+
     const nowIso = new Date().toISOString();
     const stmt = db.prepare('UPDATE media SET is_trashed = 0, trashed_at = NULL, updated_at = ? WHERE id = ? AND user_id = ?');
 
     db.exec('BEGIN IMMEDIATE;');
     try {
-      for (const id of ids) {
+      for (const id of targetIds) {
         stmt.run(nowIso, id, req.user.id);
       }
       db.exec('COMMIT;');
@@ -529,31 +563,72 @@ export async function mediaRoutes(fastify, options) {
       db.exec('ROLLBACK;');
       throw e;
     }
-    return { success: true, count: ids.length, isTrashed: false };
+    return { success: true, count: targetIds.length, isTrashed: false };
   });
 
   // 10. Permanent delete (single and bulk)
+  function resolveFilePath(targetPath) {
+    if (!targetPath) return null;
+    if (path.isAbsolute(targetPath)) return targetPath;
+    return path.resolve(dataDir, targetPath);
+  }
+
   function deleteMediaRecordAndFiles(mediaRow) {
     if (mediaRow.original_path) {
-      try { fs.unlinkSync(path.join(dataDir, mediaRow.original_path)); } catch (_) {}
+      const origFullPath = resolveFilePath(mediaRow.original_path);
+      try {
+        if (fs.existsSync(origFullPath)) {
+          fs.unlinkSync(origFullPath);
+          console.log(`[DELETE] Successfully unlinked original: ${origFullPath}`);
+        } else {
+          console.warn(`[DELETE] Original file not found on disk: ${origFullPath}`);
+        }
+      } catch (err) {
+        console.error(`[DELETE] Error unlinking original file ${origFullPath}:`, err.message);
+      }
     }
     if (mediaRow.thumbnail_path) {
-      try { fs.unlinkSync(path.join(dataDir, mediaRow.thumbnail_path)); } catch (_) {}
+      const thumbFullPath = resolveFilePath(mediaRow.thumbnail_path);
+      try {
+        if (fs.existsSync(thumbFullPath)) {
+          fs.unlinkSync(thumbFullPath);
+          console.log(`[DELETE] Successfully unlinked thumbnail: ${thumbFullPath}`);
+        } else {
+          console.warn(`[DELETE] Thumbnail file not found on disk: ${thumbFullPath}`);
+        }
+      } catch (err) {
+        console.error(`[DELETE] Error unlinking thumbnail file ${thumbFullPath}:`, err.message);
+      }
     }
-    const bytesToFree = Number(mediaRow.size_bytes);
+
+    const bytesToFree = Number(mediaRow.size_bytes || 0);
+
+    // Clean up associations first
+    try {
+      db.prepare('DELETE FROM album_media WHERE media_id = ?').run(mediaRow.id);
+    } catch (_) {}
+    try {
+      db.prepare('UPDATE albums SET cover_id = NULL WHERE cover_id = ?').run(mediaRow.id);
+    } catch (_) {}
+
+    // Delete media record
     db.prepare('DELETE FROM media WHERE id = ?').run(mediaRow.id);
+
+    // Refund user quota
     db.prepare(`
       UPDATE users
       SET storage_used_bytes = MAX(0, storage_used_bytes - ?), updated_at = ?
       WHERE id = ?
     `).run(bytesToFree, new Date().toISOString(), mediaRow.user_id);
+
+    console.log(`[DELETE] Media record ${mediaRow.id} (${mediaRow.filename || 'unknown'}) removed from DB. Freed ${bytesToFree} bytes.`);
   }
 
   fastify.delete('/media/:id', {
     preHandler: [fastify.authenticate],
   }, async (req, reply) => {
     const { id } = req.params;
-    const row = db.prepare('SELECT id, user_id, original_path, thumbnail_path, size_bytes FROM media WHERE id = ? AND user_id = ?').get(id, req.user.id);
+    const row = db.prepare('SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND (id = ? OR LOWER(filename) = LOWER(?))').get(req.user.id, id, id);
     if (!row) {
       return reply.code(404).send({
         error: { code: 'NOT_FOUND', message: 'Media item not found' },
@@ -569,19 +644,35 @@ export async function mediaRoutes(fastify, options) {
       throw e;
     }
 
-    return { success: true, deletedId: id };
+    return { success: true, deletedId: row.id };
   });
 
   fastify.post('/media/delete', {
     preHandler: [fastify.authenticate],
   }, async (req) => {
-    const { ids } = req.body || {};
-    if (!Array.isArray(ids) || ids.length === 0) {
+    const { ids, filenames } = req.body || {};
+    let rows = [];
+    if (Array.isArray(ids) && ids.length > 0) {
+      const byId = db.prepare(`SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(req.user.id, ...ids);
+      rows.push(...byId);
+    }
+    if (Array.isArray(filenames) && filenames.length > 0) {
+      const cleanNames = filenames.map(f => String(f).toLowerCase().trim()).filter(Boolean);
+      if (cleanNames.length > 0) {
+        const byName = db.prepare(`SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND LOWER(filename) IN (${cleanNames.map(() => '?').join(',')})`).all(req.user.id, ...cleanNames);
+        const existing = new Set(rows.map(r => r.id));
+        for (const r of byName) {
+          if (!existing.has(r.id)) rows.push(r);
+        }
+      }
+    }
+
+    if (rows.length === 0) {
+      console.warn(`[DELETE] No matching media found to delete for user ${req.user.id}. ids=${JSON.stringify(ids)}, filenames=${JSON.stringify(filenames)}`);
       return { success: true, count: 0 };
     }
 
-    const rows = db.prepare(`SELECT id, user_id, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(req.user.id, ...ids);
-
+    console.log(`[DELETE] Purging ${rows.length} media items permanently for user ${req.user.id}`);
     db.exec('BEGIN IMMEDIATE;');
     try {
       for (const row of rows) {
@@ -599,7 +690,7 @@ export async function mediaRoutes(fastify, options) {
   // 11. Empty trash and 30-day auto purge
   function purgeExpiredTrash() {
     const expiredRows = db.prepare(`
-      SELECT id, user_id, original_path, thumbnail_path, size_bytes
+      SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes
       FROM media
       WHERE is_trashed = 1 AND trashed_at IS NOT NULL AND trashed_at < datetime('now', '-30 days')
     `).all();
@@ -624,7 +715,26 @@ export async function mediaRoutes(fastify, options) {
   fastify.post('/media/trash/empty', {
     preHandler: [fastify.authenticate],
   }, async (req) => {
-    const rows = db.prepare('SELECT id, user_id, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND is_trashed = 1').all(req.user.id);
+    const { ids, filenames } = req.body || {};
+    let rows = db.prepare('SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND is_trashed = 1').all(req.user.id);
+    if (Array.isArray(ids) && ids.length > 0) {
+      const byId = db.prepare(`SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(req.user.id, ...ids);
+      const existing = new Set(rows.map(r => r.id));
+      for (const r of byId) {
+        if (!existing.has(r.id)) rows.push(r);
+      }
+    }
+    if (Array.isArray(filenames) && filenames.length > 0) {
+      const cleanNames = filenames.map(f => String(f).toLowerCase().trim()).filter(Boolean);
+      if (cleanNames.length > 0) {
+        const byName = db.prepare(`SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND LOWER(filename) IN (${cleanNames.map(() => '?').join(',')})`).all(req.user.id, ...cleanNames);
+        const existing = new Set(rows.map(r => r.id));
+        for (const r of byName) {
+          if (!existing.has(r.id)) rows.push(r);
+        }
+      }
+    }
+
     let totalFreed = 0;
     db.exec('BEGIN IMMEDIATE;');
     try {
@@ -655,7 +765,26 @@ export async function mediaRoutes(fastify, options) {
   fastify.post('/trash/empty', {
     preHandler: [fastify.authenticate],
   }, async (req) => {
-    const rows = db.prepare('SELECT id, user_id, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND is_trashed = 1').all(req.user.id);
+    const { ids, filenames } = req.body || {};
+    let rows = db.prepare('SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND is_trashed = 1').all(req.user.id);
+    if (Array.isArray(ids) && ids.length > 0) {
+      const byId = db.prepare(`SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(req.user.id, ...ids);
+      const existing = new Set(rows.map(r => r.id));
+      for (const r of byId) {
+        if (!existing.has(r.id)) rows.push(r);
+      }
+    }
+    if (Array.isArray(filenames) && filenames.length > 0) {
+      const cleanNames = filenames.map(f => String(f).toLowerCase().trim()).filter(Boolean);
+      if (cleanNames.length > 0) {
+        const byName = db.prepare(`SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND LOWER(filename) IN (${cleanNames.map(() => '?').join(',')})`).all(req.user.id, ...cleanNames);
+        const existing = new Set(rows.map(r => r.id));
+        for (const r of byName) {
+          if (!existing.has(r.id)) rows.push(r);
+        }
+      }
+    }
+
     let totalFreed = 0;
     db.exec('BEGIN IMMEDIATE;');
     try {
@@ -674,13 +803,30 @@ export async function mediaRoutes(fastify, options) {
   fastify.post('/trash/restore', {
     preHandler: [fastify.authenticate],
   }, async (req) => {
-    const { ids } = req.body || {};
-    if (!Array.isArray(ids) || ids.length === 0) return { success: true, count: 0 };
+    const { ids, filenames } = req.body || {};
+    let targetIds = [];
+    if (Array.isArray(ids) && ids.length > 0) {
+      const byId = db.prepare(`SELECT id FROM media WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(req.user.id, ...ids);
+      targetIds.push(...byId.map(r => r.id));
+    }
+    if (Array.isArray(filenames) && filenames.length > 0) {
+      const cleanNames = filenames.map(f => String(f).toLowerCase().trim()).filter(Boolean);
+      if (cleanNames.length > 0) {
+        const byName = db.prepare(`SELECT id FROM media WHERE user_id = ? AND LOWER(filename) IN (${cleanNames.map(() => '?').join(',')})`).all(req.user.id, ...cleanNames);
+        const existing = new Set(targetIds);
+        for (const r of byName) {
+          if (!existing.has(r.id)) targetIds.push(r.id);
+        }
+      }
+    }
+
+    if (targetIds.length === 0) return { success: true, count: 0, isTrashed: false };
+
     const nowIso = new Date().toISOString();
     const stmt = db.prepare('UPDATE media SET is_trashed = 0, trashed_at = NULL, updated_at = ? WHERE id = ? AND user_id = ?');
     db.exec('BEGIN IMMEDIATE;');
     try {
-      for (const id of ids) {
+      for (const id of targetIds) {
         stmt.run(nowIso, id, req.user.id);
       }
       db.exec('COMMIT;');
@@ -688,15 +834,31 @@ export async function mediaRoutes(fastify, options) {
       db.exec('ROLLBACK;');
       throw e;
     }
-    return { success: true, count: ids.length, isTrashed: false };
+    return { success: true, count: targetIds.length, isTrashed: false };
   });
 
   fastify.post('/trash/delete', {
     preHandler: [fastify.authenticate],
   }, async (req) => {
-    const { ids } = req.body || {};
-    if (!Array.isArray(ids) || ids.length === 0) return { success: true, count: 0 };
-    const rows = db.prepare(`SELECT id, user_id, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(req.user.id, ...ids);
+    const { ids, filenames } = req.body || {};
+    let rows = [];
+    if (Array.isArray(ids) && ids.length > 0) {
+      const byId = db.prepare(`SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(req.user.id, ...ids);
+      rows.push(...byId);
+    }
+    if (Array.isArray(filenames) && filenames.length > 0) {
+      const cleanNames = filenames.map(f => String(f).toLowerCase().trim()).filter(Boolean);
+      if (cleanNames.length > 0) {
+        const byName = db.prepare(`SELECT id, user_id, filename, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND LOWER(filename) IN (${cleanNames.map(() => '?').join(',')})`).all(req.user.id, ...cleanNames);
+        const existing = new Set(rows.map(r => r.id));
+        for (const r of byName) {
+          if (!existing.has(r.id)) rows.push(r);
+        }
+      }
+    }
+
+    if (rows.length === 0) return { success: true, count: 0 };
+
     db.exec('BEGIN IMMEDIATE;');
     try {
       for (const row of rows) {

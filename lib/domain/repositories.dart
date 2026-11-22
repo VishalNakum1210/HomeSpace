@@ -24,6 +24,7 @@ abstract interface class LibraryRepository {
   Future<void> restoreMany(List<String> ids);
   Future<void> deletePermanently(String id);
   Future<void> deleteManyPermanently(List<String> ids);
+  Future<void> emptyTrash();
 }
 
 abstract interface class AlbumRepository {

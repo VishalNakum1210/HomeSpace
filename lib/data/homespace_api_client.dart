@@ -562,13 +562,17 @@ class HomeSpaceApiClient {
     required Uri baseUri,
     required String token,
     required List<String> mediaIds,
+    List<String>? filenames,
   }) => _guard(() async {
-    if (mediaIds.isEmpty) return;
+    if (mediaIds.isEmpty && (filenames == null || filenames.isEmpty)) return;
     final url = _resolve(baseUri, 'api/media/trash');
     final response = await _client.post(
       url,
       headers: _headers(token),
-      body: jsonEncode({'ids': mediaIds}),
+      body: jsonEncode({
+        'ids': mediaIds,
+        if (filenames != null && filenames.isNotEmpty) 'filenames': filenames,
+      }),
     ).timeout(const Duration(seconds: 15));
 
     if (response.statusCode != 200) _handleError(response);
@@ -579,13 +583,17 @@ class HomeSpaceApiClient {
     required Uri baseUri,
     required String token,
     required List<String> mediaIds,
+    List<String>? filenames,
   }) => _guard(() async {
-    if (mediaIds.isEmpty) return;
+    if (mediaIds.isEmpty && (filenames == null || filenames.isEmpty)) return;
     final url = _resolve(baseUri, 'api/media/restore');
     final response = await _client.post(
       url,
       headers: _headers(token),
-      body: jsonEncode({'ids': mediaIds}),
+      body: jsonEncode({
+        'ids': mediaIds,
+        if (filenames != null && filenames.isNotEmpty) 'filenames': filenames,
+      }),
     ).timeout(const Duration(seconds: 15));
 
     if (response.statusCode != 200) _handleError(response);
@@ -596,13 +604,17 @@ class HomeSpaceApiClient {
     required Uri baseUri,
     required String token,
     required List<String> mediaIds,
+    List<String>? filenames,
   }) => _guard(() async {
-    if (mediaIds.isEmpty) return;
+    if (mediaIds.isEmpty && (filenames == null || filenames.isEmpty)) return;
     final url = _resolve(baseUri, 'api/media/delete');
     final response = await _client.post(
       url,
       headers: _headers(token),
-      body: jsonEncode({'ids': mediaIds}),
+      body: jsonEncode({
+        'ids': mediaIds,
+        if (filenames != null && filenames.isNotEmpty) 'filenames': filenames,
+      }),
     ).timeout(const Duration(seconds: 15));
 
     if (response.statusCode != 200) _handleError(response);
@@ -612,11 +624,17 @@ class HomeSpaceApiClient {
   Future<void> emptyTrash({
     required Uri baseUri,
     required String token,
+    List<String>? mediaIds,
+    List<String>? filenames,
   }) => _guard(() async {
     final url = _resolve(baseUri, 'api/trash/empty');
     final response = await _client.post(
       url,
       headers: _headers(token),
+      body: jsonEncode({
+        if (mediaIds != null && mediaIds.isNotEmpty) 'ids': mediaIds,
+        if (filenames != null && filenames.isNotEmpty) 'filenames': filenames,
+      }),
     ).timeout(const Duration(seconds: 20));
 
     if (response.statusCode != 200) _handleError(response);

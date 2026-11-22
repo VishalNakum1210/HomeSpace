@@ -370,18 +370,50 @@ class LocalHomeRepository extends HomeRepository {
           };
 
           final updatedMedia = [...state.media];
+          final updatedFavorites = {...state.favorites};
+          var updatedAlbums = [...state.albums];
+          var updatedTrash = [...state.trash];
+
           for (final remote in remoteItems) {
             final byName = existingFilenames[remote.title.trim().toLowerCase()];
             if (byName != null) {
-              final idx = updatedMedia.indexWhere((m) => m.id == byName.id);
+              final oldId = byName.id;
+              final newId = remote.id;
+              final idx = updatedMedia.indexWhere((m) => m.id == oldId);
               if (idx != -1) {
-                updatedMedia[idx] = updatedMedia[idx].copyWith(isSynced: true);
+                final updatedItem = byName.copyWith(
+                  id: newId,
+                  isSynced: true,
+                );
+                updatedMedia[idx] = updatedItem;
+
+                if (oldId != newId) {
+                  if (updatedFavorites.remove(oldId)) {
+                    updatedFavorites.add(newId);
+                  }
+                  updatedAlbums = updatedAlbums.map((a) {
+                    final nextMediaIds = a.mediaIds.map((id) => id == oldId ? newId : id).toList();
+                    final nextCover = a.coverId == oldId ? newId : a.coverId;
+                    final nextAddedBy = <String, String>{};
+                    a.addedBy.forEach((key, val) {
+                      nextAddedBy[key == oldId ? newId : key] = val;
+                    });
+                    return a.copyWith(mediaIds: nextMediaIds, coverId: nextCover, addedBy: nextAddedBy);
+                  }).toList();
+                  updatedTrash = updatedTrash.map((t) => t.mediaId == oldId ? TrashEntry(newId, t.deletedAt) : t).toList();
+                }
               }
             } else if (!existingMap.containsKey(remote.id)) {
               updatedMedia.add(remote);
+              existingMap[remote.id] = remote;
             }
           }
-          return state.copyWith(media: updatedMedia);
+          return state.copyWith(
+            media: updatedMedia,
+            favorites: updatedFavorites,
+            albums: updatedAlbums,
+            trash: updatedTrash,
+          );
         });
       }
 
@@ -863,7 +895,10 @@ class LocalHomeRepository extends HomeRepository {
           baseUri: activeUri,
           token: activeToken,
           mediaIds: ids,
-        ).catchError((_) {}),
+          filenames: titles,
+        ).catchError((e) {
+          debugPrint('trashMedia failed: $e');
+        }),
       );
     }
   }
@@ -897,7 +932,10 @@ class LocalHomeRepository extends HomeRepository {
           baseUri: activeUri,
           token: activeToken,
           mediaIds: ids,
-        ).catchError((_) {}),
+          filenames: titles,
+        ).catchError((e) {
+          debugPrint('restoreMedia failed: $e');
+        }),
       );
     }
   }
@@ -959,13 +997,89 @@ class LocalHomeRepository extends HomeRepository {
     final activeUri = getServerAddress?.call();
     final activeToken = getAuthToken?.call();
     if (activeUri != null && activeToken != null) {
-      unawaited(
-        _apiClient.deleteMediaPermanently(
+      try {
+        await _apiClient.deleteMediaPermanently(
           baseUri: activeUri,
           token: activeToken,
           mediaIds: ids,
-        ).catchError((_) {}),
+          filenames: titles,
+        );
+      } catch (e) {
+        debugPrint('deleteMediaPermanently remote sync error: $e');
+      }
+    }
+  }
+
+  @override
+  Future<void> emptyTrash() async {
+    final trashEntries = List<TrashEntry>.from(_data.trash);
+    if (trashEntries.isEmpty) return;
+
+    final trashIds = trashEntries.map((e) => e.mediaId).toList();
+    final targetedItems = _data.media.where((m) => trashIds.contains(m.id)).toList();
+    final titles = targetedItems.map((m) => m.title).where((t) => t.isNotEmpty).toList();
+
+    // Cancel any in-flight or queued uploads for these files
+    final up = _uploads;
+    for (final upload in up.items) {
+      final uploadTitle = (upload.title ?? '').toLowerCase();
+      if (titles.any((t) => t.toLowerCase() == uploadTitle)) {
+        up.cancel(upload.id);
+      }
+    }
+
+    // Permanently record these signatures so auto-backup will never re-upload them from device
+    unawaited(AutoBackupService.markMediaDeleted(titles));
+
+    final requested = trashIds.toSet();
+    await _commit((state) {
+      return state.copyWith(
+        media: state.media
+            .where((item) => !requested.contains(item.id))
+            .toList(),
+        favorites: {...state.favorites}..removeAll(requested),
+        trash: const [],
+        albums: [
+          for (final album in state.albums)
+            () {
+              final ids = album.mediaIds
+                  .where((value) => !requested.contains(value))
+                  .toList();
+              return album.copyWith(
+                mediaIds: ids,
+                addedBy: {...album.addedBy}
+                  ..removeWhere((id, _) => requested.contains(id)),
+                coverId: requested.contains(album.coverId)
+                    ? ids.firstOrNull
+                    : album.coverId,
+                clearCover: ids.isEmpty,
+              );
+            }(),
+        ],
       );
+    });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null) {
+      try {
+        await _apiClient.emptyTrash(
+          baseUri: activeUri,
+          token: activeToken,
+          mediaIds: trashIds,
+          filenames: titles,
+        );
+      } catch (e) {
+        debugPrint('emptyTrash error: $e');
+        try {
+          await _apiClient.deleteMediaPermanently(
+            baseUri: activeUri,
+            token: activeToken,
+            mediaIds: trashIds,
+            filenames: titles,
+          );
+        } catch (_) {}
+      }
     }
   }
 

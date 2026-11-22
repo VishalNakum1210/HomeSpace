@@ -7,6 +7,7 @@ import 'package:homespace/application/home_scope.dart';
 import 'package:homespace/data/homespace_api_client.dart';
 import 'package:homespace/data/local_home_repository.dart';
 import 'package:homespace/data/snapshot_store.dart';
+import 'package:homespace/domain/models.dart';
 import 'package:homespace/pages/trash_page.dart';
 
 void main() {
@@ -139,6 +140,87 @@ void main() {
 
       // Verify trash contains m-remote-trashed
       expect(repository.trash.any((t) => t.mediaId == 'm-remote-trashed'), isTrue);
+    });
+
+    test('HomeSpaceApiClient deleteMediaPermanently passes both ids and filenames in payload', () async {
+      bool called = false;
+      final mockClient = MockClient((request) async {
+        expect(request.url.path, '/api/media/delete');
+        expect(request.method, 'POST');
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['ids'], ['m-1', 'local-2']);
+        expect(body['filenames'], ['photo1.jpg', 'photo2.jpg']);
+        called = true;
+        return http.Response(jsonEncode({'success': true, 'count': 2}), 200);
+      });
+
+      final apiClient = HomeSpaceApiClient(client: mockClient);
+      await apiClient.deleteMediaPermanently(
+        baseUri: Uri.parse('http://127.0.0.1:8888'),
+        token: 'test_token',
+        mediaIds: ['m-1', 'local-2'],
+        filenames: ['photo1.jpg', 'photo2.jpg'],
+      );
+
+      expect(called, isTrue);
+    });
+
+    test('LocalHomeRepository syncWithServer updates local item ID to server ID on match', () async {
+      final mockClient = MockClient((request) async {
+        if (request.url.path == '/api/media') {
+          return http.Response(
+            jsonEncode({
+              'items': [
+                {
+                  'id': 'm-server-uuid-12345',
+                  'filename': 'test_backup.jpg',
+                  'mimeType': 'image/jpeg',
+                  'size': 4096,
+                  'takenAt': '2026-11-20T08:00:00.000Z',
+                  'kind': 'photo',
+                  'isFavorite': false,
+                  'isTrashed': false,
+                },
+              ],
+              'total': 1,
+            }),
+            200,
+          );
+        } else if (request.url.path == '/api/trash') {
+          return http.Response(jsonEncode({'items': [], 'total': 0}), 200);
+        } else if (request.url.path == '/api/albums') {
+          return http.Response(jsonEncode({'albums': [], 'total': 0}), 200);
+        }
+        return http.Response('Not found', 404);
+      });
+
+      final store = MemorySnapshotStore();
+      final repository = LocalHomeRepository(store: store);
+      addTearDown(repository.dispose);
+      await repository.initialize();
+
+      // Add a local un-synced photo with local ID
+      await repository.addMedia(MediaItem(
+        id: 'local-un-synced-id',
+        asset: '/storage/emulated/0/DCIM/test_backup.jpg',
+        title: 'test_backup.jpg',
+        category: 'Camera',
+        takenAt: DateTime.utc(2026, 11, 20, 8, 0, 0),
+        isSynced: false,
+      ));
+
+      expect(repository.media.any((m) => m.id == 'local-un-synced-id'), isTrue);
+
+      await repository.syncWithServer(
+        serverUri: Uri.parse('http://127.0.0.1:8888'),
+        token: 'test_token',
+        apiClient: HomeSpaceApiClient(client: mockClient),
+      );
+
+      final updatedItem = repository.media.firstWhere((m) => m.title == 'test_backup.jpg');
+      expect(updatedItem.id, 'm-server-uuid-12345');
+      expect(updatedItem.isSynced, isTrue);
+      expect(repository.media.any((m) => m.id == 'local-un-synced-id'), isFalse);
     });
   });
 
