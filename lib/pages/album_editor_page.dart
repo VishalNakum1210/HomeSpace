@@ -201,51 +201,56 @@ class _AlbumEditorPageState extends State<AlbumEditorPage> {
           ),
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            12,
-            20,
-            16 + MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: SpaceButton(
-            key: const ValueKey('save-album-editor'),
-            label: busy ? 'Saving…' : 'Save album',
-            onPressed: disabled
-                ? null
-                : () async {
-                    if (!form.currentState!.validate()) return;
-                    FocusScope.of(context).unfocus();
-                    setState(() => busy = true);
-                    String? savedId;
-                    final saved = await saveLocalChange(context, () async {
-                      if (widget.album == null) {
-                        savedId = await repository.createAlbum(
-                          name.text,
-                          description: description.text,
-                          mediaIds: {...widget.mediaIds, ?coverId}.toList(),
-                          coverId: coverId,
-                        );
-                      } else {
-                        await repository.updateAlbum(
-                          widget.album!.id,
-                          name.text,
-                          description.text,
-                          coverId: coverChanged ? coverId : null,
-                        );
-                        savedId = widget.album!.id;
-                      }
-                    });
-                    if (!mounted) return;
-                    setState(() => busy = false);
-                    if (saved && context.mounted) {
-                      popSpaceRouteIfCurrent(context, savedId);
-                    }
-                  },
-          ),
-        ),
+      bottomNavigationBar: Builder(
+        builder: (bottomContext) {
+          final viewInset = MediaQuery.viewInsetsOf(bottomContext).bottom;
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                12,
+                20,
+                16 + viewInset,
+              ),
+              child: SpaceButton(
+                key: const ValueKey('save-album-editor'),
+                label: busy ? 'Saving…' : 'Save album',
+                onPressed: disabled
+                    ? null
+                    : () async {
+                        if (!form.currentState!.validate()) return;
+                        FocusScope.of(context).unfocus();
+                        setState(() => busy = true);
+                        String? savedId;
+                        final saved = await saveLocalChange(context, () async {
+                          if (widget.album == null) {
+                            savedId = await repository.createAlbum(
+                              name.text,
+                              description: description.text,
+                              mediaIds: {...widget.mediaIds, ?coverId}.toList(),
+                              coverId: coverId,
+                            );
+                          } else {
+                            await repository.updateAlbum(
+                              widget.album!.id,
+                              name.text,
+                              description.text,
+                              coverId: coverChanged ? coverId : null,
+                            );
+                            savedId = widget.album!.id;
+                          }
+                        });
+                        if (!mounted) return;
+                        setState(() => busy = false);
+                        if (saved && context.mounted) {
+                          popSpaceRouteIfCurrent(context, savedId);
+                        }
+                      },
+              ),
+            ),
+          );
+        },
       ),
     );
   }

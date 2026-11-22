@@ -562,32 +562,37 @@ class _AlbumMediaPickerState extends State<AlbumMediaPicker> {
           const SliverToBoxAdapter(child: SizedBox(height: 20)),
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            12,
-            20,
-            16 + MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: SpaceButton(
-            key: const ValueKey('save-album-photos'),
-            label: 'Add ${ids.length} ${ids.length == 1 ? 'photo' : 'photos'}',
-            icon: Icons.add_rounded,
-            onPressed: !canAdd || ids.isEmpty || repository.pendingWrites > 0
-                ? null
-                : () async {
-                    final saved = await saveLocalChange(
-                      context,
-                      () => repository.addManyToAlbum(widget.albumId, ids),
-                    );
-                    if (saved && context.mounted) {
-                      popSpaceRouteIfCurrent(context);
-                    }
-                  },
-          ),
-        ),
+      bottomNavigationBar: Builder(
+        builder: (bottomContext) {
+          final viewInset = MediaQuery.viewInsetsOf(bottomContext).bottom;
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                12,
+                20,
+                16 + viewInset,
+              ),
+              child: SpaceButton(
+                key: const ValueKey('save-album-photos'),
+                label: 'Add ${ids.length} ${ids.length == 1 ? 'photo' : 'photos'}',
+                icon: Icons.add_rounded,
+                onPressed: !canAdd || ids.isEmpty || repository.pendingWrites > 0
+                    ? null
+                    : () async {
+                        final saved = await saveLocalChange(
+                          context,
+                          () => repository.addManyToAlbum(widget.albumId, ids),
+                        );
+                        if (saved && context.mounted) {
+                          popSpaceRouteIfCurrent(context);
+                        }
+                      },
+              ),
+            ),
+          );
+        },
       ),
     );
   }

@@ -142,8 +142,6 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
               )
             : Builder(
                   builder: (context) {
-                    final keyboardOpen =
-                        MediaQuery.viewInsetsOf(context).bottom > 0;
                     return AnnotatedRegion<SystemUiOverlayStyle>(
                       value: spaceSystemUiStyle(context),
                       child: PopScope(
@@ -186,29 +184,35 @@ class _HomeSpaceAppState extends State<HomeSpaceApp> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       const GlobalDownloadBanner(),
-                                      Center(
-                                        child: IgnorePointer(
-                                          ignoring: keyboardOpen,
-                                          child: AnimatedSlide(
-                                            offset: keyboardOpen
-                                                ? const Offset(0, 2)
-                                                : Offset.zero,
-                                            duration: spaceMotion(context, 180),
-                                            child: AnimatedOpacity(
-                                              opacity: keyboardOpen ? 0 : 1,
-                                              duration: spaceMotion(context, 120),
-                                              child: Offstage(
-                                                offstage:
-                                                    page == SpacePage.photos &&
-                                                    photoFocused,
-                                                child: SpaceNavigation(
-                                                  selected: page,
-                                                  onSelected: selectPage,
+                                      Builder(
+                                        builder: (dockContext) {
+                                          final keyboardOpen =
+                                              MediaQuery.viewInsetsOf(dockContext).bottom > 0;
+                                          return Center(
+                                            child: IgnorePointer(
+                                              ignoring: keyboardOpen,
+                                              child: AnimatedSlide(
+                                                offset: keyboardOpen
+                                                    ? const Offset(0, 2)
+                                                    : Offset.zero,
+                                                duration: spaceMotion(dockContext, 180),
+                                                child: AnimatedOpacity(
+                                                  opacity: keyboardOpen ? 0 : 1,
+                                                  duration: spaceMotion(dockContext, 120),
+                                                  child: Offstage(
+                                                    offstage:
+                                                        page == SpacePage.photos &&
+                                                        photoFocused,
+                                                    child: SpaceNavigation(
+                                                      selected: page,
+                                                      onSelected: selectPage,
+                                                    ),
+                                                  ),
                                                 ),
                                               ),
                                             ),
-                                          ),
-                                        ),
+                                          );
+                                        },
                                       ),
                                     ],
                                   ),

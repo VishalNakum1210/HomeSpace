@@ -269,18 +269,22 @@ Future<T?> showSpaceSheet<T>(BuildContext context, Widget child) =>
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            22,
-            0,
-            22,
-            26 + MediaQuery.viewInsetsOf(context).bottom,
+      builder: (sheetContext) {
+        final isCurrent = ModalRoute.of(sheetContext)?.isCurrent ?? true;
+        final bottomInset = isCurrent ? MediaQuery.viewInsetsOf(sheetContext).bottom : 0.0;
+        return SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              22,
+              0,
+              22,
+              26 + bottomInset,
+            ),
+            child: child,
           ),
-          child: child,
-        ),
-      ),
+        );
+      },
     );
 
 String formatBytes(int bytes) {
