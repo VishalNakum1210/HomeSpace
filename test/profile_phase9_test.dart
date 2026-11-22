@@ -95,6 +95,8 @@ void main() {
 
       // Open Family Management directly from Profile page
       expect(key('family-admin-setting'), findsOneWidget);
+      await tester.ensureVisible(key('family-admin-setting'));
+      await tester.pumpAndSettle();
       await tester.tap(key('family-admin-setting'));
       await tester.pumpAndSettle();
 
@@ -141,6 +143,8 @@ void main() {
 
       // Open App Lock & Privacy directly from Profile page
       expect(key('app-lock-setting'), findsOneWidget);
+      await tester.ensureVisible(key('app-lock-setting'));
+      await tester.pumpAndSettle();
       await tester.tap(key('app-lock-setting'));
       await tester.pumpAndSettle();
 

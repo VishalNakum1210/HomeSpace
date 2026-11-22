@@ -18,7 +18,7 @@ import 'trash_page.dart';
 import 'uploads_page.dart';
 import 'admin_users_page.dart';
 import 'app_lock_page.dart';
-import 'storage_details_page.dart';
+import '../widgets/storage_meter_card.dart';
 
 String themeLabel(ThemeMode mode) => switch (mode) {
   ThemeMode.light => 'Light',
@@ -162,6 +162,14 @@ class ProfilePage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 14),
+                    // Direct Google Photos style multi-segment Storage & Space card
+                    StorageMeterCard(
+                      key: const ValueKey('storage-setting'),
+                      repository: repository,
+                    ),
+                    const SizedBox(height: 14),
+                    // Options sorted by user frequency:
+                    // 1. Appearance (Theme Light / Dark)
                     _SettingRow(
                       settingKey: const ValueKey('appearance-setting'),
                       icon: Icons.palette_outlined,
@@ -171,17 +179,7 @@ class ProfilePage extends StatelessWidget {
                       onTap: () =>
                           openSpacePage<void>(context, const AppearancePage()),
                     ),
-                    _SettingRow(
-                      settingKey: const ValueKey('storage-setting'),
-                      icon: Icons.cloud_outlined,
-                      title: 'Storage & Space',
-                      subtitle: 'Google Photos style meter & cache cleaner',
-                      tone: const Color(0xFF1677E8),
-                      onTap: () => openSpacePage<void>(
-                        context,
-                        StorageDetailsPage(repository: repository),
-                      ),
-                    ),
+                    // 2. About HomeSpace (Server status, backup queue, licenses)
                     _SettingRow(
                       settingKey: const ValueKey('about-setting'),
                       icon: Icons.home_rounded,
@@ -190,6 +188,19 @@ class ProfilePage extends StatelessWidget {
                       tone: const Color(0xFF58A800),
                       onTap: () => showAbout(context),
                     ),
+                    // 3. Trash (Restore or purge deleted memories)
+                    _SettingRow(
+                      settingKey: const ValueKey('trash-setting'),
+                      icon: Icons.delete_outline_rounded,
+                      title: 'Trash',
+                      subtitle: repository.trash.isEmpty
+                          ? 'Nothing left behind'
+                          : '${repository.trash.length} memories to restore',
+                      tone: const Color(0xFFE74742),
+                      onTap: () =>
+                          openSpacePage<void>(context, const TrashPage()),
+                    ),
+                    // 4. Family members & quotas (Admin)
                     if (profile.isAdmin)
                       _SettingRow(
                         settingKey: const ValueKey('family-admin-setting'),
@@ -202,6 +213,7 @@ class ProfilePage extends StatelessWidget {
                           AdminUsersPage(repository: repository),
                         ),
                       ),
+                    // 5. App lock & PIN (Privacy protection)
                     _SettingRow(
                       settingKey: const ValueKey('app-lock-setting'),
                       icon: Icons.lock_outline_rounded,
@@ -215,23 +227,13 @@ class ProfilePage extends StatelessWidget {
                         AppLockPage(repository: repository),
                       ),
                     ),
+                    // 6. Motion & accessibility
                     _SettingRow(
                       icon: Icons.accessibility_new_rounded,
                       title: 'Motion & accessibility',
                       subtitle: 'Follows your device preferences',
                       tone: const Color(0xFFA560F5),
                       onTap: () => showMotionInfo(context),
-                    ),
-                    _SettingRow(
-                      settingKey: const ValueKey('trash-setting'),
-                      icon: Icons.delete_outline_rounded,
-                      title: 'Trash',
-                      subtitle: repository.trash.isEmpty
-                          ? 'Nothing left behind'
-                          : '${repository.trash.length} memories to restore',
-                      tone: const Color(0xFFE74742),
-                      onTap: () =>
-                          openSpacePage<void>(context, const TrashPage()),
                     ),
                   ],
                 ),

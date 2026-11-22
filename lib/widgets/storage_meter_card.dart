@@ -137,27 +137,29 @@ class _StorageMeterCardState extends State<StorageMeterCard> {
           ),
           const SizedBox(height: 12),
           // Legend
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            spacing: 12,
-            runSpacing: 8,
-            children: [
-              _LegendItem(
-                color: photosColor,
-                label: 'Photos',
-                value: StorageBreakdown.formatBytes(stats.photosBytes),
-              ),
-              _LegendItem(
-                color: videosColor,
-                label: 'Videos',
-                value: StorageBreakdown.formatBytes(stats.videosBytes),
-              ),
-              _LegendItem(
-                color: dark ? Colors.grey.shade400 : Colors.grey.shade600,
-                label: 'Free',
-                value: StorageBreakdown.formatBytes(stats.freeBytes),
-              ),
-            ],
+          ExcludeSemantics(
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                _LegendItem(
+                  color: photosColor,
+                  label: 'Photos',
+                  value: StorageBreakdown.formatBytes(stats.photosBytes),
+                ),
+                _LegendItem(
+                  color: videosColor,
+                  label: 'Videos',
+                  value: StorageBreakdown.formatBytes(stats.videosBytes),
+                ),
+                _LegendItem(
+                  color: dark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  label: 'Free',
+                  value: StorageBreakdown.formatBytes(stats.freeBytes),
+                ),
+              ],
+            ),
           ),
           const Divider(height: 24),
           // Cache management row
@@ -172,22 +174,24 @@ class _StorageMeterCardState extends State<StorageMeterCard> {
                 children: [
                   Icon(Icons.cached_rounded, color: dark ? Colors.grey.shade300 : const Color(0xFF424242), size: 20),
                   const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'App Cache',
-                        style: text.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        _cacheBytes > 0
-                            ? '${CacheService.formatBytes(_cacheBytes)} of temporary previews'
-                            : 'Cache is clean (0 B)',
-                        style: text.bodySmall?.copyWith(
-                          color: dark ? Colors.grey.shade300 : const Color(0xFF424242),
+                  ExcludeSemantics(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'App Cache',
+                          style: text.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
                         ),
-                      ),
-                    ],
+                        Text(
+                          _cacheBytes > 0
+                              ? '${CacheService.formatBytes(_cacheBytes)} of temporary previews'
+                              : 'Cache is clean (0 B)',
+                          style: text.bodySmall?.copyWith(
+                            color: dark ? Colors.grey.shade300 : const Color(0xFF424242),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
