@@ -141,7 +141,7 @@ class _TrashPageState extends State<TrashPage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Stored until you delete them.',
+                        'Items are permanently deleted after 30 days.',
                         style: text.bodyMedium,
                         textAlign: TextAlign.center,
                       ),
@@ -169,12 +169,18 @@ class _TrashPageState extends State<TrashPage> {
                 itemBuilder: (context, index) {
                   final entry = entries[index];
                   final photo = repository.mediaById(entry.mediaId)!;
-                  final date = entry.deletedAt.toLocal();
+                  final elapsedDays = DateTime.now().toUtc().difference(entry.deletedAt.toUtc()).inDays;
+                  final remainingDays = (30 - elapsedDays).clamp(0, 30);
+                  final countdown = remainingDays == 0
+                      ? 'Expiring today'
+                      : remainingDays == 1
+                          ? '1 day remaining'
+                          : '$remainingDays days remaining';
                   return MemoryTile(
                     key: ValueKey('trash-${photo.id}'),
                     media: photo,
                     selected: selecting ? selected.contains(photo.id) : null,
-                    subtitle: 'Trashed ${date.day}/${date.month}/${date.year}',
+                    subtitle: countdown,
                     onLongPress: () => toggle(photo.id),
                     onTap: selecting
                         ? () => toggle(photo.id)

@@ -408,11 +408,13 @@ class HomeSpaceApiClient {
     int limit = 150,
     int offset = 0,
     bool favoriteOnly = false,
+    bool trashedOnly = false,
   }) => _guard(() async {
     final query = <String, dynamic>{
       'limit': limit,
       'offset': offset,
       if (favoriteOnly) 'favorite': 'true',
+      if (trashedOnly) 'trashed': 'true',
     };
     final url = _resolve(baseUri, 'api/media', query);
     final response = await _client.get(
@@ -604,6 +606,62 @@ class HomeSpaceApiClient {
     ).timeout(const Duration(seconds: 15));
 
     if (response.statusCode != 200) _handleError(response);
+  });
+
+  // 9b. Empty trash (permanently delete all trashed items)
+  Future<void> emptyTrash({
+    required Uri baseUri,
+    required String token,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/trash/empty');
+    final response = await _client.post(
+      url,
+      headers: _headers(token),
+    ).timeout(const Duration(seconds: 20));
+
+    if (response.statusCode != 200) _handleError(response);
+  });
+
+  // 9c. Fetch trashed media
+  Future<List<MediaItem>> fetchTrash({
+    required Uri baseUri,
+    required String token,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/trash');
+    final response = await _client.get(
+      url,
+      headers: _headers(token),
+    ).timeout(const Duration(seconds: 20));
+
+    if (response.statusCode != 200) _handleError(response);
+
+    final data = jsonDecode(response.body);
+    final items = (data['items'] as List<dynamic>? ?? []);
+    return items
+        .where((raw) {
+          final m = raw as Map<String, dynamic>;
+          return m['isTrashed'] == true || m['is_trashed'] == true || m['is_trashed'] == 1;
+        })
+        .map((raw) {
+          final m = raw as Map<String, dynamic>;
+          final id = m['id'] as String;
+          final fileUri = resolveMediaUri(
+            asset: '',
+            id: id,
+            serverUri: baseUri,
+            endpoint: 'file',
+          );
+          return MediaItem(
+            id: id,
+            asset: fileUri?.toString() ?? '',
+            title: m['filename'] as String? ?? 'Memory',
+            category: 'Camera',
+            takenAt: DateTime.tryParse(m['takenAt'] as String? ?? '') ?? DateTime.now(),
+            kind: m['kind'] == 'video' ? MediaKind.video : MediaKind.photo,
+            isSynced: true,
+          );
+        })
+        .toList();
   });
 
   // 10. Fetch albums

@@ -28,7 +28,7 @@ export async function buildApp({ db, dataDir, config }) {
     timeWindow: '1 minute',
     allowList: (req) => {
       const url = req.url || '';
-      return url.startsWith('/api/health') || url.startsWith('/api/media') || url.startsWith('/api/albums');
+      return url.startsWith('/api/health') || url.startsWith('/api/media') || url.startsWith('/api/albums') || url.startsWith('/api/trash');
     },
   });
 

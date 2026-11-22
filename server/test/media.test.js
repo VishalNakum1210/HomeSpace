@@ -285,4 +285,64 @@ test('Media Pipeline: upload, thumbnail, timeline, streaming, favorites, and tra
     const body = JSON.parse(res.payload);
     assert.equal(body.error.code, 'QUOTA_EXCEEDED');
   });
+
+  await t.test('Phase 6: Trash aliases and empty / purge lifecycle', async () => {
+    // Upload a test photo
+    const payload = Buffer.from('phase6-test-content');
+    const mp = buildMultipart('trash-photo.jpg', payload);
+    const upRes = await app.inject({
+      method: 'POST',
+      url: '/api/media/upload',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': mp.contentType,
+      },
+      payload: mp.payload,
+    });
+    assert.equal(upRes.statusCode, 201);
+    const item = JSON.parse(upRes.payload).media;
+
+    // Move to trash
+    const trashRes = await app.inject({
+      method: 'POST',
+      url: '/api/media/trash',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { ids: [item.id] },
+    });
+    assert.equal(trashRes.statusCode, 200);
+
+    // GET /api/trash
+    const listTrashRes = await app.inject({
+      method: 'GET',
+      url: '/api/trash',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(listTrashRes.statusCode, 200);
+    const trashData = JSON.parse(listTrashRes.payload);
+    assert.equal(trashData.total, 1);
+    assert.equal(trashData.items[0].id, item.id);
+    assert.equal(trashData.items[0].isTrashed, true);
+    assert.ok(trashData.items[0].trashedAt);
+
+    // Empty trash
+    const emptyRes = await app.inject({
+      method: 'POST',
+      url: '/api/trash/empty',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(emptyRes.statusCode, 200);
+    const emptyBody = JSON.parse(emptyRes.payload);
+    assert.equal(emptyBody.count, 1);
+
+    // Verify trash is now empty and user quota is 0
+    const checkTrashRes = await app.inject({
+      method: 'GET',
+      url: '/api/trash',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(JSON.parse(checkTrashRes.payload).total, 0);
+
+    const userRow = db.prepare('SELECT storage_used_bytes FROM users WHERE id = ?').get(userId);
+    assert.equal(Number(userRow.storage_used_bytes), 0);
+  });
 });

@@ -405,6 +405,36 @@ class LocalHomeRepository extends HomeRepository {
           return state.copyWith(albums: updatedAlbums);
         });
       }
+
+      // Fetch remote trashed items
+      try {
+        final remoteTrashed = await client.fetchTrash(
+          baseUri: activeUri,
+          token: activeToken,
+        );
+        if (remoteTrashed.isNotEmpty) {
+          await _commit((state) {
+            final updatedMedia = [...state.media];
+            final existingMediaIds = {for (final m in updatedMedia) m.id};
+            final currentTrashMap = {for (final t in state.trash) t.mediaId: t};
+            final now = clock().toUtc();
+
+            for (final remote in remoteTrashed) {
+              if (!existingMediaIds.contains(remote.id)) {
+                updatedMedia.add(remote);
+                existingMediaIds.add(remote.id);
+              }
+              if (!currentTrashMap.containsKey(remote.id)) {
+                currentTrashMap[remote.id] = TrashEntry(remote.id, now);
+              }
+            }
+            return state.copyWith(
+              media: updatedMedia,
+              trash: currentTrashMap.values.toList(),
+            );
+          });
+        }
+      } catch (_) {}
     } catch (e) {
       debugPrint('syncWithServer error: $e');
     }

@@ -648,6 +648,26 @@ class MemoryTile extends StatelessWidget {
                     bottom: 7,
                     child: MemberPortrait(member: attribution!, size: 26),
                   ),
+                if (subtitle != null)
+                  Positioned(
+                    left: 6,
+                    bottom: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xCC101519),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        subtitle!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

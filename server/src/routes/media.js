@@ -45,6 +45,8 @@ export async function mediaRoutes(fastify, options) {
       takenAt: row.taken_at,
       kind: row.kind,
       isFavorite: Boolean(row.is_favorite),
+      isTrashed: Boolean(row.is_trashed),
+      trashedAt: row.trashed_at || null,
       isSynced: true,
       thumbUrl: `/api/media/${row.id}/thumb`,
       fileUrl: `/api/media/${row.id}/file`,
@@ -592,5 +594,126 @@ export async function mediaRoutes(fastify, options) {
     }
 
     return { success: true, count: rows.length };
+  });
+
+  // 11. Empty trash and 30-day auto purge
+  function purgeExpiredTrash() {
+    const expiredRows = db.prepare(`
+      SELECT id, user_id, original_path, thumbnail_path, size_bytes
+      FROM media
+      WHERE is_trashed = 1 AND trashed_at IS NOT NULL AND trashed_at < datetime('now', '-30 days')
+    `).all();
+
+    if (expiredRows.length === 0) return { count: 0, freedBytes: 0 };
+
+    let totalFreed = 0;
+    db.exec('BEGIN IMMEDIATE;');
+    try {
+      for (const row of expiredRows) {
+        totalFreed += Number(row.size_bytes || 0);
+        deleteMediaRecordAndFiles(row);
+      }
+      db.exec('COMMIT;');
+    } catch (e) {
+      db.exec('ROLLBACK;');
+      throw e;
+    }
+    return { count: expiredRows.length, freedBytes: totalFreed };
+  }
+
+  fastify.post('/media/trash/empty', {
+    preHandler: [fastify.authenticate],
+  }, async (req) => {
+    const rows = db.prepare('SELECT id, user_id, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND is_trashed = 1').all(req.user.id);
+    let totalFreed = 0;
+    db.exec('BEGIN IMMEDIATE;');
+    try {
+      for (const row of rows) {
+        totalFreed += Number(row.size_bytes || 0);
+        deleteMediaRecordAndFiles(row);
+      }
+      db.exec('COMMIT;');
+    } catch (e) {
+      db.exec('ROLLBACK;');
+      throw e;
+    }
+    return { success: true, count: rows.length, freedBytes: totalFreed };
+  });
+
+  // Trash REST Aliases
+  fastify.get('/trash', {
+    preHandler: [fastify.authenticate],
+  }, async (req) => {
+    try { purgeExpiredTrash(); } catch (_) {}
+    const rows = db.prepare('SELECT * FROM media WHERE user_id = ? AND is_trashed = 1 ORDER BY trashed_at DESC, id DESC').all(req.user.id);
+    return {
+      items: rows.map(toMediaItem),
+      total: rows.length,
+    };
+  });
+
+  fastify.post('/trash/empty', {
+    preHandler: [fastify.authenticate],
+  }, async (req) => {
+    const rows = db.prepare('SELECT id, user_id, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND is_trashed = 1').all(req.user.id);
+    let totalFreed = 0;
+    db.exec('BEGIN IMMEDIATE;');
+    try {
+      for (const row of rows) {
+        totalFreed += Number(row.size_bytes || 0);
+        deleteMediaRecordAndFiles(row);
+      }
+      db.exec('COMMIT;');
+    } catch (e) {
+      db.exec('ROLLBACK;');
+      throw e;
+    }
+    return { success: true, count: rows.length, freedBytes: totalFreed };
+  });
+
+  fastify.post('/trash/restore', {
+    preHandler: [fastify.authenticate],
+  }, async (req) => {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) return { success: true, count: 0 };
+    const nowIso = new Date().toISOString();
+    const stmt = db.prepare('UPDATE media SET is_trashed = 0, trashed_at = NULL, updated_at = ? WHERE id = ? AND user_id = ?');
+    db.exec('BEGIN IMMEDIATE;');
+    try {
+      for (const id of ids) {
+        stmt.run(nowIso, id, req.user.id);
+      }
+      db.exec('COMMIT;');
+    } catch (e) {
+      db.exec('ROLLBACK;');
+      throw e;
+    }
+    return { success: true, count: ids.length, isTrashed: false };
+  });
+
+  fastify.post('/trash/delete', {
+    preHandler: [fastify.authenticate],
+  }, async (req) => {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) return { success: true, count: 0 };
+    const rows = db.prepare(`SELECT id, user_id, original_path, thumbnail_path, size_bytes FROM media WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})`).all(req.user.id, ...ids);
+    db.exec('BEGIN IMMEDIATE;');
+    try {
+      for (const row of rows) {
+        deleteMediaRecordAndFiles(row);
+      }
+      db.exec('COMMIT;');
+    } catch (e) {
+      db.exec('ROLLBACK;');
+      throw e;
+    }
+    return { success: true, count: rows.length };
+  });
+
+  fastify.post('/trash/purge', {
+    preHandler: [fastify.authenticate],
+  }, async () => {
+    const result = purgeExpiredTrash();
+    return { success: true, ...result };
   });
 }
