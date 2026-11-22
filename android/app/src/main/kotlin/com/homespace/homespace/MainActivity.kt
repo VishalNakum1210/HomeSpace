@@ -296,6 +296,19 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                 }
+            } else if (call.method == "deleteDeviceFile") {
+                val filePath = call.argument<String>("filePath")
+                if (!filePath.isNullOrEmpty()) {
+                    val file = File(filePath)
+                    try {
+                        val deleted = if (file.exists()) file.delete() else true
+                        result.success(deleted)
+                    } catch (_: Exception) {
+                        result.success(false)
+                    }
+                } else {
+                    result.success(false)
+                }
             } else if (call.method == "shareMedia") {
                 val filePath = call.argument<String>("filePath")
                 val mimeType = call.argument<String>("mimeType") ?: "*/*"
@@ -393,6 +406,8 @@ class MainActivity : FlutterActivity() {
                     val enabledFolders = call.argument<List<String>>("enabledFolders")
                     val backupStartTime = (call.argument<Number>("backupStartTime"))?.toLong()
                     val folderStartTimes = call.argument<Map<String, Number>>("folderStartTimes")
+                    val wifiOnly = call.argument<Boolean>("wifiOnly")
+                    val requireCharging = call.argument<Boolean>("requireCharging")
 
                     val prefs = getSharedPreferences(AutoBackupJobService.PREFS_NAME, Context.MODE_PRIVATE)
                     val editor = prefs.edit()
@@ -415,10 +430,22 @@ class MainActivity : FlutterActivity() {
                         }
                         editor.putString(AutoBackupJobService.KEY_FOLDER_START_TIMES, obj.toString())
                     }
+                    if (wifiOnly != null) {
+                        editor.putBoolean(AutoBackupJobService.KEY_WIFI_ONLY, wifiOnly)
+                    }
+                    if (requireCharging != null) {
+                        editor.putBoolean(AutoBackupJobService.KEY_REQUIRE_CHARGING, requireCharging)
+                    }
                     editor.apply()
 
                     AutoBackupJobService.schedule(this)
                     result.success(true)
+                }
+                "isWifiConnected" -> {
+                    result.success(AutoBackupJobService.isWifiConnected(this))
+                }
+                "isDeviceCharging" -> {
+                    result.success(AutoBackupJobService.isDeviceCharging(this))
                 }
                 "scheduleBackgroundBackup" -> {
                     AutoBackupJobService.schedule(this)

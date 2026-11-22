@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:mime/mime.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -55,6 +56,31 @@ class BackupFolderConfig {
   }
 }
 
+class FreeUpSpaceResult {
+  final int totalCount;
+  final int totalBytes;
+  final List<File> candidateFiles;
+
+  const FreeUpSpaceResult({
+    required this.totalCount,
+    required this.totalBytes,
+    required this.candidateFiles,
+  });
+
+  String get formattedSize {
+    if (totalBytes < 1024 * 1024) {
+      final kb = (totalBytes / 1024).toStringAsFixed(1);
+      return '$kb KB';
+    } else if (totalBytes < 1024 * 1024 * 1024) {
+      final mb = (totalBytes / (1024 * 1024)).toStringAsFixed(1);
+      return '$mb MB';
+    } else {
+      final gb = (totalBytes / (1024 * 1024 * 1024)).toStringAsFixed(2);
+      return '$gb GB';
+    }
+  }
+}
+
 class AutoBackupService {
   static const List<BackupFolderConfig> defaultFolders = [
     BackupFolderConfig(
@@ -107,7 +133,14 @@ class AutoBackupService {
     ),
   ];
 
+  @visibleForTesting
+  static File? mockConfigFile;
+
+  @visibleForTesting
+  static File? mockDeletedSignaturesFile;
+
   static Future<File?> _getConfigFile() async {
+    if (mockConfigFile != null) return mockConfigFile;
     try {
       final docs = await getApplicationDocumentsDirectory();
       final dir = Directory('${docs.path}/homespace');
@@ -121,6 +154,7 @@ class AutoBackupService {
   }
 
   static Future<File?> _getDeletedSignaturesFile() async {
+    if (mockDeletedSignaturesFile != null) return mockDeletedSignaturesFile;
     try {
       final docs = await getApplicationDocumentsDirectory();
       final dir = Directory('${docs.path}/homespace');
@@ -219,14 +253,14 @@ class AutoBackupService {
     try {
       final startTime = await getBackupStartTime();
       final file = await _getConfigFile();
-      if (file == null || !await file.exists()) {
+      if (file == null || !file.existsSync()) {
         return defaultFolders.map((template) {
           return template.copyWith(
             enabledAt: template.enabled ? startTime : null,
           );
         }).toList();
       }
-      final raw = await file.readAsString();
+      final raw = file.readAsStringSync();
       final map = jsonDecode(raw) as Map<String, dynamic>;
       final folderList = (map['folders'] as List<dynamic>?) ?? [];
 
@@ -254,8 +288,8 @@ class AutoBackupService {
   static Future<int> getBackupStartTime() async {
     try {
       final file = await _getConfigFile();
-      if (file != null && await file.exists()) {
-        final raw = await file.readAsString();
+      if (file != null && file.existsSync()) {
+        final raw = file.readAsStringSync();
         final map = jsonDecode(raw) as Map<String, dynamic>;
         final start = map['backupStartTime'] as num?;
         if (start != null && start > 0) return start.toInt();
@@ -271,30 +305,117 @@ class AutoBackupService {
       final file = await _getConfigFile();
       if (file == null) return;
       Map<String, dynamic> map = {};
-      if (await file.exists()) {
+      if (file.existsSync()) {
         try {
-          map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+          map = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
         } catch (_) {}
       }
       map['backupStartTime'] = timestamp;
-      await file.writeAsString(jsonEncode(map));
+      file.writeAsStringSync(jsonEncode(map), flush: true);
+    } catch (_) {}
+  }
+
+  static Future<bool> isWifiOnly() async {
+    try {
+      final file = await _getConfigFile();
+      if (file != null && file.existsSync()) {
+        final raw = file.readAsStringSync();
+        final map = jsonDecode(raw) as Map<String, dynamic>;
+        return map['wifiOnly'] as bool? ?? false;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  static Future<void> setWifiOnly(bool enabled) async {
+    try {
+      final file = await _getConfigFile();
+      if (file == null) return;
+      Map<String, dynamic> map = {};
+      if (file.existsSync()) {
+        try {
+          map = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+        } catch (_) {}
+      }
+      map['wifiOnly'] = enabled;
+      file.writeAsStringSync(jsonEncode(map), flush: true);
+      await syncConfigToNative();
+    } catch (_) {}
+  }
+
+  static Future<bool> isRequireCharging() async {
+    try {
+      final file = await _getConfigFile();
+      if (file != null && file.existsSync()) {
+        final raw = file.readAsStringSync();
+        final map = jsonDecode(raw) as Map<String, dynamic>;
+        return map['requireCharging'] as bool? ?? false;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  static Future<void> setRequireCharging(bool enabled) async {
+    try {
+      final file = await _getConfigFile();
+      if (file == null) return;
+      Map<String, dynamic> map = {};
+      if (file.existsSync()) {
+        try {
+          map = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+        } catch (_) {}
+      }
+      map['requireCharging'] = enabled;
+      file.writeAsStringSync(jsonEncode(map), flush: true);
+      await syncConfigToNative();
+    } catch (_) {}
+  }
+
+  static Future<bool> hasInitialChoiceMade() async {
+    try {
+      final file = await _getConfigFile();
+      if (file != null && file.existsSync()) {
+        final raw = file.readAsStringSync();
+        final map = jsonDecode(raw) as Map<String, dynamic>;
+        return map['initialChoiceMade'] as bool? ?? false;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  static Future<void> setInitialChoiceMade(bool made) async {
+    try {
+      final file = await _getConfigFile();
+      if (file == null) return;
+      Map<String, dynamic> map = {};
+      if (file.existsSync()) {
+        try {
+          map = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+        } catch (_) {}
+      }
+      map['initialChoiceMade'] = made;
+      file.writeAsStringSync(jsonEncode(map), flush: true);
     } catch (_) {}
   }
 
   static Future<void> saveFolders(List<BackupFolderConfig> folders) async {
     try {
       final startTime = await getBackupStartTime();
+      final wifiOnly = await isWifiOnly();
+      final charging = await isRequireCharging();
       final file = await _getConfigFile();
       if (file != null) {
         Map<String, dynamic> map = {};
-        if (await file.exists()) {
+        if (file.existsSync()) {
           try {
-            map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+            map = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
           } catch (_) {}
         }
         map['folders'] = folders.map((f) => f.toJson()).toList();
         map['backupStartTime'] = startTime;
-        await file.writeAsString(jsonEncode(map));
+        map['wifiOnly'] = wifiOnly;
+        map['requireCharging'] = charging;
+        file.writeAsStringSync(jsonEncode(map), flush: true);
       }
       final enabledFolders = folders.where((f) => f.enabled).toList();
       final enabledIds = enabledFolders.map((f) => f.id).toList();
@@ -306,6 +427,8 @@ class AutoBackupService {
         enabledFolders: enabledIds,
         folderStartTimes: folderStartTimes,
         backupStartTime: startTime,
+        wifiOnly: wifiOnly,
+        requireCharging: charging,
       );
     } catch (_) {}
   }
@@ -318,6 +441,8 @@ class AutoBackupService {
     try {
       final folders = await loadFolders();
       final startTime = await getBackupStartTime();
+      final wifiOnly = await isWifiOnly();
+      final charging = await isRequireCharging();
       final enabledFolders = folders.where((f) => f.enabled).toList();
       final enabledIds = enabledFolders.map((f) => f.id).toList();
       final folderStartTimes = <String, int>{
@@ -330,6 +455,8 @@ class AutoBackupService {
         enabledFolders: enabledIds,
         folderStartTimes: folderStartTimes,
         backupStartTime: startTime,
+        wifiOnly: wifiOnly,
+        requireCharging: charging,
       );
     } catch (_) {}
   }
@@ -593,6 +720,15 @@ class AutoBackupService {
     required HomeRepository repository,
   }) async {
     try {
+      final wifiOnly = await isWifiOnly();
+      if (wifiOnly && !await DeviceMediaService.isWifiConnected()) {
+        return 0;
+      }
+      final chargingOnly = await isRequireCharging();
+      if (chargingOnly && !await DeviceMediaService.isDeviceCharging()) {
+        return 0;
+      }
+
       final folders = await loadFolders();
       if (!folders.any((f) => f.enabled)) return 0;
       return await scanAndQueueBackup(
@@ -603,5 +739,89 @@ class AutoBackupService {
     } catch (_) {
       return 0;
     }
+  }
+
+  /// Calculates how many local device media files are already confirmed backed up on the HomeSpace server,
+  /// returning the candidate files, total count, and total byte size that can be safely freed up.
+  static Future<FreeUpSpaceResult> calculateFreeUpSpace({
+    required List<BackupFolderConfig> folders,
+    required HomeRepository repository,
+  }) async {
+    final candidateFiles = <File>[];
+    int totalBytes = 0;
+
+    // Filter synced media from repository
+    final syncedMedia = repository.media.where((m) => m.isSynced).toList();
+    if (syncedMedia.isEmpty) {
+      return const FreeUpSpaceResult(totalCount: 0, totalBytes: 0, candidateFiles: []);
+    }
+
+    final syncedTitles = syncedMedia
+        .map((m) => m.title.toLowerCase().trim())
+        .where((t) => t.isNotEmpty)
+        .toSet();
+
+    final deletedSignatures = await getDeletedSignatures();
+
+    for (final config in folders) {
+      final dir = findActiveFolder(config);
+      if (dir == null) continue;
+
+      List<FileSystemEntity> entities = [];
+      try {
+        entities = dir.listSync(recursive: false, followLinks: false);
+      } catch (_) {
+        continue;
+      }
+
+      for (final entity in entities) {
+        if (entity is! File) continue;
+        final filename = entity.uri.pathSegments.isNotEmpty
+            ? entity.uri.pathSegments.last
+            : '';
+        final lowerName = filename.toLowerCase().trim();
+        if (lowerName.isEmpty) continue;
+
+        // Skip deleted or ignored files
+        if (deletedSignatures.contains(lowerName)) continue;
+
+        // Check if confirmed synced in repository
+        if (syncedTitles.contains(lowerName)) {
+          int size = 0;
+          try {
+            size = entity.lengthSync();
+          } catch (_) {}
+          if (size > 0) {
+            totalBytes += size;
+            candidateFiles.add(entity);
+          }
+        }
+      }
+    }
+
+    return FreeUpSpaceResult(
+      totalCount: candidateFiles.length,
+      totalBytes: totalBytes,
+      candidateFiles: candidateFiles,
+    );
+  }
+
+  /// Safely removes backed-up local files from the device storage to free space.
+  static Future<int> freeUpSpace({
+    required List<File> files,
+  }) async {
+    int freed = 0;
+    for (final file in files) {
+      try {
+        if (file.existsSync()) {
+          final size = file.lengthSync();
+          final deleted = await DeviceMediaService.deleteDeviceFile(file.path);
+          if (deleted || !file.existsSync()) {
+            freed += size;
+          }
+        }
+      } catch (_) {}
+    }
+    return freed;
   }
 }

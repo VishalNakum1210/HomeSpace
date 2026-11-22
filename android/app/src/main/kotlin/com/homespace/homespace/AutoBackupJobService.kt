@@ -8,9 +8,14 @@ import android.app.job.JobScheduler
 import android.app.job.JobService
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
@@ -56,11 +61,28 @@ class AutoBackupJobService : JobService() {
         const val KEY_IGNORED_OR_DELETED_ITEMS = "ignored_or_deleted_items"
         const val KEY_BACKUP_START_TIME = "backup_start_time"
         const val KEY_FOLDER_START_TIMES = "folder_start_times"
+        const val KEY_WIFI_ONLY = "wifi_only"
+        const val KEY_REQUIRE_CHARGING = "require_charging"
 
         private const val NOTIFICATION_CHANNEL_ID = "homespace_auto_backup"
         private const val NOTIFICATION_ID = 9003
 
         private val executor = Executors.newSingleThreadExecutor()
+
+        fun isWifiConnected(context: Context): Boolean {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+            val network = cm.activeNetwork ?: return false
+            val capabilities = cm.getNetworkCapabilities(network) ?: return false
+            return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                   capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        }
+
+        fun isDeviceCharging(context: Context): Boolean {
+            val ifilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            val batteryStatus = context.registerReceiver(null, ifilter)
+            val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            return status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        }
 
         fun markItemUploaded(context: Context, filename: String, size: Long = 0L) {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -101,11 +123,16 @@ class AutoBackupJobService : JobService() {
 
         /**
          * Schedules both the real-time ContentUri trigger job (for instant camera capture detection)
-         * and the 15-minute periodic fallback job.
+         * and the 15-minute periodic fallback job with Wi-Fi and charging constraints.
          */
         fun schedule(context: Context) {
             val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return
             val component = ComponentName(context, AutoBackupJobService::class.java)
+
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false)
+            val requireCharging = prefs.getBoolean(KEY_REQUIRE_CHARGING, false)
+            val networkType = if (wifiOnly) JobInfo.NETWORK_TYPE_UNMETERED else JobInfo.NETWORK_TYPE_ANY
 
             // 1. Content URI trigger job (wakes up when Camera app captures a photo or video)
             try {
@@ -124,10 +151,11 @@ class AutoBackupJobService : JobService() {
                     )
                     .setTriggerContentUpdateDelay(1500) // 1.5s delay so camera app finishes writing file
                     .setTriggerContentMaxDelay(4000)   // 4s max delay
-                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .setRequiredNetworkType(networkType)
+                    .setRequiresCharging(requireCharging)
 
                 val result = jobScheduler.schedule(triggerBuilder.build())
-                Log.d(TAG, "Scheduled ContentUri trigger job (id=$CONTENT_TRIGGER_JOB_ID, result=$result)")
+                Log.d(TAG, "Scheduled ContentUri trigger job (id=$CONTENT_TRIGGER_JOB_ID, wifiOnly=$wifiOnly, charging=$requireCharging, result=$result)")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to schedule ContentUri trigger job", e)
             }
@@ -136,17 +164,19 @@ class AutoBackupJobService : JobService() {
             try {
                 val periodicBuilder = JobInfo.Builder(PERIODIC_BACKUP_JOB_ID, component)
                     .setPeriodic(15 * 60 * 1000)
-                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .setRequiredNetworkType(networkType)
+                    .setRequiresCharging(requireCharging)
                     .setPersisted(true)
 
                 val result = jobScheduler.schedule(periodicBuilder.build())
-                Log.d(TAG, "Scheduled periodic backup job (id=$PERIODIC_BACKUP_JOB_ID, result=$result)")
+                Log.d(TAG, "Scheduled periodic backup job (id=$PERIODIC_BACKUP_JOB_ID, wifiOnly=$wifiOnly, charging=$requireCharging, result=$result)")
             } catch (_: Exception) {
                 // If setPersisted is denied by device/permissions, schedule non-persisted periodic
                 try {
                     val periodicBuilder = JobInfo.Builder(PERIODIC_BACKUP_JOB_ID, component)
                         .setPeriodic(15 * 60 * 1000)
-                        .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                        .setRequiredNetworkType(networkType)
+                        .setRequiresCharging(requireCharging)
                     jobScheduler.schedule(periodicBuilder.build())
                 } catch (_: Exception) {}
             }
@@ -408,6 +438,18 @@ class AutoBackupJobService : JobService() {
         }
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false)
+        val requireCharging = prefs.getBoolean(KEY_REQUIRE_CHARGING, false)
+
+        if (wifiOnly && !isWifiConnected(this)) {
+            Log.d(TAG, "processAutoBackup: Wi-Fi only constraint enabled, but device is not connected to Wi-Fi. Skipping.")
+            return
+        }
+        if (requireCharging && !isDeviceCharging(this)) {
+            Log.d(TAG, "processAutoBackup: Require charging constraint enabled, but device is not plugged in. Skipping.")
+            return
+        }
+
         val uploadedSignatures = getUploadedSignatures(prefs)
         val candidates = mutableListOf<CandidateMedia>()
 

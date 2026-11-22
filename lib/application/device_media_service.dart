@@ -15,6 +15,15 @@ class DeviceMediaService {
   @visibleForTesting
   static Stream<void>? mockMediaChangedStream;
 
+  @visibleForTesting
+  static bool? mockIsWifiConnected;
+
+  @visibleForTesting
+  static bool? mockIsDeviceCharging;
+
+  @visibleForTesting
+  static bool? mockDeleteDeviceFileResult;
+
   /// Stream of real-time notifications when a new photo or video is created on the device.
   static Stream<void> get onMediaChanged {
     if (mockMediaChangedStream != null) return mockMediaChangedStream!;
@@ -201,7 +210,7 @@ class DeviceMediaService {
     }
   }
 
-  /// Synchronizes backup configuration (serverUri, token, enabled folders, backupStartTime, folderStartTimes)
+  /// Synchronizes backup configuration (serverUri, token, enabled folders, backupStartTime, folderStartTimes, constraints)
   /// to Native Android so that background jobs can auto-upload photos even when HomeSpace is completely terminated.
   static Future<bool> syncBackupConfig({
     String? serverUri,
@@ -209,6 +218,8 @@ class DeviceMediaService {
     List<String>? enabledFolders,
     int? backupStartTime,
     Map<String, int>? folderStartTimes,
+    bool? wifiOnly,
+    bool? requireCharging,
   }) async {
     if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return false;
     try {
@@ -223,10 +234,62 @@ class DeviceMediaService {
         if (backupStartTime != null) 'backupStartTime': backupStartTime,
         // ignore: use_null_aware_elements
         if (folderStartTimes != null) 'folderStartTimes': folderStartTimes,
+        // ignore: use_null_aware_elements
+        if (wifiOnly != null) 'wifiOnly': wifiOnly,
+        // ignore: use_null_aware_elements
+        if (requireCharging != null) 'requireCharging': requireCharging,
       });
       return result ?? false;
     } catch (e) {
       debugPrint('DeviceMediaService: syncBackupConfig error $e');
+      return false;
+    }
+  }
+
+  /// Checks if the device is currently connected to an unmetered Wi-Fi connection.
+  static Future<bool> isWifiConnected() async {
+    if (mockIsWifiConnected != null) return mockIsWifiConnected!;
+    if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return true;
+    try {
+      final res = await _backupChannel.invokeMethod<bool>('isWifiConnected');
+      return res ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Checks if the device is currently connected to power/charging.
+  static Future<bool> isDeviceCharging() async {
+    if (mockIsDeviceCharging != null) return mockIsDeviceCharging!;
+    if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return true;
+    try {
+      final res = await _backupChannel.invokeMethod<bool>('isDeviceCharging');
+      return res ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Safely deletes a local file from the device storage (e.g. for Free Up Space).
+  static Future<bool> deleteDeviceFile(String filePath) async {
+    if (mockDeleteDeviceFileResult != null) return mockDeleteDeviceFileResult!;
+    if (kIsWeb) return false;
+    if (Platform.isAndroid || debugOverrideIsAndroid) {
+      try {
+        final res = await _mediaChannel.invokeMethod<bool>('deleteDeviceFile', {
+          'filePath': filePath,
+        });
+        if (res == true) return true;
+      } catch (_) {}
+    }
+    try {
+      final file = File(filePath);
+      if (file.existsSync()) {
+        file.deleteSync();
+        return true;
+      }
+      return true;
+    } catch (_) {
       return false;
     }
   }

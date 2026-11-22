@@ -22,6 +22,12 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
   bool loading = false;
   bool scanning = false;
   String? statusMessage;
+  bool wifiOnly = false;
+  bool requireCharging = false;
+  bool hasInitialChoice = true;
+  FreeUpSpaceResult? freeUpResult;
+  bool calculatingFreeUp = false;
+  bool freeingUp = false;
 
   @override
   void initState() {
@@ -31,11 +37,82 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
 
   Future<void> _load() async {
     final loaded = await AutoBackupService.loadFolders();
+    final wifi = await AutoBackupService.isWifiOnly();
+    final charging = await AutoBackupService.isRequireCharging();
+    final initialChoice = await AutoBackupService.hasInitialChoiceMade();
     if (!mounted) return;
     setState(() {
       folders = List.of(loaded);
+      wifiOnly = wifi;
+      requireCharging = charging;
+      hasInitialChoice = initialChoice;
       loading = false;
     });
+    _recalculateFreeUpSpace();
+  }
+
+  Future<void> _recalculateFreeUpSpace() async {
+    if (!mounted) return;
+    setState(() => calculatingFreeUp = true);
+    final repo = HomeScope.of(context);
+    final result = await AutoBackupService.calculateFreeUpSpace(
+      folders: folders,
+      repository: repo,
+    );
+    if (!mounted) return;
+    setState(() {
+      freeUpResult = result;
+      calculatingFreeUp = false;
+    });
+  }
+
+  Future<void> _toggleWifiOnly(bool val) async {
+    setState(() => wifiOnly = val);
+    await AutoBackupService.setWifiOnly(val);
+  }
+
+  Future<void> _toggleRequireCharging(bool val) async {
+    setState(() => requireCharging = val);
+    await AutoBackupService.setRequireCharging(val);
+  }
+
+  Future<void> _setInitialBackupChoice(bool allHistory) async {
+    await AutoBackupService.setInitialChoiceMade(true);
+    if (!mounted) return;
+    setState(() => hasInitialChoice = true);
+    await _runBackupNow(onlyNewPhotos: !allHistory);
+  }
+
+  Future<void> _runFreeUpSpace() async {
+    final result = freeUpResult;
+    if (result == null || result.totalCount == 0) return;
+
+    final confirmed = await confirmLibraryAction(
+      context,
+      title: 'Free up device space?',
+      message:
+          'Remove ${result.totalCount} item${result.totalCount == 1 ? "" : "s"} (${result.formattedSize}) that are backed up safely to your HomeSpace server? You can still view or download them anytime.',
+      confirm: 'Free up ${result.formattedSize}',
+      destructive: false,
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => freeingUp = true);
+    final count = await AutoBackupService.freeUpSpace(
+      files: result.candidateFiles,
+    );
+    if (!mounted) return;
+    setState(() => freeingUp = false);
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text('Freed up space! Removed $count local file${count == 1 ? "" : "s"}.'),
+      ),
+    );
+    _recalculateFreeUpSpace();
   }
 
   Future<void> _toggleFolder(int index, bool enabled) async {
@@ -112,6 +189,7 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
             : null,
       ),
     );
+    _recalculateFreeUpSpace();
   }
 
   IconData _iconForFolder(String id) {
@@ -167,6 +245,71 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
                     : ListView(
                         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
                         children: [
+                          if (!hasInitialChoice) ...[
+                            SpaceCard(
+                              color: const Color(0xFFF3E5F5),
+                              borderColor: const Color(0xFFCE93D8),
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.stars_rounded, color: Color(0xFF8E24AA), size: 24),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'First-Time Backup Setup',
+                                          style: text.titleSmall?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: const Color(0xFF4A148C),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Choose how you would like to protect your photos and videos:',
+                                    style: text.bodySmall?.copyWith(color: const Color(0xFF4A148C)),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          key: const ValueKey('initial-backup-all-btn'),
+                                          icon: const Icon(Icons.all_inclusive_rounded, size: 16),
+                                          label: const Text('All past photos', style: TextStyle(fontSize: 12)),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFF8E24AA),
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          ),
+                                          onPressed: scanning ? null : () => _setInitialBackupChoice(true),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          key: const ValueKey('initial-backup-new-btn'),
+                                          icon: const Icon(Icons.today_rounded, size: 16),
+                                          label: const Text('Only new photos', style: TextStyle(fontSize: 12)),
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                          ),
+                                          onPressed: scanning ? null : () => _setInitialBackupChoice(false),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
                           SpaceCard(
                             color: style.accentSoft,
                             borderColor: style.accent.withValues(alpha: .35),
@@ -287,6 +430,150 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
                               );
                             }(),
                           ],
+                          const SizedBox(height: 20),
+                          Text(
+                            'SAFEGUARDS & CONDITIONS',
+                            style: text.labelSmall?.copyWith(
+                              letterSpacing: 1.2,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            child: Material(
+                              color: Theme.of(context).cardColor,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                side: BorderSide(
+                                  color: Colors.black.withValues(alpha: 0.08),
+                                ),
+                              ),
+                              child: Column(
+                                children: [
+                                  SwitchListTile.adaptive(
+                                    key: const ValueKey('backup-wifi-only-switch'),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                    secondary: CircleAvatar(
+                                      backgroundColor: const Color(0xFF1677E8).withValues(alpha: .15),
+                                      foregroundColor: const Color(0xFF1677E8),
+                                      child: const Icon(Icons.wifi_rounded, size: 22),
+                                    ),
+                                    title: Text(
+                                      'Back up over Wi-Fi only',
+                                      style: text.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                                    ),
+                                    subtitle: Text(
+                                      'Avoid cellular data usage and extra carrier fees',
+                                      style: text.bodySmall,
+                                    ),
+                                    value: wifiOnly,
+                                    onChanged: _toggleWifiOnly,
+                                  ),
+                                  Divider(height: 1, indent: 64, endIndent: 16, color: Colors.grey.withValues(alpha: 0.15)),
+                                  SwitchListTile.adaptive(
+                                    key: const ValueKey('backup-require-charging-switch'),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                    secondary: CircleAvatar(
+                                      backgroundColor: const Color(0xFFFF9800).withValues(alpha: .15),
+                                      foregroundColor: const Color(0xFFFF9800),
+                                      child: const Icon(Icons.battery_charging_full_rounded, size: 22),
+                                    ),
+                                    title: Text(
+                                      'Back up only while charging',
+                                      style: text.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                                    ),
+                                    subtitle: Text(
+                                      'Conserve battery power on the move',
+                                      style: text.bodySmall,
+                                    ),
+                                    value: requireCharging,
+                                    onChanged: _toggleRequireCharging,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'FREE UP DEVICE SPACE',
+                            style: text.labelSmall?.copyWith(
+                              letterSpacing: 1.2,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SpaceCard(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF4CAF50).withValues(alpha: .15),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.cleaning_services_rounded,
+                                        size: 24,
+                                        color: Color(0xFF2E7D32),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Free up device space',
+                                            style: text.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            calculatingFreeUp
+                                                ? 'Calculating backed-up items…'
+                                                : (freeUpResult != null && freeUpResult!.totalCount > 0)
+                                                    ? '${freeUpResult!.totalCount} item${freeUpResult!.totalCount == 1 ? "" : "s"} (${freeUpResult!.formattedSize}) backed up safely'
+                                                    : 'No backed-up items to remove right now',
+                                            style: text.bodySmall?.copyWith(color: Colors.grey.shade600),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Items backed up to your HomeSpace server can be safely deleted from this device. They will stay in your library and stream seamlessly whenever viewed.',
+                                  style: text.bodySmall?.copyWith(color: Colors.grey.shade700),
+                                ),
+                                const SizedBox(height: 14),
+                                SpaceButton(
+                                  key: const ValueKey('free-up-space-btn'),
+                                  label: freeingUp
+                                      ? 'Freeing up…'
+                                      : (freeUpResult != null && freeUpResult!.totalCount > 0)
+                                          ? 'Free up ${freeUpResult!.formattedSize}'
+                                          : 'Device storage is optimized',
+                                  icon: Icons.delete_sweep_rounded,
+                                  backgroundColor: (freeUpResult != null && freeUpResult!.totalCount > 0)
+                                      ? const Color(0xFF2E7D32)
+                                      : Colors.grey.shade300,
+                                  foregroundColor: (freeUpResult != null && freeUpResult!.totalCount > 0)
+                                      ? Colors.white
+                                      : Colors.grey.shade700,
+                                  onPressed: (freeingUp || calculatingFreeUp || freeUpResult == null || freeUpResult!.totalCount == 0)
+                                      ? null
+                                      : _runFreeUpSpace,
+                                ),
+                              ],
+                            ),
+                          ),
                           const SizedBox(height: 20),
                           if (statusMessage != null) ...[
                             Container(
