@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=vishal
-Group=vishal
+User=homespace
+Group=homespace
 WorkingDirectory=/opt/homespace/server
 EnvironmentFile=-/etc/homespace.env
 Environment=NODE_ENV=production DATA_DIR=/var/lib/homespace HOST=0.0.0.0 PORT=8888

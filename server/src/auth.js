@@ -1,22 +1,24 @@
 import crypto from 'node:crypto';
+import { promisify } from 'node:util';
 
-export function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+const scryptAsync = promisify(crypto.scrypt);
+const SCRYPT_KEYLEN = 64;
+
+export async function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   if (!password || typeof password !== 'string') {
     throw new Error('Password must be a non-empty string');
   }
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return { hash, salt };
+  const derived = await scryptAsync(password, salt, SCRYPT_KEYLEN);
+  return { hash: derived.toString('hex'), salt };
 }
 
-export function verifyPassword(password, salt, expectedHash) {
+export async function verifyPassword(password, salt, expectedHash) {
   if (!password || !salt || !expectedHash) return false;
-  const computedHash = crypto.scryptSync(password, salt, 64).toString('hex');
-  
-  const bufA = Buffer.from(computedHash, 'hex');
+  const derived = await scryptAsync(password, salt, SCRYPT_KEYLEN);
   const bufB = Buffer.from(expectedHash, 'hex');
 
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
+  if (derived.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(derived, bufB);
 }
 
 export function generateToken() {
@@ -27,13 +29,20 @@ export function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+export function pruneExpiredSessions(db) {
+  const nowIso = new Date().toISOString();
+  return db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(nowIso);
+}
+
 export function createSession(db, userId, expiryDays = 30) {
   const token = generateToken();
   const tokenHash = hashToken(token);
   const sessionId = 'sess_' + crypto.randomBytes(12).toString('hex');
-  
+
   const now = new Date();
   const expiresAt = new Date(now.getTime() + expiryDays * 24 * 60 * 60 * 1000);
+
+  pruneExpiredSessions(db);
 
   const stmt = db.prepare(`
     INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, last_seen_at)

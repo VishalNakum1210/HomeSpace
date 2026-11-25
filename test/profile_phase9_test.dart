@@ -6,6 +6,7 @@ import 'package:homespace/app.dart';
 import 'package:homespace/data/local_home_repository.dart';
 import 'package:homespace/data/snapshot_store.dart';
 import 'package:homespace/domain/models.dart';
+import 'package:homespace/domain/pin_security.dart';
 import 'package:homespace/pages/admin_users_page.dart';
 import 'package:homespace/pages/app_lock_page.dart';
 import 'package:homespace/services/cache_service.dart';
@@ -163,7 +164,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repository.profile.appLockEnabled, isTrue);
-      expect(repository.profile.appLockPin, '2580');
+      expect(repository.profile.appLockPin, isNot('2580'));
+      expect(PinSecurity.verifyPin('2580', repository.profile.appLockPin), isTrue);
 
       // Pop back to main app
       await tester.binding.handlePopRoute();

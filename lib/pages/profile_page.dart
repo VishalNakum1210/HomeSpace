@@ -349,9 +349,17 @@ class ProfilePage extends StatelessWidget {
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 12),
-        Text(
-          'Your local profile, theme, favorites, and albums survive an app restart. Connection and upload states are simulations; no files are sent to a server.',
-          style: Theme.of(context).textTheme.bodyMedium,
+        Builder(
+          builder: (context) {
+            final isDemo = HomeScope.of(context).connection.status.isDemo &&
+                FrontendSessionScope.maybeOf(context)?.isAuthenticated != true;
+            return Text(
+              isDemo
+                  ? 'Your local profile, theme, favorites, and albums survive an app restart. Connection and upload states are simulations; no files are sent to a server.'
+                  : 'Your photos, albums, favorites, and trash sync directly with your private HomeSpace server.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            );
+          },
         ),
         const SizedBox(height: 18),
         ListenableBuilder(
@@ -374,8 +382,15 @@ class ProfilePage extends StatelessWidget {
           key: const ValueKey('uploads-setting'),
           leading: const Icon(Icons.cloud_upload_outlined),
           title: const Text('Upload queue'),
-          subtitle: Text(
-            '${HomeScope.of(context).uploads.items.length} sample items',
+          subtitle: Builder(
+            builder: (context) {
+              final count = HomeScope.of(context).uploads.items.length;
+              final isDemo = HomeScope.of(context).connection.status.isDemo &&
+                  FrontendSessionScope.maybeOf(context)?.isAuthenticated != true;
+              return Text(
+                isDemo ? '$count sample items' : '$count queue items',
+              );
+            },
           ),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () {
@@ -425,7 +440,7 @@ class ProfilePage extends StatelessWidget {
           onPressed: () => showLicensePage(
             context: context,
             applicationName: 'HomeSpace',
-            applicationVersion: '0.8.1',
+            applicationVersion: '0.8.3',
           ),
         ),
         const SizedBox(height: 10),

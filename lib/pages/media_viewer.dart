@@ -6,7 +6,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../application/device_media_service.dart';
@@ -20,6 +19,7 @@ import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
 import '../design/system_ui.dart';
 import '../domain/models.dart';
+import '../services/cache_service.dart';
 import 'album_page.dart';
 import 'library_widgets.dart';
 import 'local_edit_sheets.dart';
@@ -826,11 +826,59 @@ class _MediaViewerState extends State<MediaViewer> {
 
   Future<void> _shareMedia(BuildContext context, MediaItem photo) async {
     final messenger = ScaffoldMessenger.of(context);
+    final session = FrontendSessionScope.maybeOf(context);
     messenger.hideCurrentSnackBar();
 
-    if (!kIsWeb && File(photo.asset).existsSync()) {
+    var localPath = (!kIsWeb && File(photo.asset).existsSync()) ? photo.asset : null;
+    if (localPath == null && photo.title.isNotEmpty) {
+      final found = await DeviceMediaService.findLocalMedia(
+        photo.title,
+        isVideo: photo.kind == MediaKind.video,
+      );
+      if (found != null && File(found).existsSync()) {
+        localPath = found;
+      }
+    }
+
+    if (localPath == null && photo.asset.startsWith('http')) {
+      final targetUri = resolveMediaUri(
+        asset: photo.asset,
+        id: photo.id,
+        serverUri: session?.serverUri,
+        endpoint: 'file',
+      );
+      if (targetUri != null) {
+        final client = createHomeSpaceHttpClient();
+        try {
+          final req = http.Request('GET', targetUri);
+          final token = session?.authToken;
+          if (token != null && token.isNotEmpty) {
+            req.headers['Authorization'] = 'Bearer $token';
+          }
+          final streamed = await client.send(req).timeout(const Duration(seconds: 30));
+          if (streamed.statusCode == 200) {
+            final cacheDir = await CacheService.getManagedCacheDirectory();
+            final safeTitle = (photo.title.isNotEmpty ? photo.title : '${photo.id}.jpg')
+                .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1F]'), '_');
+            final tmp = File('${cacheDir.path}/share_${photo.id}_$safeTitle');
+            final sink = tmp.openWrite();
+            await streamed.stream.pipe(sink);
+            await sink.flush();
+            await sink.close();
+            if (await tmp.exists() && await tmp.length() > 0) {
+              localPath = tmp.path;
+            }
+          }
+        } catch (_) {
+        } finally {
+          client.close();
+        }
+      }
+    }
+
+    if (localPath != null) {
       final shared = await DeviceMediaService.shareMedia(
-        filePath: photo.asset,
+        filePath: localPath,
         mimeType: photo.kind == MediaKind.video ? 'video/*' : 'image/*',
       );
       if (shared) return;
@@ -912,20 +960,52 @@ class _MediaViewerState extends State<MediaViewer> {
                   const Divider(height: 1),
                   FutureBuilder<BundledPhotoMetadata>(
                     future: metadata,
-                    builder: (context, result) => _DetailRow(
-                      icon: Icons.insert_drive_file_outlined,
-                      label: 'Filename',
-                      value: photo.asset.split('/').last,
-                      note: result.hasData && result.data!.bytes > 0
-                          ? (result.data!.width > 0 && result.data!.height > 0)
-                              ? '${result.data!.fileSize} · ${result.data!.width} × ${result.data!.height}'
-                              : (photo.formattedDuration != null
-                                  ? '${result.data!.fileSize} · ${photo.formattedDuration}'
-                                  : result.data!.fileSize)
-                          : result.hasError
-                          ? 'File details unavailable'
-                          : 'Reading file details…',
-                    ),
+                    builder: (context, result) {
+                      String note;
+                      if (result.connectionState != ConnectionState.done) {
+                        note = 'Reading file details…';
+                      } else if (result.hasData && result.data!.bytes > 0) {
+                        note = (result.data!.width > 0 && result.data!.height > 0)
+                            ? '${result.data!.fileSize} · ${result.data!.width} × ${result.data!.height}'
+                            : (photo.formattedDuration != null
+                                ? '${result.data!.fileSize} · ${photo.formattedDuration}'
+                                : result.data!.fileSize);
+                      } else if (photo.sizeBytes != null && photo.sizeBytes! > 0) {
+                        final sizeStr = StorageBreakdown.formatBytes(photo.sizeBytes!);
+                        note = photo.formattedDuration != null
+                            ? '$sizeStr · ${photo.formattedDuration}'
+                            : (photo.mimeType != null
+                                ? '$sizeStr · ${photo.mimeType}'
+                                : sizeStr);
+                      } else if (result.hasError) {
+                        note = 'File details unavailable';
+                      } else {
+                        note = photo.isSynced
+                            ? (photo.formattedDuration != null
+                                ? 'Stored on server · ${photo.formattedDuration}'
+                                : 'Stored on server')
+                            : 'File details unavailable';
+                      }
+                      final assetLastSegment =
+                          photo.asset.split('/').last.split('?').first.trim();
+                      final isRemoteFileRoute =
+                          photo.asset.startsWith('http://') ||
+                          photo.asset.startsWith('https://') ||
+                          assetLastSegment == 'file' ||
+                          assetLastSegment.isEmpty;
+                      final displayFilename =
+                          (!isRemoteFileRoute && assetLastSegment.isNotEmpty)
+                              ? assetLastSegment
+                              : (photo.title.trim().isNotEmpty
+                                    ? photo.title.trim()
+                                    : assetLastSegment);
+                      return _DetailRow(
+                        icon: Icons.insert_drive_file_outlined,
+                        label: 'Filename',
+                        value: displayFilename,
+                        note: note,
+                      );
+                    },
                   ),
                   const Divider(height: 1),
                   _DetailRow(
@@ -963,16 +1043,18 @@ class _MediaViewerState extends State<MediaViewer> {
                                   'Not in an album',
                                   style: theme.textTheme.bodyMedium,
                                 ),
-                              for (final album in albums)
-                                InkWell(
-                                  onTap: () => openSpacePage<void>(
-                                    context,
-                                    AlbumPage(albumId: album.id),
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 5,
+                                for (final album in albums)
+                                  InkWell(
+                                    onTap: () => openSpacePage<void>(
+                                      context,
+                                      AlbumPage(albumId: album.id),
                                     ),
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(minHeight: 48),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 10,
+                                        ),
                                     child: Row(
                                       children: [
                                         ClipRRect(
@@ -1010,6 +1092,7 @@ class _MediaViewerState extends State<MediaViewer> {
                                     ),
                                   ),
                                 ),
+                              ),
                             ],
                           ),
                         ),
@@ -1176,7 +1259,7 @@ class _DownloadProgressCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: Color(0xFF94A3B8),
+                          color: Color(0xFFCBD5E1),
                           fontSize: 12,
                         ),
                       ),
@@ -1442,10 +1525,12 @@ class _PhotoViewerView extends StatefulWidget {
 class _PhotoViewerViewState extends State<_PhotoViewerView> {
   static final Map<String, String?> _localPathCache = {};
   static final Map<String, String?> _diskPreviewCache = {};
-  static final Set<String> _inFlightDownloads = {};
+  static final Map<String, Future<String?>> _inFlightDownloads = {};
+  static const int _maxCacheEntries = 200;
 
   static void clearLocalPathCache() {
     _localPathCache.clear();
+    _diskPreviewCache.clear();
   }
 
   String? _resolvedPath;
@@ -1469,6 +1554,22 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
       _fallbackThumbPath = null;
       _resolvePhoto();
     }
+  }
+
+  static void _rememberLocalPath(String title, String path) {
+    if (_localPathCache.length >= _maxCacheEntries &&
+        !_localPathCache.containsKey(title)) {
+      _localPathCache.remove(_localPathCache.keys.first);
+    }
+    _localPathCache[title] = path;
+  }
+
+  static void _rememberDiskPreview(String id, String path) {
+    if (_diskPreviewCache.length >= _maxCacheEntries &&
+        !_diskPreviewCache.containsKey(id)) {
+      _diskPreviewCache.remove(_diskPreviewCache.keys.first);
+    }
+    _diskPreviewCache[id] = path;
   }
 
   Future<void> _resolvePhoto() async {
@@ -1505,7 +1606,7 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
       }
       final local = await DeviceMediaService.findLocalMedia(title, isVideo: false);
       if (local != null && File(local).existsSync() && File(local).lengthSync() > 0) {
-        _localPathCache[title] = local;
+        _rememberLocalPath(title, local);
         if (mounted) setState(() => _resolvedPath = local);
         return;
       } else {
@@ -1515,9 +1616,9 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
 
     // 4. Check persistent disk cache (preview, full photo, or thumbnail from grid)
     try {
-      final tempDir = await getTemporaryDirectory();
-      final previewCache = File('${tempDir.path}/preview_$id.webp');
-      final thumbCache = File('${tempDir.path}/thumb_$id.webp');
+      final cacheDir = await CacheService.getManagedCacheDirectory();
+      final previewCache = File('${cacheDir.path}/preview_$id.webp');
+      final thumbCache = File('${cacheDir.path}/thumb_$id.webp');
 
       if (_diskPreviewCache.containsKey(id)) {
         final cached = _diskPreviewCache[id];
@@ -1533,7 +1634,7 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
       }
 
       if (previewCache.existsSync() && previewCache.lengthSync() > 0) {
-        _diskPreviewCache[id] = previewCache.path;
+        _rememberDiskPreview(id, previewCache.path);
         if (thumbCache.existsSync() && thumbCache.lengthSync() > 0) {
           _fallbackThumbPath = thumbCache.path;
         }
@@ -1562,7 +1663,12 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
       );
 
       if (previewUri != null || thumbUri != null) {
-        _downloadAndCache(previewCache, thumbCache, previewUri: previewUri, thumbUri: thumbUri);
+        await _downloadAndCache(
+          previewCache,
+          thumbCache,
+          previewUri: previewUri,
+          thumbUri: thumbUri,
+        );
       }
     } catch (_) {}
   }
@@ -1574,21 +1680,21 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
     Uri? thumbUri,
   }) async {
     final id = widget.item.id;
-    if (_inFlightDownloads.contains(id)) return;
-    _inFlightDownloads.add(id);
+    final token = mounted ? FrontendSessionScope.maybeOf(context)?.authToken : null;
 
     if (mounted && _resolvedPath == null && _fallbackThumbPath == null) {
       setState(() => _isLoading = true);
     }
 
-    try {
-      final token = mounted ? FrontendSessionScope.maybeOf(context)?.authToken : null;
+    final future = _inFlightDownloads[id] ??= () async {
       final client = createHomeSpaceHttpClient();
       try {
         // Try preview first
         if (previewUri != null) {
           final req = http.Request('GET', previewUri);
-          if (token != null) req.headers['Authorization'] = 'Bearer $token';
+          if (token != null && !token.startsWith('local_')) {
+            req.headers['Authorization'] = 'Bearer $token';
+          }
           final streamed = await client.send(req);
 
           if (streamed.statusCode == 200) {
@@ -1599,15 +1705,8 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
             await sink.close();
             if (await tempPart.exists() && await tempPart.length() > 0) {
               await tempPart.rename(previewCache.path);
-              _diskPreviewCache[id] = previewCache.path;
-              if (mounted) {
-                setState(() {
-                  _resolvedPath = previewCache.path;
-                  _isLoading = false;
-                  _hasError = false;
-                });
-                return;
-              }
+              _rememberDiskPreview(id, previewCache.path);
+              return previewCache.path;
             }
           }
         }
@@ -1615,7 +1714,9 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
         // If preview returns 404/failure, fallback to thumbUri
         if (thumbUri != null) {
           final fallbackReq = http.Request('GET', thumbUri);
-          if (token != null) fallbackReq.headers['Authorization'] = 'Bearer $token';
+          if (token != null && !token.startsWith('local_')) {
+            fallbackReq.headers['Authorization'] = 'Bearer $token';
+          }
           final fallbackStreamed = await client.send(fallbackReq);
           if (fallbackStreamed.statusCode == 200) {
             final tempPart = File('${thumbCache.path}.part');
@@ -1625,25 +1726,33 @@ class _PhotoViewerViewState extends State<_PhotoViewerView> {
             await sink.close();
             if (await tempPart.exists() && await tempPart.length() > 0) {
               await tempPart.rename(thumbCache.path);
-              if (mounted) {
-                setState(() {
-                  _fallbackThumbPath = thumbCache.path;
-                  _isLoading = false;
-                  _hasError = false;
-                });
-                return;
-              }
+              return 'thumb:${thumbCache.path}';
             }
           }
         }
+      } catch (_) {
+        // Handled below via empty return.
       } finally {
         client.close();
       }
-    } catch (_) {} finally {
-      _inFlightDownloads.remove(id);
-    }
+      return null;
+    }().whenComplete(() => _inFlightDownloads.remove(id));
 
-    if (mounted) {
+    final result = await future;
+    if (!mounted || widget.item.id != id) return;
+    if (result != null && result.startsWith('thumb:')) {
+      setState(() {
+        _fallbackThumbPath = result.substring('thumb:'.length);
+        _isLoading = false;
+        _hasError = false;
+      });
+    } else if (result != null) {
+      setState(() {
+        _resolvedPath = result;
+        _isLoading = false;
+        _hasError = false;
+      });
+    } else {
       setState(() {
         _isLoading = false;
         if (_resolvedPath == null && _fallbackThumbPath == null) {
@@ -1924,11 +2033,11 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
             }
           }
 
-          // 2. Check if video was previously cached in temp directory
+          // 2. Check if video was previously cached in managed cache directory
           if (localFile == null) {
             try {
-              final tempDir = await getTemporaryDirectory();
-              final cached = File('${tempDir.path}/video_${widget.item.id}.mp4');
+              final cacheDir = await CacheService.getManagedCacheDirectory();
+              final cached = File('${cacheDir.path}/video_${widget.item.id}.mp4');
               if (cached.existsSync() && cached.lengthSync() > 0) {
                 localFile = cached;
               }
@@ -1981,8 +2090,8 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
       } else if (videoUri != null) {
         // Resolve video poster thumbnail from disk cache so poster is visible before video streams
         try {
-          getTemporaryDirectory().then((tempDir) {
-            final cachedThumb = File('${tempDir.path}/thumb_${widget.item.id}.webp');
+          CacheService.getManagedCacheDirectory().then((cacheDir) {
+            final cachedThumb = File('${cacheDir.path}/thumb_${widget.item.id}.webp');
             if (cachedThumb.existsSync() && cachedThumb.lengthSync() > 0) {
               if (mounted) setState(() => _posterPath = cachedThumb.path);
             } else {
@@ -1998,14 +2107,8 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
           });
         } catch (_) {}
 
-        var playUri = videoUri;
-        if (token != null && !playUri.queryParameters.containsKey('token')) {
-          final query = Map<String, String>.from(playUri.queryParameters);
-          query['token'] = token;
-          playUri = playUri.replace(queryParameters: query);
-        }
         _controller = VideoPlayerController.networkUrl(
-          playUri,
+          videoUri,
           httpHeaders: authHeaders ?? const {},
         );
       } else {
@@ -2199,6 +2302,7 @@ class _VideoPlayerViewState extends State<_VideoPlayerView> {
                 shape: BoxShape.circle,
               ),
               child: IconButton(
+                tooltip: isPlaying ? 'Pause video' : 'Play video',
                 iconSize: 64,
                 color: Colors.white,
                 icon: Icon(

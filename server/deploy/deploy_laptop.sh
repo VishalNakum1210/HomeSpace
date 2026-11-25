@@ -35,6 +35,7 @@ else
 fi
 
 echo "4. Setting up .env configuration..."
+umask 077
 cat <<EOF > .env
 HOST=0.0.0.0
 PORT=8888
@@ -42,7 +43,10 @@ DATA_DIR=${DATA_DIR}
 NODE_ENV=production
 # 10 GiB per user default quota
 DEFAULT_USER_QUOTA_BYTES=10737418240
+# Set to false after creating family accounts to lock down public signup
+REGISTRATION_OPEN=true
 EOF
+chmod 600 .env
 
 echo "5. Checking Xubuntu lid-close settings (Keep server alive with closed lid)..."
 if grep -q "^HandleLidSwitch=ignore" /etc/systemd/logind.conf 2>/dev/null; then
@@ -82,10 +86,15 @@ if command -v cloudflared &> /dev/null; then
   echo "✓ cloudflared is installed. Cloudflare Tunnel is available."
 fi
 
+TS_IP=$(tailscale ip -4 2>/dev/null | head -n 1 || echo "<tailscale-ip>")
+TS_DNS=$(tailscale status --self --json 2>/dev/null | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const j=JSON.parse(d);console.log((j.Self?.DNSName||'').replace(/\.$/,''));}catch{}})" 2>/dev/null || true)
+
 echo ""
 echo "================================================="
 echo "  SUCCESS! HomeSpace Server is running on port 8888"
 echo "  Local Network:   http://$(hostname -I | awk '{print $1}'):8888"
-echo "  Tailscale Mesh:  http://100.113.105.20:8888"
-echo "  Tailscale Funnel: https://vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net:8443"
+echo "  Tailscale Mesh:  http://${TS_IP}:8888"
+if [ -n "${TS_DNS}" ]; then
+  echo "  Tailscale Funnel: https://${TS_DNS}:8443"
+fi
 echo "================================================="

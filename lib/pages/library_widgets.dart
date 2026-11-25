@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 
 import '../application/device_media_service.dart';
 import '../application/frontend_session.dart';
@@ -15,6 +14,7 @@ import '../design/space_widgets.dart';
 import '../design/system_ui.dart';
 import '../design/vector_artwork.dart';
 import '../domain/models.dart';
+import '../services/cache_service.dart';
 
 Future<T?> openSpacePage<T>(BuildContext context, Widget page) =>
     Navigator.of(context).push<T>(
@@ -80,10 +80,19 @@ class _PhotoThumbnailTile extends StatefulWidget {
 class _PhotoThumbnailTileState extends State<_PhotoThumbnailTile> {
   static final Map<String, String?> _localPathCache = {};
   static final Map<String, String?> _diskThumbCache = {};
-  static final Set<String> _inFlightDownloads = {};
+  static final Map<String, Future<String?>> _inFlightDownloads = {};
+  static const int _maxCacheEntries = 400;
 
   static void clearLocalPathCache() {
     _localPathCache.clear();
+    _diskThumbCache.clear();
+  }
+
+  static void _putBounded(Map<String, String?> map, String key, String? value) {
+    if (map.length >= _maxCacheEntries) {
+      map.remove(map.keys.first);
+    }
+    map[key] = value;
   }
 
   String? _resolvedPath;
@@ -136,7 +145,7 @@ class _PhotoThumbnailTileState extends State<_PhotoThumbnailTile> {
       }
       final local = await DeviceMediaService.findLocalMedia(title, isVideo: false);
       if (local != null && File(local).existsSync()) {
-        _localPathCache[title] = local;
+        _putBounded(_localPathCache, title, local);
         if (mounted) setState(() => _resolvedPath = local);
         return;
       } else {
@@ -156,15 +165,15 @@ class _PhotoThumbnailTileState extends State<_PhotoThumbnailTile> {
     }
 
     try {
-      final tempDir = await getTemporaryDirectory();
-      final cacheFile = File('${tempDir.path}/thumb_$id.webp');
+      final cacheDir = await CacheService.getManagedCacheDirectory();
+      final cacheFile = File('${cacheDir.path}/thumb_$id.webp');
       if (cacheFile.existsSync() && cacheFile.lengthSync() > 0) {
-        _diskThumbCache[id] = cacheFile.path;
+        _putBounded(_diskThumbCache, id, cacheFile.path);
         if (mounted) setState(() => _resolvedPath = cacheFile.path);
         return;
       }
 
-      // 4. Download from network & cache to disk with auto-retry
+      // 4. Download from network & cache to disk (coalesced across tiles)
       final session = mounted ? FrontendSessionScope.maybeOf(context) : null;
       final targetUri = resolveMediaUri(
         asset: asset,
@@ -173,49 +182,67 @@ class _PhotoThumbnailTileState extends State<_PhotoThumbnailTile> {
         endpoint: 'thumb',
       );
       if (targetUri != null) {
-        _downloadAndCache(cacheFile, targetUri);
+        await _downloadAndCache(cacheFile, targetUri, session?.authToken);
       }
     } catch (_) {}
   }
 
-  Future<void> _downloadAndCache(File cacheFile, Uri targetUri) async {
+  Future<void> _downloadAndCache(File cacheFile, Uri targetUri, String? token) async {
     final id = widget.media.id;
-    if (_inFlightDownloads.contains(id)) return;
-    _inFlightDownloads.add(id);
+    final inFlight = _inFlightDownloads[id];
+    if (inFlight != null) {
+      final path = await inFlight;
+      if (mounted) {
+        if (path != null) {
+          setState(() {
+            _resolvedPath = path;
+            _hasError = false;
+          });
+        } else {
+          _handleDownloadFailure();
+        }
+      }
+      return;
+    }
 
-    try {
-      final token = mounted ? FrontendSessionScope.maybeOf(context)?.authToken : null;
+    final future = () async {
       final client = createHomeSpaceHttpClient();
       try {
         final req = http.Request('GET', targetUri);
         if (token != null) req.headers['Authorization'] = 'Bearer $token';
-        final streamed = await client.send(req);
+        final streamed = await client.send(req).timeout(const Duration(seconds: 20));
         if (streamed.statusCode == 200) {
           final tempPart = File('${cacheFile.path}.part');
           final sink = tempPart.openWrite();
-          await streamed.stream.pipe(sink);
-          await sink.flush();
-          await sink.close();
+          try {
+            await streamed.stream.pipe(sink);
+            await sink.flush();
+          } finally {
+            await sink.close();
+          }
           if (await tempPart.exists() && await tempPart.length() > 0) {
             await tempPart.rename(cacheFile.path);
-            _diskThumbCache[id] = cacheFile.path;
-            if (mounted) {
-              setState(() {
-                _resolvedPath = cacheFile.path;
-                _hasError = false;
-              });
-            }
+            _putBounded(_diskThumbCache, id, cacheFile.path);
+            return cacheFile.path;
           }
-        } else {
-          _handleDownloadFailure();
         }
+      } catch (_) {
       } finally {
         client.close();
       }
-    } catch (_) {
+      return null;
+    }();
+
+    _inFlightDownloads[id] = future;
+    final path = await future.whenComplete(() => _inFlightDownloads.remove(id));
+    if (!mounted) return;
+    if (path != null) {
+      setState(() {
+        _resolvedPath = path;
+        _hasError = false;
+      });
+    } else {
       _handleDownloadFailure();
-    } finally {
-      _inFlightDownloads.remove(id);
     }
   }
 
@@ -320,19 +347,23 @@ class _PhotoThumbnailTileState extends State<_PhotoThumbnailTile> {
   }
 
   Widget _fallbackWidget() {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        setState(() {
-          _hasError = false;
-          _retryCount = 0;
-        });
-        _resolveThumbnail();
-      },
-      child: Container(
-        color: Colors.black12,
-        child: const Center(
-          child: Icon(Icons.broken_image_outlined, size: 36, color: Colors.black38),
+    return Semantics(
+      button: true,
+      label: 'Retry loading ${widget.media.title}',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          setState(() {
+            _hasError = false;
+            _retryCount = 0;
+          });
+          _resolveThumbnail();
+        },
+        child: Container(
+          color: Colors.black12,
+          child: const Center(
+            child: Icon(Icons.broken_image_outlined, size: 36, color: Colors.black54),
+          ),
         ),
       ),
     );
@@ -348,12 +379,20 @@ class _VideoThumbnailTile extends StatefulWidget {
 }
 
 class _VideoThumbnailTileState extends State<_VideoThumbnailTile> {
-  static final Set<String> _inFlightVideoDownloads = {};
+  static final Map<String, Future<String?>> _inFlightVideoDownloads = {};
   static final Map<String, String> _diskVideoThumbCache = {};
+  static const int _maxVideoCacheEntries = 400;
   String? _localThumbPath;
 
   static void clearLocalCache() {
     _diskVideoThumbCache.clear();
+  }
+
+  static void _putVideoCache(String id, String path) {
+    if (_diskVideoThumbCache.length >= _maxVideoCacheEntries) {
+      _diskVideoThumbCache.remove(_diskVideoThumbCache.keys.first);
+    }
+    _diskVideoThumbCache[id] = path;
   }
 
   @override
@@ -389,10 +428,10 @@ class _VideoThumbnailTileState extends State<_VideoThumbnailTile> {
 
     // 1. Check persistent disk cache first (fastest, survives deletion of original video)
     try {
-      final tempDir = await getTemporaryDirectory();
-      final cacheFile = File('${tempDir.path}/thumb_$id.webp');
+      final cacheDir = await CacheService.getManagedCacheDirectory();
+      final cacheFile = File('${cacheDir.path}/thumb_$id.webp');
       if (cacheFile.existsSync() && cacheFile.lengthSync() > 0) {
-        _diskVideoThumbCache[id] = cacheFile.path;
+        _putVideoCache(id, cacheFile.path);
         if (mounted) setState(() => _localThumbPath = cacheFile.path);
         return;
       }
@@ -404,10 +443,10 @@ class _VideoThumbnailTileState extends State<_VideoThumbnailTile> {
       fileName: fileName.isNotEmpty ? fileName : null,
     );
     if (mounted && thumb != null && File(thumb).existsSync()) {
-      _diskVideoThumbCache[id] = thumb;
+      _putVideoCache(id, thumb);
       try {
-        final tempDir = await getTemporaryDirectory();
-        final cacheFile = File('${tempDir.path}/thumb_$id.webp');
+        final cacheDir = await CacheService.getManagedCacheDirectory();
+        final cacheFile = File('${cacheDir.path}/thumb_$id.webp');
         if (!cacheFile.existsSync() || cacheFile.lengthSync() == 0) {
           await File(thumb).copy(cacheFile.path);
         }
@@ -416,10 +455,10 @@ class _VideoThumbnailTileState extends State<_VideoThumbnailTile> {
       return;
     }
 
-    // 3. Network download from server
+    // 3. Network download from server (coalesced across tiles)
     try {
-      final tempDir = await getTemporaryDirectory();
-      final cacheFile = File('${tempDir.path}/thumb_$id.webp');
+      final cacheDir = await CacheService.getManagedCacheDirectory();
+      final cacheFile = File('${cacheDir.path}/thumb_$id.webp');
       final session = mounted ? FrontendSessionScope.maybeOf(context) : null;
       final targetUri = resolveMediaUri(
         asset: widget.media.asset,
@@ -427,35 +466,44 @@ class _VideoThumbnailTileState extends State<_VideoThumbnailTile> {
         serverUri: session?.serverUri,
         endpoint: 'thumb',
       );
-      if (targetUri != null && !_inFlightVideoDownloads.contains(id)) {
-        _inFlightVideoDownloads.add(id);
-        try {
-          if (!mounted) return;
-          final token = session?.authToken;
+      if (targetUri != null) {
+        final existing = _inFlightVideoDownloads[id];
+        if (existing != null) {
+          final path = await existing;
+          if (mounted && path != null) setState(() => _localThumbPath = path);
+          return;
+        }
+        final token = session?.authToken;
+        final future = () async {
           final client = createHomeSpaceHttpClient();
           try {
             final req = http.Request('GET', targetUri);
             if (token != null) req.headers['Authorization'] = 'Bearer $token';
-            final streamed = await client.send(req);
+            final streamed = await client.send(req).timeout(const Duration(seconds: 20));
             if (streamed.statusCode == 200) {
               final tempPart = File('${cacheFile.path}.part');
               final sink = tempPart.openWrite();
-              await streamed.stream.pipe(sink);
-              await sink.flush();
-              await sink.close();
+              try {
+                await streamed.stream.pipe(sink);
+                await sink.flush();
+              } finally {
+                await sink.close();
+              }
               if (await tempPart.exists() && await tempPart.length() > 0) {
                 await tempPart.rename(cacheFile.path);
-                _diskVideoThumbCache[id] = cacheFile.path;
-                if (mounted) setState(() => _localThumbPath = cacheFile.path);
+                _putVideoCache(id, cacheFile.path);
+                return cacheFile.path;
               }
             }
+          } catch (_) {
           } finally {
             client.close();
           }
-        } catch (_) {
-        } finally {
-          _inFlightVideoDownloads.remove(id);
-        }
+          return null;
+        }();
+        _inFlightVideoDownloads[id] = future;
+        final path = await future.whenComplete(() => _inFlightVideoDownloads.remove(id));
+        if (mounted && path != null) setState(() => _localThumbPath = path);
       }
     } catch (_) {}
   }
@@ -777,7 +825,7 @@ Future<bool> confirmLibraryAction(
 
 Future<bool> trashMemories(BuildContext context, List<String> ids) async {
   final repository = HomeScope.of(context);
-  final actionContext = Navigator.of(context).context;
+  final navigator = Navigator.of(context, rootNavigator: true);
   final confirmed = await confirmLibraryAction(
     context,
     title:
@@ -810,8 +858,11 @@ Future<bool> trashMemories(BuildContext context, List<String> ids) async {
           label: 'Undo',
           onPressed: () {
             messenger.clearSnackBars();
-            if (actionContext.mounted) {
-              saveLocalChange(actionContext, () => repository.restoreMany(ids));
+            final navCtx = navigator.context;
+            if (navigator.mounted && navCtx.mounted) {
+              saveLocalChange(navCtx, () => repository.restoreMany(ids));
+            } else {
+              repository.restoreMany(ids).catchError((_) {});
             }
           },
         ),

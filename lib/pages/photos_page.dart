@@ -311,12 +311,6 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _triggerSyncAndBackup();
-  }
-
-  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _invalidateLocalMediaCaches();
@@ -416,7 +410,7 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                   'YEARS IN LIBRARY',
                   style: text.labelSmall?.copyWith(
                     letterSpacing: 1.1,
-                    color: Colors.grey.shade600,
+                    color: style.muted,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -457,7 +451,7 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                   'CUSTOM DATE RANGE',
                   style: text.labelSmall?.copyWith(
                     letterSpacing: 1.1,
-                    color: Colors.grey.shade600,
+                    color: style.muted,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -831,14 +825,27 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                                           : '${selectedDateRange!.start.day}/${selectedDateRange!.start.month}/${selectedDateRange!.start.year} – ${selectedDateRange!.end.day}/${selectedDateRange!.end.month}/${selectedDateRange!.end.year}',
                                       style: text.bodySmall?.copyWith(color: style.accent, fontWeight: FontWeight.bold),
                                     ),
-                                    const SizedBox(width: 6),
-                                    GestureDetector(
-                                      key: const ValueKey('clear-date-filter-btn'),
-                                      onTap: () => changeMode(() {
-                                        jumpYear = null;
-                                        selectedDateRange = null;
-                                      }),
-                                      child: Icon(Icons.close_rounded, size: 16, color: style.accent),
+                                    const SizedBox(width: 4),
+                                    Semantics(
+                                      button: true,
+                                      label: 'Clear date filter',
+                                      child: InkWell(
+                                        key: const ValueKey('clear-date-filter-btn'),
+                                        borderRadius: BorderRadius.circular(24),
+                                        onTap: () => changeMode(() {
+                                          jumpYear = null;
+                                          selectedDateRange = null;
+                                        }),
+                                        child: ConstrainedBox(
+                                          constraints: const BoxConstraints(
+                                            minWidth: 48,
+                                            minHeight: 48,
+                                          ),
+                                          child: Center(
+                                            child: Icon(Icons.close_rounded, size: 18, color: style.accent),
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -879,7 +886,7 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                               'QUICK DISCOVERY & SUGGESTIONS',
                               style: text.labelSmall?.copyWith(
                                 letterSpacing: 1.1,
-                                color: Colors.grey.shade600,
+                                color: style.muted,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -1117,14 +1124,33 @@ class _PhotosPageState extends State<PhotosPage> with WidgetsBindingObserver {
                                     : () async {
                                         final revision = selectionRevision;
                                         final count = ids.length;
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Sharing $count ${count == 1 ? 'memory' : 'memories'}…',
+                                        final localPaths = <String>[];
+                                        for (final id in ids) {
+                                          final item = repository.mediaById(id);
+                                          if (item != null &&
+                                              item.asset.isNotEmpty &&
+                                              !item.asset.startsWith('http') &&
+                                              !item.asset.startsWith('assets/') &&
+                                              File(item.asset).existsSync()) {
+                                            localPaths.add(item.asset);
+                                          }
+                                        }
+                                        var shared = false;
+                                        if (localPaths.isNotEmpty) {
+                                          shared = await DeviceMediaService.shareMultipleMedia(
+                                            filePaths: localPaths,
+                                          );
+                                        }
+                                        if (!shared && context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Sharing $count ${count == 1 ? 'memory' : 'memories'}…',
+                                              ),
+                                              behavior: SnackBarBehavior.floating,
                                             ),
-                                            behavior: SnackBarBehavior.floating,
-                                          ),
-                                        );
+                                          );
+                                        }
                                         if (mounted &&
                                             revision == selectionRevision) {
                                           clearSelection();

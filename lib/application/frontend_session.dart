@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../data/homespace_api_client.dart';
 import '../domain/models.dart';
 import 'auto_backup_service.dart';
 
@@ -84,6 +85,7 @@ class FileSessionStore implements SessionStore {
 
 class FrontendSession extends ChangeNotifier {
   final SessionStore? _store;
+  Future<void> Function()? onRemoteLogout;
   bool _open = false;
   Uri? _serverUri;
   String? _authToken;
@@ -91,11 +93,13 @@ class FrontendSession extends ChangeNotifier {
   String? _userEmail;
   String? _userName;
   AvatarTone? _avatarTone;
+  bool _isAdmin = false;
   bool _initialized = false;
 
   FrontendSession({
     Uri? serverUri,
     SessionStore? store,
+    this.onRemoteLogout,
     // ignore: prefer_initializing_formals
   })  : _serverUri = serverUri,
         // ignore: prefer_initializing_formals
@@ -110,6 +114,7 @@ class FrontendSession extends ChangeNotifier {
   String? get userEmail => _userEmail;
   String? get userName => _userName;
   AvatarTone? get avatarTone => _avatarTone;
+  bool get isAdmin => _isAdmin;
 
   Future<bool> restoreSession() async {
     if (_store == null) {
@@ -134,6 +139,7 @@ class FrontendSession extends ChangeNotifier {
       _userId = userId;
       _userEmail = email;
       _userName = name;
+      _isAdmin = data['isAdmin'] == true;
       if (toneStr != null) {
         _avatarTone = AvatarTone.values.asNameMap()[toneStr];
       }
@@ -158,6 +164,7 @@ class FrontendSession extends ChangeNotifier {
     required String email,
     String? name,
     AvatarTone? avatarTone,
+    bool isAdmin = false,
   }) async {
     _serverUri = serverUri;
     _authToken = token;
@@ -165,6 +172,7 @@ class FrontendSession extends ChangeNotifier {
     _userEmail = email;
     _userName = name;
     _avatarTone = avatarTone;
+    _isAdmin = isAdmin;
     _open = true;
     notifyListeners();
 
@@ -174,6 +182,7 @@ class FrontendSession extends ChangeNotifier {
         'token': token,
         'userId': userId,
         'email': email,
+        'isAdmin': isAdmin,
         // ignore: use_null_aware_elements
         if (name != null) 'name': name,
         // ignore: use_null_aware_elements
@@ -199,6 +208,7 @@ class FrontendSession extends ChangeNotifier {
         'token': _authToken,
         'userId': _userId,
         'email': _userEmail,
+        'isAdmin': _isAdmin,
         // ignore: use_null_aware_elements
         if (_userName != null) 'name': _userName,
         // ignore: use_null_aware_elements
@@ -216,13 +226,39 @@ class FrontendSession extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    final oldToken = _authToken;
+    final oldUri = _serverUri;
+    final wasRemote = oldToken != null &&
+        oldToken.isNotEmpty &&
+        !oldToken.startsWith('local_') &&
+        oldUri != null &&
+        oldUri.hasAuthority;
+
     _open = false;
     _authToken = null;
     _userId = null;
     _userEmail = null;
     _userName = null;
     _avatarTone = null;
+    _isAdmin = false;
     notifyListeners();
+
+    if (wasRemote) {
+      unawaited(() async {
+        final client = HomeSpaceApiClient();
+        try {
+          await client.logout(baseUri: oldUri, token: oldToken);
+        } catch (_) {
+        } finally {
+          client.close();
+        }
+      }());
+      if (onRemoteLogout != null) {
+        try {
+          await onRemoteLogout!();
+        } catch (_) {}
+      }
+    }
 
     if (_store != null) {
       await _store.clearSession();
@@ -230,6 +266,7 @@ class FrontendSession extends ChangeNotifier {
 
     unawaited(
       AutoBackupService.syncConfigToNative(
+        serverUri: '',
         token: '',
       ).catchError((_) {}),
     );

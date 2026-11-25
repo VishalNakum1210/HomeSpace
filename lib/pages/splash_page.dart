@@ -118,7 +118,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
                   "Your family's private memory cloud",
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                    color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
                     fontWeight: FontWeight.w600,
                     fontSize: 15,
                   ),
@@ -147,7 +147,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
                         style: TextStyle(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w600,
-                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                          color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
                           letterSpacing: 0.3,
                         ),
                       ),
@@ -158,7 +158,7 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
                         style: TextStyle(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w600,
-                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                          color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
                           letterSpacing: 0.2,
                         ),
                       ),

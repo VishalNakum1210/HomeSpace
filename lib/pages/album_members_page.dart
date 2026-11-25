@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../application/frontend_session.dart';
 import '../application/home_scope.dart';
 import '../design/album_widgets.dart';
 import '../design/space_theme.dart';
@@ -397,7 +398,9 @@ class _AddFamilyMemberSheetState extends State<AddFamilyMemberSheet> {
         ),
         const SizedBox(height: 10),
         Text(
-          'Choose a sample family member and their role. No invitations are sent.',
+          (FrontendSessionScope.maybeOf(context)?.isAuthenticated ?? false)
+              ? 'Choose a family member and set their role in this album.'
+              : 'Choose a sample family member and their role. No invitations are sent.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         for (final person in people)

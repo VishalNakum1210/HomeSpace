@@ -8,6 +8,7 @@ export function loadConfig(env = process.env) {
   // 10 GB default per-user quota
   const defaultQuotaBytes = parseInt(env.DEFAULT_USER_QUOTA_BYTES || '10737418240', 10);
   const tokenExpiryDays = parseInt(env.TOKEN_EXPIRY_DAYS || '30', 10);
+  const registrationOpen = env.REGISTRATION_OPEN !== 'false';
 
   return {
     host,
@@ -16,5 +17,6 @@ export function loadConfig(env = process.env) {
     nodeEnv,
     defaultQuotaBytes,
     tokenExpiryDays,
+    registrationOpen,
   };
 }

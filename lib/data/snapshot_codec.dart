@@ -26,6 +26,8 @@ class SnapshotCodec {
           'kind': item.kind.name,
           'durationMs': item.duration?.inMilliseconds,
           'isSynced': item.isSynced,
+          if (item.sizeBytes != null) 'sizeBytes': item.sizeBytes,
+          if (item.mimeType != null) 'mimeType': item.mimeType,
         },
     ],
     'albums': [
@@ -85,7 +87,9 @@ class SnapshotCodec {
         name: _text(profile['name']),
         appearance: _enum(Appearance.values, profile['appearance']),
         avatarTone: _enum(AvatarTone.values, profile['avatarTone']),
-        isAdmin: profile['isAdmin'] == null || profile['isAdmin'] == true,
+        isAdmin: profile['isAdmin'] is bool
+            ? profile['isAdmin'] as bool
+            : profile['userId'] == 'member-maya',
         appLockEnabled: profile['appLockEnabled'] == true,
         appLockPin: profile['appLockPin'] as String?,
       ),
@@ -155,6 +159,8 @@ class SnapshotCodec {
         ? null
         : Duration(milliseconds: (value['durationMs'] as num).toInt()),
     isSynced: value['isSynced'] == true,
+    sizeBytes: (value['sizeBytes'] as num?)?.toInt(),
+    mimeType: value['mimeType'] as String?,
   );
   static Album _album(Map<String, Object?> value) => Album(
     id: _text(value['id']),

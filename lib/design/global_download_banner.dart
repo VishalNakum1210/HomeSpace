@@ -133,7 +133,7 @@ class GlobalDownloadBanner extends StatelessWidget {
                                       ? const Color(0xFFA5D6A7)
                                       : isFailed
                                           ? const Color(0xFFEF9A9A)
-                                          : const Color(0xFF94A3B8),
+                                          : const Color(0xFFCBD5E1),
                                   fontSize: 12,
                                 ),
                               ),

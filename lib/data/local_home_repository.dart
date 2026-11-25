@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../application/auto_backup_service.dart';
 import '../domain/models.dart';
+import '../domain/pin_security.dart';
 import '../domain/repositories.dart';
 import 'demo_remote_repositories.dart';
 import 'homespace_api_client.dart';
@@ -102,14 +103,7 @@ class LocalHomeRepository extends HomeRepository {
         );
         await store.save(_data);
       } else {
-        final healedMedia = saved.snapshot.media.map((m) {
-          final fileDate = parseDateFromFileName(m.title);
-          if (fileDate != null && m.takenAt != fileDate) {
-            return m.copyWith(takenAt: fileDate);
-          }
-          return m;
-        }).toList();
-        _data = saved.snapshot.copyWith(media: healedMedia);
+        _data = saved.snapshot;
         _recoveryNotice = saved.recoveryNotice;
       }
       _ready = true;
@@ -152,12 +146,10 @@ class LocalHomeRepository extends HomeRepository {
   @override
   FamilyMember memberById(String id) {
     if (id == profile.userId) return FamilyMember(id, profile.name);
-    return _data.family.firstWhere(
-      (item) => item.id == id,
-      orElse: () => throw const LocalActionException(
-        'That family member is unavailable.',
-      ),
-    );
+    for (final item in _data.family) {
+      if (item.id == id) return item;
+    }
+    return FamilyMember(id, 'Family Member');
   }
 
   @override
@@ -292,12 +284,36 @@ class LocalHomeRepository extends HomeRepository {
     required String userId,
     required String name,
     required AvatarTone avatarTone,
+    bool? isAdmin,
+    bool clearDemoSeed = false,
     Uri? serverUri,
     String? token,
   }) async {
     await _commit((state) {
       final oldUserId = state.profile.userId;
-      final updatedAlbums = state.albums.map((album) {
+      final seed = clearDemoSeed ? seedLibrary(clock()) : null;
+      final seedMediaIds = seed == null ? const <String>{} : seed.media.map((m) => m.id).toSet();
+      final seedAlbumIds = seed == null ? const <String>{} : seed.albums.map((a) => a.id).toSet();
+
+      final baseMedia = clearDemoSeed
+          ? state.media.where((m) => !seedMediaIds.contains(m.id)).toList()
+          : state.media;
+      final keptMediaIds = {for (final m in baseMedia) m.id};
+
+      final baseFavorites = clearDemoSeed
+          ? state.favorites.where(keptMediaIds.contains).toSet()
+          : state.favorites;
+      final baseTrash = clearDemoSeed
+          ? state.trash.where((t) => keptMediaIds.contains(t.mediaId)).toList()
+          : state.trash;
+      final baseAlbums = clearDemoSeed
+          ? state.albums.where((a) => !seedAlbumIds.contains(a.id)).toList()
+          : state.albums;
+
+      final updatedAlbums = baseAlbums.map((album) {
+        final nextMediaIds = clearDemoSeed
+            ? album.mediaIds.where(keptMediaIds.contains).toList()
+            : album.mediaIds;
         final updatedMemberships = album.memberships.map((m) {
           if (m.userId == oldUserId) {
             return AlbumMembership(userId, m.role);
@@ -306,19 +322,31 @@ class LocalHomeRepository extends HomeRepository {
         }).toList();
         final updatedAddedBy = <String, String>{};
         album.addedBy.forEach((mediaId, adderId) {
-          updatedAddedBy[mediaId] = adderId == oldUserId ? userId : adderId;
+          if (nextMediaIds.contains(mediaId)) {
+            updatedAddedBy[mediaId] = adderId == oldUserId ? userId : adderId;
+          }
         });
+        final nextCover = album.coverId != null && nextMediaIds.contains(album.coverId)
+            ? album.coverId
+            : nextMediaIds.firstOrNull;
         return album.copyWith(
+          mediaIds: nextMediaIds,
+          coverId: nextCover,
+          clearCover: nextMediaIds.isEmpty,
           memberships: updatedMemberships,
           addedBy: updatedAddedBy,
         );
       }).toList();
 
       return state.copyWith(
+        media: baseMedia,
+        favorites: baseFavorites,
+        trash: baseTrash,
         profile: state.profile.copyWith(
           userId: userId,
           name: name,
           avatarTone: avatarTone,
+          isAdmin: isAdmin,
         ),
         albums: updatedAlbums,
       );
@@ -347,7 +375,28 @@ class LocalHomeRepository extends HomeRepository {
     });
   }
 
+  Future<void>? _inFlightSync;
+
   Future<void> syncWithServer({
+    Uri? serverUri,
+    String? token,
+    HomeSpaceApiClient? apiClient,
+    bool clearLocalFirst = false,
+  }) {
+    if (_inFlightSync != null) return _inFlightSync!;
+    final future = _performSyncWithServer(
+      serverUri: serverUri,
+      token: token,
+      apiClient: apiClient,
+      clearLocalFirst: clearLocalFirst,
+    ).whenComplete(() {
+      _inFlightSync = null;
+    });
+    _inFlightSync = future;
+    return future;
+  }
+
+  Future<void> _performSyncWithServer({
     Uri? serverUri,
     String? token,
     HomeSpaceApiClient? apiClient,
@@ -355,119 +404,264 @@ class LocalHomeRepository extends HomeRepository {
   }) async {
     final activeUri = serverUri ?? getServerAddress?.call();
     final activeToken = token ?? getAuthToken?.call();
-    if (activeUri == null || activeToken == null) return;
+    if (activeUri == null || activeToken == null || activeToken.startsWith('local_')) return;
 
     final client = apiClient ?? _apiClient;
     try {
-      final remoteItems = await client.fetchMedia(
-        baseUri: activeUri,
-        token: activeToken,
-      );
-      if (remoteItems.isNotEmpty) {
-        await _commit((state) {
-          final existingMap = {for (final m in state.media) m.id: m};
-          final existingFilenames = {
-            for (final m in state.media) m.title.trim().toLowerCase(): m
-          };
+      // 1. Paginate all remote active media items
+      final remoteItems = <MediaItem>[];
+      final remoteFavorites = <String>{};
+      var offset = 0;
+      const pageSize = 200;
+      var remoteMediaOk = false;
 
-          final updatedMedia = [...state.media];
-          final updatedFavorites = {...state.favorites};
-          var updatedAlbums = [...state.albums];
-          var updatedTrash = [...state.trash];
-
-          for (final remote in remoteItems) {
-            final byName = existingFilenames[remote.title.trim().toLowerCase()];
-            if (byName != null) {
-              final oldId = byName.id;
-              final newId = remote.id;
-              final idx = updatedMedia.indexWhere((m) => m.id == oldId);
-              if (idx != -1) {
-                final updatedItem = byName.copyWith(
-                  id: newId,
-                  isSynced: true,
-                );
-                updatedMedia[idx] = updatedItem;
-
-                if (oldId != newId) {
-                  if (updatedFavorites.remove(oldId)) {
-                    updatedFavorites.add(newId);
-                  }
-                  updatedAlbums = updatedAlbums.map((a) {
-                    final nextMediaIds = a.mediaIds.map((id) => id == oldId ? newId : id).toList();
-                    final nextCover = a.coverId == oldId ? newId : a.coverId;
-                    final nextAddedBy = <String, String>{};
-                    a.addedBy.forEach((key, val) {
-                      nextAddedBy[key == oldId ? newId : key] = val;
-                    });
-                    return a.copyWith(mediaIds: nextMediaIds, coverId: nextCover, addedBy: nextAddedBy);
-                  }).toList();
-                  updatedTrash = updatedTrash.map((t) => t.mediaId == oldId ? TrashEntry(newId, t.deletedAt) : t).toList();
-                }
-              }
-            } else if (!existingMap.containsKey(remote.id)) {
-              updatedMedia.add(remote);
-              existingMap[remote.id] = remote;
-            }
-          }
-          return state.copyWith(
-            media: updatedMedia,
-            favorites: updatedFavorites,
-            albums: updatedAlbums,
-            trash: updatedTrash,
-          );
-        });
-      }
-
-      // Fetch remote albums
-      final remoteAlbums = await client.fetchAlbums(
-        baseUri: activeUri,
-        token: activeToken,
-        currentUserId: _data.profile.userId,
-      );
-      if (remoteAlbums.isNotEmpty) {
-        await _commit((state) {
-          final updatedAlbums = [...state.albums];
-          for (final remote in remoteAlbums) {
-            final existingIdx = updatedAlbums.indexWhere((a) => a.id == remote.id);
-            if (existingIdx != -1) {
-              updatedAlbums[existingIdx] = remote;
-            } else {
-              updatedAlbums.add(remote);
-            }
-          }
-          return state.copyWith(albums: updatedAlbums);
-        });
-      }
-
-      // Fetch remote trashed items
-      try {
-        final remoteTrashed = await client.fetchTrash(
+      while (true) {
+        final page = await client.fetchMediaPage(
           baseUri: activeUri,
           token: activeToken,
+          limit: pageSize,
+          offset: offset,
         );
-        if (remoteTrashed.isNotEmpty) {
-          await _commit((state) {
-            final updatedMedia = [...state.media];
-            final existingMediaIds = {for (final m in updatedMedia) m.id};
-            final currentTrashMap = {for (final t in state.trash) t.mediaId: t};
-            final now = clock().toUtc();
+        remoteMediaOk = true;
+        remoteItems.addAll(page.items);
+        remoteFavorites.addAll(page.favoriteIds);
+        if (page.items.length < pageSize || remoteItems.length >= page.total) {
+          break;
+        }
+        offset += page.items.length;
+      }
 
-            for (final remote in remoteTrashed) {
-              if (!existingMediaIds.contains(remote.id)) {
-                updatedMedia.add(remote);
-                existingMediaIds.add(remote.id);
-              }
-              if (!currentTrashMap.containsKey(remote.id)) {
-                currentTrashMap[remote.id] = TrashEntry(remote.id, now);
+      // 2. Fetch remote trash
+      var remoteTrashOk = false;
+      final remoteTrashed = <MediaItem>[];
+      try {
+        remoteTrashed.addAll(
+          await client.fetchTrash(baseUri: activeUri, token: activeToken),
+        );
+        remoteTrashOk = true;
+      } catch (_) {}
+
+      // 3. Fetch remote albums + shared media + optional family directory
+      HomeSpaceAlbumsBundle? albumsBundle;
+      var remoteAlbumsOk = false;
+      try {
+        albumsBundle = await client.fetchAlbumsBundle(
+          baseUri: activeUri,
+          token: activeToken,
+          currentUserId: _data.profile.userId,
+          includeMedia: true,
+        );
+        remoteAlbumsOk = true;
+      } catch (_) {}
+
+      final fetchedMembers = <FamilyMember>[];
+      try {
+        fetchedMembers.addAll(
+          await client.fetchFamilyMembers(baseUri: activeUri, token: activeToken),
+        );
+      } catch (_) {}
+
+      await _commit((state) {
+        final baseMedia = clearLocalFirst ? <MediaItem>[] : state.media;
+        final existingById = {for (final m in baseMedia) m.id: m};
+        final existingByTitle = {
+          for (final m in baseMedia) m.title.trim().toLowerCase(): m,
+        };
+
+        final remoteActiveIds = {for (final m in remoteItems) m.id};
+        final remoteTrashIds = {for (final m in remoteTrashed) m.id};
+        final sharedAlbumMedia = albumsBundle?.sharedMedia ?? const <MediaItem>[];
+        final remoteSharedIds = {for (final m in sharedAlbumMedia) m.id};
+
+        final updatedMedia = <MediaItem>[...baseMedia];
+        var updatedFavorites = {...state.favorites};
+        var updatedAlbums = clearLocalFirst ? <Album>[] : [...state.albums];
+        var updatedTrash = clearLocalFirst ? <TrashEntry>[] : [...state.trash];
+
+        // Remove stale synced items deleted on server when full active + trash lists succeeded
+        if (remoteMediaOk && remoteTrashOk) {
+          final stillOnServer = {
+            ...remoteActiveIds,
+            ...remoteTrashIds,
+            ...remoteSharedIds,
+          };
+          final removedIds = updatedMedia
+              .where((m) => m.isSynced && !stillOnServer.contains(m.id))
+              .map((m) => m.id)
+              .toSet();
+          if (removedIds.isNotEmpty) {
+            updatedMedia.removeWhere((m) => removedIds.contains(m.id));
+            updatedFavorites.removeAll(removedIds);
+            updatedTrash.removeWhere((t) => removedIds.contains(t.mediaId));
+            existingById.removeWhere((k, _) => removedIds.contains(k));
+            updatedAlbums = updatedAlbums.map((a) {
+              final nextIds = a.mediaIds.where((id) => !removedIds.contains(id)).toList();
+              final nextAddedBy = {...a.addedBy}..removeWhere((k, _) => removedIds.contains(k));
+              final nextCover = a.coverId != null && nextIds.contains(a.coverId)
+                  ? a.coverId
+                  : nextIds.firstOrNull;
+              return a.copyWith(
+                mediaIds: nextIds,
+                addedBy: nextAddedBy,
+                coverId: nextCover,
+                clearCover: nextIds.isEmpty,
+              );
+            }).toList();
+          }
+        }
+
+        // Reconcile remote active media
+        void mergeRemoteMedia(MediaItem remote) {
+          final lowerTitle = remote.title.trim().toLowerCase();
+          final byId = existingById[remote.id];
+          if (byId != null) {
+            final idx = updatedMedia.indexWhere((m) => m.id == remote.id);
+            if (idx != -1) {
+              final hasLocalAsset =
+                  !byId.asset.startsWith('http') &&
+                  !byId.asset.startsWith('assets/') &&
+                  byId.asset.isNotEmpty;
+              updatedMedia[idx] = byId.copyWith(
+                isSynced: true,
+                asset: hasLocalAsset ? byId.asset : remote.asset,
+                sizeBytes: remote.sizeBytes ?? byId.sizeBytes,
+                mimeType: remote.mimeType ?? byId.mimeType,
+              );
+            }
+            return;
+          }
+          final byName = lowerTitle.isNotEmpty ? existingByTitle[lowerTitle] : null;
+          if (byName != null) {
+            final oldId = byName.id;
+            final newId = remote.id;
+            final idx = updatedMedia.indexWhere((m) => m.id == oldId);
+            if (idx != -1) {
+              updatedMedia[idx] = byName.copyWith(
+                id: newId,
+                isSynced: true,
+                sizeBytes: remote.sizeBytes ?? byName.sizeBytes,
+                mimeType: remote.mimeType ?? byName.mimeType,
+              );
+              existingById.remove(oldId);
+              existingById[newId] = updatedMedia[idx];
+              if (oldId != newId) {
+                if (updatedFavorites.remove(oldId)) {
+                  updatedFavorites.add(newId);
+                }
+                updatedAlbums = updatedAlbums.map((a) {
+                  final nextMediaIds = a.mediaIds.map((id) => id == oldId ? newId : id).toList();
+                  final nextCover = a.coverId == oldId ? newId : a.coverId;
+                  final nextAddedBy = <String, String>{};
+                  a.addedBy.forEach((key, val) {
+                    nextAddedBy[key == oldId ? newId : key] = val;
+                  });
+                  return a.copyWith(mediaIds: nextMediaIds, coverId: nextCover, addedBy: nextAddedBy);
+                }).toList();
+                updatedTrash = updatedTrash.map((t) => t.mediaId == oldId ? TrashEntry(newId, t.deletedAt) : t).toList();
               }
             }
-            return state.copyWith(
-              media: updatedMedia,
-              trash: currentTrashMap.values.toList(),
-            );
-          });
+            return;
+          }
+          updatedMedia.add(remote);
+          existingById[remote.id] = remote;
+          if (lowerTitle.isNotEmpty) {
+            existingByTitle[lowerTitle] = remote;
+          }
         }
-      } catch (_) {}
+
+        for (final remote in remoteItems) {
+          mergeRemoteMedia(remote);
+        }
+        for (final shared in sharedAlbumMedia) {
+          mergeRemoteMedia(shared);
+        }
+
+        // Reconcile remote favorites cleanly for active server media
+        if (remoteMediaOk) {
+          updatedFavorites.removeWhere((id) => remoteActiveIds.contains(id) && !remoteFavorites.contains(id));
+          final validMediaIds = {for (final m in updatedMedia) m.id};
+          updatedFavorites.addAll(remoteFavorites.where(validMediaIds.contains));
+        }
+
+        // Reconcile remote trash
+        if (remoteTrashOk) {
+          final currentTrashMap = {for (final t in updatedTrash) t.mediaId: t};
+          final now = clock().toUtc();
+          for (final remote in remoteTrashed) {
+            mergeRemoteMedia(remote);
+            currentTrashMap.putIfAbsent(remote.id, () => TrashEntry(remote.id, now));
+          }
+          // Restore locally trashed synced items that are active on server again
+          currentTrashMap.removeWhere((id, _) => remoteActiveIds.contains(id) && !remoteTrashIds.contains(id));
+          updatedTrash = currentTrashMap.values.toList();
+        }
+
+        // Reconcile albums and family members referenced in albums
+        final familyMap = {for (final f in state.family) f.id: f};
+        for (final f in fetchedMembers) {
+          familyMap[f.id] = f;
+        }
+        if (albumsBundle != null) {
+          for (final f in albumsBundle.members) {
+            familyMap[f.id] = f;
+          }
+          final finalMediaIds = {for (final m in updatedMedia) m.id};
+          final remoteAlbums = albumsBundle.albums;
+          for (final remote in remoteAlbums) {
+            // Filter album mediaIds to media present in updatedMedia so SnapshotCodec.validate holds
+            final validAlbumMedia = remote.mediaIds.where(finalMediaIds.contains).toList();
+            final validAddedBy = <String, String>{};
+            for (final mid in validAlbumMedia) {
+              final adder = remote.addedBy[mid] ?? state.profile.userId;
+              validAddedBy[mid] = adder;
+              if (adder != state.profile.userId) {
+                familyMap.putIfAbsent(adder, () => FamilyMember(adder, 'Family Member'));
+              }
+            }
+            for (final mem in remote.memberships) {
+              if (mem.userId != state.profile.userId) {
+                familyMap.putIfAbsent(mem.userId, () => FamilyMember(mem.userId, 'Family Member'));
+              }
+            }
+            final validCover = remote.coverId != null && validAlbumMedia.contains(remote.coverId)
+                ? remote.coverId
+                : validAlbumMedia.firstOrNull;
+            final normalizedAlbum = remote.copyWith(
+              mediaIds: validAlbumMedia,
+              addedBy: validAddedBy,
+              coverId: validCover,
+              clearCover: validAlbumMedia.isEmpty,
+            );
+
+            final existingIdx = updatedAlbums.indexWhere((a) => a.id == normalizedAlbum.id);
+            if (existingIdx != -1) {
+              updatedAlbums[existingIdx] = normalizedAlbum;
+            } else {
+              updatedAlbums.add(normalizedAlbum);
+            }
+          }
+          if (remoteAlbumsOk && remoteAlbums.isNotEmpty) {
+            // Keep locally-created demo/offline albums only when not explicitly synced, or remove deleted server albums
+            final remoteAlbumIds = {for (final a in remoteAlbums) a.id};
+            updatedAlbums.removeWhere((a) =>
+                a.id.startsWith('album-') &&
+                a.roleFor(state.profile.userId) == AlbumRole.owner &&
+                a.mediaIds.every((mid) => remoteActiveIds.contains(mid)) &&
+                !remoteAlbumIds.contains(a.id));
+          }
+        }
+
+        familyMap.remove(state.profile.userId);
+        updatedMedia.sort(MediaItem.compareNewestFirst);
+
+        return state.copyWith(
+          media: updatedMedia,
+          favorites: updatedFavorites,
+          albums: updatedAlbums,
+          trash: updatedTrash,
+          family: familyMap.values.toList(),
+        );
+      });
     } catch (e) {
       debugPrint('syncWithServer error: $e');
     }
@@ -526,6 +720,19 @@ class LocalHomeRepository extends HomeRepository {
       favorite ? next.addAll(active) : next.removeAll(active);
       return state.copyWith(favorites: next);
     });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null && !activeToken.startsWith('local_')) {
+      unawaited(
+        _apiClient.batchSetFavorites(
+          baseUri: activeUri,
+          token: activeToken,
+          mediaIds: requested,
+          isFavorite: favorite,
+        ).catchError((e) => debugPrint('batchSetFavorites error: $e')),
+      );
+    }
   }
 
   @override
@@ -542,33 +749,48 @@ class LocalHomeRepository extends HomeRepository {
   );
 
   @override
-  Future<void> setAppLock({required bool enabled, String? pin}) => _commit(
-    (state) => state.copyWith(
-      profile: state.profile.copyWith(
-        appLockEnabled: enabled,
-        appLockPin: pin,
+  Future<void> setAppLock({required bool enabled, String? pin}) {
+    final storedPin = (pin != null && pin.isNotEmpty && !PinSecurity.isHashed(pin))
+        ? PinSecurity.hashPin(pin)
+        : pin;
+    return _commit(
+      (state) => state.copyWith(
+        profile: state.profile.copyWith(
+          appLockEnabled: enabled,
+          appLockPin: storedPin,
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   @override
   Future<StorageBreakdown> getStorageBreakdown() async {
     final activeUri = getServerAddress?.call();
     final activeToken = getAuthToken?.call();
-    if (activeUri != null && activeToken != null) {
+    if (activeUri != null && activeToken != null && !activeToken.startsWith('local_')) {
       try {
         return await _apiClient.fetchStorageBreakdown(
           baseUri: activeUri,
           token: activeToken,
         );
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('fetchStorageBreakdown error: $e');
+      }
     }
     var photoBytes = 0;
     var videoBytes = 0;
     for (final m in media) {
-      final int sz = (m.asset.isNotEmpty && File(m.asset).existsSync())
-          ? File(m.asset).lengthSync()
-          : (m.kind == MediaKind.video ? 18 * 1024 * 1024 : 2 * 1024 * 1024);
+      int sz;
+      if (m.sizeBytes != null && m.sizeBytes! > 0) {
+        sz = m.sizeBytes!;
+      } else if (m.asset.isNotEmpty &&
+          !m.asset.startsWith('http') &&
+          !m.asset.startsWith('assets/') &&
+          File(m.asset).existsSync()) {
+        sz = File(m.asset).lengthSync();
+      } else {
+        sz = m.kind == MediaKind.video ? 18 * 1024 * 1024 : 2 * 1024 * 1024;
+      }
       if (m.kind == MediaKind.video) {
         videoBytes += sz;
       } else {
@@ -610,13 +832,11 @@ class LocalHomeRepository extends HomeRepository {
   Future<List<FamilyAccount>> getFamilyAccounts() async {
     final activeUri = getServerAddress?.call();
     final activeToken = getAuthToken?.call();
-    if (activeUri != null && activeToken != null) {
-      try {
-        return await _apiClient.fetchAdminUsers(
-          baseUri: activeUri,
-          token: activeToken,
-        );
-      } catch (_) {}
+    if (activeUri != null && activeToken != null && !activeToken.startsWith('local_')) {
+      return await _apiClient.fetchAdminUsers(
+        baseUri: activeUri,
+        token: activeToken,
+      );
     }
     return List.unmodifiable(_localFamilyAccounts);
   }
@@ -951,37 +1171,70 @@ class LocalHomeRepository extends HomeRepository {
     String albumId,
     String userId,
     AlbumRole role,
-  ) => _commit((state) {
-    final album = _album(state, albumId);
-    _owner(state, album);
-    memberById(userId);
-    if (role == AlbumRole.owner || album.roleFor(userId) == AlbumRole.owner) {
-      throw const LocalActionException(
-        'The album must keep its current owner.',
+  ) async {
+    List<AlbumMembership>? nextMemberships;
+    await _commit((state) {
+      final album = _album(state, albumId);
+      _owner(state, album);
+      memberById(userId);
+      if (role == AlbumRole.owner || album.roleFor(userId) == AlbumRole.owner) {
+        throw const LocalActionException(
+          'The album must keep its current owner.',
+        );
+      }
+      final members =
+          album.memberships.where((member) => member.userId != userId).toList()
+            ..add(AlbumMembership(userId, role));
+      nextMemberships = members;
+      return _replace(state, album.copyWith(memberships: members));
+    });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null && !activeToken.startsWith('local_') && nextMemberships != null) {
+      unawaited(
+        _apiClient.updateAlbumMembers(
+          baseUri: activeUri,
+          token: activeToken,
+          albumId: albumId,
+          memberships: nextMemberships!,
+        ).catchError((e) => debugPrint('Error syncing setMemberRole: $e')),
       );
     }
-    final members =
-        album.memberships.where((member) => member.userId != userId).toList()
-          ..add(AlbumMembership(userId, role));
-    return _replace(state, album.copyWith(memberships: members));
-  });
+  }
 
   @override
-  Future<void> removeMember(String albumId, String userId) => _commit((state) {
-    final album = _album(state, albumId);
-    _owner(state, album);
-    if (album.roleFor(userId) == AlbumRole.owner) {
-      throw const LocalActionException('The album owner cannot be removed.');
+  Future<void> removeMember(String albumId, String userId) async {
+    List<AlbumMembership>? nextMemberships;
+    await _commit((state) {
+      final album = _album(state, albumId);
+      _owner(state, album);
+      if (album.roleFor(userId) == AlbumRole.owner) {
+        throw const LocalActionException('The album owner cannot be removed.');
+      }
+      final members = album.memberships
+          .where((member) => member.userId != userId)
+          .toList();
+      nextMemberships = members;
+      return _replace(
+        state,
+        album.copyWith(memberships: members),
+      );
+    });
+
+    final activeUri = getServerAddress?.call();
+    final activeToken = getAuthToken?.call();
+    if (activeUri != null && activeToken != null && !activeToken.startsWith('local_') && nextMemberships != null) {
+      unawaited(
+        _apiClient.updateAlbumMembers(
+          baseUri: activeUri,
+          token: activeToken,
+          albumId: albumId,
+          memberships: nextMemberships!,
+        ).catchError((e) => debugPrint('Error syncing removeMember: $e')),
+      );
     }
-    return _replace(
-      state,
-      album.copyWith(
-        memberships: album.memberships
-            .where((member) => member.userId != userId)
-            .toList(),
-      ),
-    );
-  });
+  }
 
   @override
   Future<void> moveToTrash(String id) => moveManyToTrash([id]);

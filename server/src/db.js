@@ -89,6 +89,17 @@ export function initDatabase(dbPath = ':memory:') {
     );
 
     CREATE INDEX IF NOT EXISTS idx_album_media_media ON album_media(media_id);
+
+    CREATE TABLE IF NOT EXISTS album_members (
+      album_id TEXT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      added_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (album_id, user_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_album_members_user ON album_members(user_id);
   `);
 
   try {

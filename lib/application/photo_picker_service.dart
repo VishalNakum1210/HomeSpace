@@ -1,13 +1,16 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mime/mime.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../data/http_remote_repositories.dart';
 import '../domain/models.dart';
 import '../domain/repositories.dart';
 import '../pages/library_widgets.dart';
 import '../pages/uploads_page.dart';
+import '../widgets/app_lock_overlay.dart';
 import 'frontend_session.dart';
 import 'home_scope.dart';
 
@@ -121,7 +124,9 @@ class PhotoPickerHelper {
     String? targetAlbumId,
   }) async {
     try {
-      final images = await _picker.pickMultiImage();
+      final images = await AppLockOverlay.runWithoutLock(
+        () => _picker.pickMultiImage(),
+      );
       if (images.isEmpty) return;
 
       if (!context.mounted) return;
@@ -152,7 +157,9 @@ class PhotoPickerHelper {
     String? targetAlbumId,
   }) async {
     try {
-      final photo = await _picker.pickImage(source: ImageSource.camera);
+      final photo = await AppLockOverlay.runWithoutLock(
+        () => _picker.pickImage(source: ImageSource.camera),
+      );
       if (photo == null) return;
 
       if (!context.mounted) return;
@@ -183,7 +190,9 @@ class PhotoPickerHelper {
     String? targetAlbumId,
   }) async {
     try {
-      final video = await _picker.pickVideo(source: ImageSource.gallery);
+      final video = await AppLockOverlay.runWithoutLock(
+        () => _picker.pickVideo(source: ImageSource.gallery),
+      );
       if (video == null) return;
 
       if (!context.mounted) return;
@@ -207,6 +216,22 @@ class PhotoPickerHelper {
     }
   }
 
+  static Future<String> _persistLocalCopy(XFile file, String id, String filename) async {
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final dir = Directory('${docs.path}/homespace/local_media');
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      final safeName = filename.replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1F]'), '_');
+      final dest = File('${dir.path}/${id}_$safeName');
+      await File(file.path).copy(dest.path);
+      return dest.path;
+    } catch (_) {
+      return file.path;
+    }
+  }
+
   static Future<void> _processFiles(
     BuildContext context, {
     required List<XFile> files,
@@ -218,7 +243,10 @@ class PhotoPickerHelper {
   }) async {
     final serverUri = session?.serverUri;
     final token = session?.authToken;
-    final isOnlineServer = serverUri != null && token != null && repository.uploads is HttpUploadRepository;
+    final isOnlineServer = serverUri != null &&
+        token != null &&
+        !token.startsWith('local_') &&
+        repository.uploads is HttpUploadRepository;
 
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
@@ -235,7 +263,9 @@ class PhotoPickerHelper {
           label: 'View Queue',
           onPressed: () {
             messenger.clearSnackBars();
-            openSpacePage<void>(context, const UploadsPage());
+            if (context.mounted) {
+              openSpacePage<void>(context, const UploadsPage());
+            }
           },
         ),
       ),
@@ -268,13 +298,17 @@ class PhotoPickerHelper {
           takenAt: takenAt,
         );
       } else {
+        final localId = 'media-${DateTime.now().microsecondsSinceEpoch}-$i';
+        final persistedPath = await _persistLocalCopy(file, localId, filename);
         final item = MediaItem(
-          id: 'media-${DateTime.now().microsecondsSinceEpoch}-$i',
-          asset: file.path,
+          id: localId,
+          asset: persistedPath,
           title: filename,
           category: category,
           takenAt: takenAt,
           kind: kind,
+          sizeBytes: fileLength,
+          mimeType: mimeType,
         );
         await repository.addMedia(item);
         if (targetAlbumId != null) {

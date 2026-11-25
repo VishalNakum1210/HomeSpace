@@ -14,7 +14,6 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.provider.MediaStore
@@ -25,19 +24,23 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URL
-import java.security.SecureRandom
+import java.net.URLEncoder
+import java.security.KeyStore
+import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.Executors
-import javax.net.ssl.HostnameVerifier
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
+import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 /**
@@ -63,11 +66,26 @@ class AutoBackupJobService : JobService() {
         const val KEY_FOLDER_START_TIMES = "folder_start_times"
         const val KEY_WIFI_ONLY = "wifi_only"
         const val KEY_REQUIRE_CHARGING = "require_charging"
+        const val KEY_TRUSTED_CERT_PINS = "trusted_cert_pins"
 
         private const val NOTIFICATION_CHANNEL_ID = "homespace_auto_backup"
         private const val NOTIFICATION_ID = 9003
 
         private val executor = Executors.newSingleThreadExecutor()
+
+        fun hasAuthConfig(context: Context): Boolean {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val server = prefs.getString(KEY_SERVER_URI, null)
+            val token = prefs.getString(KEY_AUTH_TOKEN, null)
+            return !server.isNullOrBlank() && !token.isNullOrBlank()
+        }
+
+        fun cancelAll(context: Context) {
+            val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return
+            jobScheduler.cancel(CONTENT_TRIGGER_JOB_ID)
+            jobScheduler.cancel(PERIODIC_BACKUP_JOB_ID)
+            Log.d(TAG, "Cancelled all background auto-backup jobs.")
+        }
 
         fun isWifiConnected(context: Context): Boolean {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
@@ -87,9 +105,10 @@ class AutoBackupJobService : JobService() {
         fun markItemUploaded(context: Context, filename: String, size: Long = 0L) {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val current = prefs.getStringSet(KEY_UPLOADED_ITEMS, null)?.toMutableSet() ?: mutableSetOf()
-            current.add(filename.lowercase())
             if (size > 0L) {
                 current.add("${filename.lowercase()}_$size")
+            } else {
+                current.add(filename.lowercase())
             }
             prefs.edit().putStringSet(KEY_UPLOADED_ITEMS, current).apply()
         }
@@ -121,20 +140,15 @@ class AutoBackupJobService : JobService() {
             return prefs.getStringSet(KEY_IGNORED_OR_DELETED_ITEMS, null)?.toList() ?: emptyList()
         }
 
-        /**
-         * Schedules both the real-time ContentUri trigger job (for instant camera capture detection)
-         * and the 15-minute periodic fallback job with Wi-Fi and charging constraints.
-         */
-        fun schedule(context: Context) {
+        fun scheduleTriggerJob(context: Context) {
+            if (!hasAuthConfig(context)) return
             val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return
             val component = ComponentName(context, AutoBackupJobService::class.java)
-
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false)
             val requireCharging = prefs.getBoolean(KEY_REQUIRE_CHARGING, false)
             val networkType = if (wifiOnly) JobInfo.NETWORK_TYPE_UNMETERED else JobInfo.NETWORK_TYPE_ANY
 
-            // 1. Content URI trigger job (wakes up when Camera app captures a photo or video)
             try {
                 val triggerBuilder = JobInfo.Builder(CONTENT_TRIGGER_JOB_ID, component)
                     .addTriggerContentUri(
@@ -149,8 +163,8 @@ class AutoBackupJobService : JobService() {
                             JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS
                         )
                     )
-                    .setTriggerContentUpdateDelay(1500) // 1.5s delay so camera app finishes writing file
-                    .setTriggerContentMaxDelay(4000)   // 4s max delay
+                    .setTriggerContentUpdateDelay(1500)
+                    .setTriggerContentMaxDelay(4000)
                     .setRequiredNetworkType(networkType)
                     .setRequiresCharging(requireCharging)
 
@@ -159,8 +173,35 @@ class AutoBackupJobService : JobService() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to schedule ContentUri trigger job", e)
             }
+        }
 
-            // 2. Periodic fallback job (runs every 15 minutes as safety net)
+        /**
+         * Schedules both the real-time ContentUri trigger job and the 15-minute periodic fallback job
+         * without resetting the periodic timer if constraints are unchanged.
+         */
+        fun schedule(context: Context) {
+            if (!hasAuthConfig(context)) {
+                cancelAll(context)
+                return
+            }
+            scheduleTriggerJob(context)
+
+            val jobScheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return
+            val component = ComponentName(context, AutoBackupJobService::class.java)
+
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false)
+            val requireCharging = prefs.getBoolean(KEY_REQUIRE_CHARGING, false)
+            val networkType = if (wifiOnly) JobInfo.NETWORK_TYPE_UNMETERED else JobInfo.NETWORK_TYPE_ANY
+
+            val existingPeriodic = jobScheduler.allPendingJobs.firstOrNull { it.id == PERIODIC_BACKUP_JOB_ID }
+            if (existingPeriodic != null &&
+                existingPeriodic.networkType == networkType &&
+                existingPeriodic.isRequireCharging == requireCharging
+            ) {
+                return
+            }
+
             try {
                 val periodicBuilder = JobInfo.Builder(PERIODIC_BACKUP_JOB_ID, component)
                     .setPeriodic(15 * 60 * 1000)
@@ -171,7 +212,6 @@ class AutoBackupJobService : JobService() {
                 val result = jobScheduler.schedule(periodicBuilder.build())
                 Log.d(TAG, "Scheduled periodic backup job (id=$PERIODIC_BACKUP_JOB_ID, wifiOnly=$wifiOnly, charging=$requireCharging, result=$result)")
             } catch (_: Exception) {
-                // If setPersisted is denied by device/permissions, schedule non-persisted periodic
                 try {
                     val periodicBuilder = JobInfo.Builder(PERIODIC_BACKUP_JOB_ID, component)
                         .setPeriodic(15 * 60 * 1000)
@@ -232,12 +272,15 @@ class AutoBackupJobService : JobService() {
         }
     }
 
+    private val jobAborted = AtomicBoolean(false)
+
     override fun onStartJob(params: JobParameters?): Boolean {
         Log.d(TAG, "onStartJob triggered with id=${params?.jobId}")
+        jobAborted.set(false)
 
-        // Re-arm the trigger immediately so any subsequent photo taken will also trigger
+        // Re-arm only the ContentUri trigger so any subsequent photo taken will also trigger
         if (params?.jobId == CONTENT_TRIGGER_JOB_ID) {
-            schedule(applicationContext)
+            scheduleTriggerJob(applicationContext)
         }
 
         executor.execute {
@@ -246,6 +289,7 @@ class AutoBackupJobService : JobService() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error in background auto backup processing", e)
             } finally {
+                cancelNotification()
                 if (params != null) {
                     jobFinished(params, false)
                 }
@@ -257,6 +301,8 @@ class AutoBackupJobService : JobService() {
 
     override fun onStopJob(params: JobParameters?): Boolean {
         Log.d(TAG, "onStopJob called for id=${params?.jobId}")
+        jobAborted.set(true)
+        cancelNotification()
         return true // Reschedule if aborted
     }
 
@@ -290,22 +336,23 @@ class AutoBackupJobService : JobService() {
             } catch (_: Exception) {}
         }
 
-        // Fallback 1: check app_flutter/homespace/session.json
-        if (serverUri.isNullOrEmpty() || token.isNullOrEmpty()) {
+        // Fallback 1: check app_flutter/homespace/session.json ONLY if not explicitly cleared
+        if (!prefs.contains(KEY_AUTH_TOKEN) && (serverUri.isNullOrEmpty() || token.isNullOrEmpty())) {
             try {
                 val dataDir = applicationInfo.dataDir
                 val sessionFile = File(dataDir, "app_flutter/homespace/session.json")
                 if (sessionFile.exists()) {
                     val json = JSONObject(sessionFile.readText())
-                    if (token.isNullOrEmpty()) token = json.optString("token", null)
-                    if (serverUri.isNullOrEmpty()) serverUri = json.optString("serverUri", null)
+                    if (token.isNullOrEmpty()) token = json.optString("token", "").ifEmpty { null }
+                    if (serverUri.isNullOrEmpty()) serverUri = json.optString("serverUri", "").ifEmpty { null }
                 }
             } catch (_: Exception) {}
         }
 
-        // Fallback 2: default server URI if still null
-        if (serverUri.isNullOrEmpty()) {
-            serverUri = "https://vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net:8443"
+        // Do not fall back to any hardcoded external server URI
+        if (serverUri.isNullOrBlank()) {
+            Log.d(TAG, "AutoBackup skipped: no server URI configured.")
+            return null
         }
 
         // Fallback 3: check backup_settings.json for folder switches, backupStartTime and enabledAt
@@ -361,7 +408,11 @@ class AutoBackupJobService : JobService() {
     }
 
     private fun hasStoragePermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        return if (Build.VERSION.SDK_INT >= 34) {
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
         } else {
@@ -369,52 +420,44 @@ class AutoBackupJobService : JobService() {
         }
     }
 
-    private fun getUploadedSignatures(prefs: SharedPreferences): MutableSet<String> {
-        val set = prefs.getStringSet(KEY_UPLOADED_ITEMS, null)?.toMutableSet() ?: mutableSetOf()
+    private data class KnownSignatures(
+        val uploaded: MutableSet<String>,
+        val ignored: MutableSet<String>
+    )
 
-        // Include any ignored or deleted items
+    private fun getUploadedSignatures(prefs: SharedPreferences): KnownSignatures {
+        val uploaded = prefs.getStringSet(KEY_UPLOADED_ITEMS, null)
+            ?.map { it.lowercase() }
+            ?.toMutableSet() ?: mutableSetOf()
         val ignored = prefs.getStringSet(KEY_IGNORED_OR_DELETED_ITEMS, null)
-        if (ignored != null) {
-            for (item in ignored) {
-                set.add(item.lowercase())
-            }
-        }
+            ?.map { it.lowercase() }
+            ?.toMutableSet() ?: mutableSetOf()
 
-        // Also check deleted_signatures.json
+        // Also check deleted_signatures.json written by Dart app on explicit delete/trash
         try {
             val dataDir = applicationInfo.dataDir
             val delFile = File(dataDir, "app_flutter/homespace/deleted_signatures.json")
             if (delFile.exists()) {
-                val arr = org.json.JSONArray(delFile.readText())
+                val arr = JSONArray(delFile.readText())
                 for (i in 0 until arr.length()) {
                     val s = arr.optString(i, "")
                     if (s.isNotEmpty()) {
-                        set.add(s.lowercase())
+                        ignored.add(s.lowercase())
                     }
                 }
             }
         } catch (_: Exception) {}
 
-        // Also cross-reference with library.json to include anything already synced (both active and trashed)
-        try {
-            val dataDir = applicationInfo.dataDir
-            val libFile = File(dataDir, "app_flutter/homespace/library.json")
-            if (libFile.exists()) {
-                val json = JSONObject(libFile.readText())
-                val media = json.optJSONArray("media") ?: json.optJSONArray("items")
-                if (media != null) {
-                    for (i in 0 until media.length()) {
-                        val it = media.getJSONObject(i)
-                        val title = it.optString("title", "")
-                        if (title.isNotEmpty()) {
-                            set.add(title.lowercase())
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
+        return KnownSignatures(uploaded = uploaded, ignored = ignored)
+    }
 
-        return set
+    private fun isAlreadyBackedUpOrIgnored(name: String, size: Long, known: KnownSignatures): Boolean {
+        val lowerName = name.lowercase()
+        val sizeKey = "${lowerName}_$size"
+        if (known.ignored.contains(lowerName) || known.ignored.contains(sizeKey)) {
+            return true
+        }
+        return known.uploaded.contains(sizeKey)
     }
 
     private fun markItemUploaded(prefs: SharedPreferences, filename: String, size: Long) {
@@ -505,24 +548,25 @@ class AutoBackupJobService : JobService() {
                 while (cursor.moveToNext() && count < 50) {
                     count++
                     if (pendingCol != -1 && cursor.getInt(pendingCol) == 1) {
-                        // File is still being written by camera app, skip for now
                         continue
                     }
                     if (trashedCol != -1 && cursor.getInt(trashedCol) == 1) {
-                        // File is in OS trash, skip
                         continue
                     }
 
-                    val path = if (dataCol != -1) cursor.getString(dataCol) else null ?: continue
+                    val path = if (dataCol != -1 && !cursor.isNull(dataCol)) cursor.getString(dataCol) else null
+                    if (path.isNullOrEmpty()) continue
                     val file = File(path)
-                    val size = if (sizeCol != -1) cursor.getLong(sizeCol) else file.length()
+                    val size = if (sizeCol != -1 && !cursor.isNull(sizeCol)) cursor.getLong(sizeCol) else file.length()
                     if (!file.exists() || size <= 0) continue
 
-                    val name = if (nameCol != -1) cursor.getString(nameCol) ?: file.name else file.name
+                    val rawName = if (nameCol != -1 && !cursor.isNull(nameCol)) cursor.getString(nameCol) else null
+                    val name = rawName ?: file.name
                     if (name.startsWith(".") || name.contains(".trashed") || name.contains(".pending") || file.name.startsWith(".")) {
                         continue
                     }
-                    val mime = if (mimeCol != -1) cursor.getString(mimeCol) ?: (if (isVideoQuery) "video/mp4" else "image/jpeg") else "image/jpeg"
+                    val rawMime = if (mimeCol != -1 && !cursor.isNull(mimeCol)) cursor.getString(mimeCol) else null
+                    val mime = rawMime ?: (if (isVideoQuery) "video/mp4" else "image/jpeg")
 
                     // Check folder match
                     val folderId = classifyMediaFolder(path)
@@ -530,14 +574,13 @@ class AutoBackupJobService : JobService() {
                         continue
                     }
 
-                    // Check if already uploaded
-                    if (uploadedSignatures.contains(name.lowercase()) ||
-                        uploadedSignatures.contains("${name.lowercase()}_$size")) {
+                    // Check if already uploaded or ignored
+                    if (isAlreadyBackedUpOrIgnored(name, size, uploadedSignatures)) {
                         continue
                     }
 
-                    val dateTaken = if (takenCol != -1) cursor.getLong(takenCol) else 0L
-                    val dateModified = if (modCol != -1) cursor.getLong(modCol) * 1000L else 0L
+                    val dateTaken = if (takenCol != -1 && !cursor.isNull(takenCol)) cursor.getLong(takenCol) else 0L
+                    val dateModified = if (modCol != -1 && !cursor.isNull(modCol)) cursor.getLong(modCol) * 1000L else 0L
                     val effectiveTime = if (dateTaken > 0) dateTaken else if (dateModified > 0) dateModified else file.lastModified()
 
                     // Only backup photos taken AFTER this folder's backup was started (skip past historical photos)
@@ -570,66 +613,109 @@ class AutoBackupJobService : JobService() {
             return
         }
 
-        Log.i(TAG, "processAutoBackup: Found ${candidates.size} new items to auto-backup to ${config.serverUri}.")
+        Log.i(TAG, "processAutoBackup: Found ${candidates.size} new items to auto-backup.")
 
-        // Upload candidates one by one
-        for ((index, item) in candidates.withIndex()) {
-            updateNotification(
-                title = "HomeSpace Auto-backup",
-                message = "Backing up ${index + 1}/${candidates.size}: ${item.filename}"
-            )
+        try {
+            for ((index, item) in candidates.withIndex()) {
+                if (jobAborted.get()) break
 
-            val success = uploadFile(
-                serverUri = config.serverUri,
-                token = config.token,
-                file = item.file,
-                mimeType = item.mimeType,
-                takenAtIso = item.takenAtIso
-            )
+                updateNotification(
+                    title = "HomeSpace Auto-backup",
+                    message = "Backing up ${index + 1}/${candidates.size}: ${item.filename}"
+                )
 
-            if (success) {
-                Log.i(TAG, "Successfully uploaded ${item.filename} in background!")
-                markItemUploaded(prefs, item.filename, item.size)
-                uploadedSignatures.add(item.filename.lowercase())
-                uploadedSignatures.add("${item.filename.lowercase()}_${item.size}")
-            } else {
-                Log.w(TAG, "Failed to upload ${item.filename} in background.")
+                when (uploadFile(
+                    serverUri = config.serverUri,
+                    token = config.token,
+                    file = item.file,
+                    mimeType = item.mimeType,
+                    takenAtIso = item.takenAtIso
+                )) {
+                    UploadOutcome.SUCCESS -> {
+                        Log.i(TAG, "Successfully uploaded ${item.filename} in background!")
+                        markItemUploaded(prefs, item.filename, item.size)
+                        uploadedSignatures.uploaded.add("${item.filename.lowercase()}_${item.size}")
+                    }
+                    UploadOutcome.UNAUTHORIZED -> {
+                        Log.w(TAG, "Auto-backup stopped: session expired or unauthorized (401).")
+                        break
+                    }
+                    UploadOutcome.QUOTA_EXCEEDED -> {
+                        Log.w(TAG, "Auto-backup paused: server storage quota exceeded (413).")
+                        break
+                    }
+                    UploadOutcome.FAILED -> {
+                        Log.w(TAG, "Failed to upload ${item.filename} in background.")
+                    }
+                }
             }
+        } finally {
+            cancelNotification()
         }
-
-        cancelNotification()
     }
 
-    private fun extractVideoThumbnail(file: File): File? {
-        try {
-            val thumbFile = File(cacheDir, "vid_thumb_${file.name.hashCode()}.jpg")
-            if (thumbFile.exists() && thumbFile.length() > 0) return thumbFile
+    private enum class UploadOutcome { SUCCESS, UNAUTHORIZED, QUOTA_EXCEEDED, FAILED }
 
-            var bitmap: android.graphics.Bitmap? = null
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                try {
-                    bitmap = android.media.ThumbnailUtils.createVideoThumbnail(file, android.util.Size(512, 512), null)
-                } catch (_: Throwable) {}
+    private fun isPrivateOrLocalHttpHost(host: String): Boolean {
+        val h = host.lowercase(Locale.US)
+        if (h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "10.0.2.2" ||
+            h.endsWith(".local") || h.endsWith(".lan") || h.endsWith(".internal") || h.endsWith(".home.arpa")
+        ) {
+            return true
+        }
+        return try {
+            val addr = InetAddress.getByName(h)
+            if (addr.isLoopbackAddress || addr.isSiteLocalAddress || addr.isLinkLocalAddress) {
+                return true
             }
-            if (bitmap == null) {
-                val retriever = android.media.MediaMetadataRetriever()
-                try {
-                    retriever.setDataSource(file.absolutePath)
-                    bitmap = retriever.getFrameAtTime(1000000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                        ?: retriever.frameAtTime
-                } catch (_: Throwable) {
-                } finally {
-                    try { retriever.release() } catch (_: Throwable) {}
+            val bytes = addr.address
+            if (bytes.size == 4) {
+                val b0 = bytes[0].toInt() and 0xFF
+                val b1 = bytes[1].toInt() and 0xFF
+                // Tailscale CGNAT 100.64.0.0/10
+                b0 == 100 && b1 in 64..127
+            } else {
+                false
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun createPinnedSslSocketFactoryIfConfigured(hostPort: String): SSLSocketFactory? {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val rawPins = prefs.getString(KEY_TRUSTED_CERT_PINS, null) ?: return null
+        val expectedSha256 = try {
+            JSONObject(rawPins).optString(hostPort, "")
+        } catch (_: Exception) {
+            ""
+        }
+        if (expectedSha256.isEmpty()) return null
+
+        val tmf = javax.net.ssl.TrustManagerFactory.getInstance(
+            javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm()
+        )
+        tmf.init(null as java.security.KeyStore?)
+        val defaultTm = tmf.trustManagers.filterIsInstance<X509TrustManager>().first()
+
+        val trustManager = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                defaultTm.checkClientTrusted(chain, authType)
+            }
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                val leaf = chain?.firstOrNull()
+                    ?: throw java.security.cert.CertificateException("Empty certificate chain")
+                val digest = MessageDigest.getInstance("SHA-256").digest(leaf.encoded)
+                val actualHex = digest.joinToString("") { "%02x".format(it) }
+                if (!actualHex.equals(expectedSha256, ignoreCase = true)) {
+                    throw java.security.cert.CertificateException("Certificate pin mismatch for $hostPort")
                 }
             }
-            if (bitmap != null) {
-                java.io.FileOutputStream(thumbFile).use { out ->
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
-                }
-                return thumbFile
-            }
-        } catch (_: Throwable) {}
-        return null
+            override fun getAcceptedIssuers(): Array<X509Certificate> = defaultTm.acceptedIssuers
+        }
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, arrayOf<TrustManager>(trustManager), null)
+        return sslContext.socketFactory
     }
 
     private fun uploadFile(
@@ -638,7 +724,7 @@ class AutoBackupJobService : JobService() {
         file: File,
         mimeType: String,
         takenAtIso: String
-    ): Boolean {
+    ): UploadOutcome {
         val boundary = "==HomeSpaceBoundary${System.currentTimeMillis()}=="
         val lineEnd = "\r\n"
         val twoHyphens = "--"
@@ -646,14 +732,23 @@ class AutoBackupJobService : JobService() {
         var conn: HttpURLConnection? = null
         try {
             val base = if (serverUri.endsWith("/")) serverUri else "$serverUri/"
-            val url = URL("${base}api/media/upload?takenAt=$takenAtIso")
+            val encodedTakenAt = URLEncoder.encode(takenAtIso, "UTF-8")
+            val url = URL("${base}api/media/upload?takenAt=$encodedTakenAt")
+            if (url.protocol.equals("http", ignoreCase = true) && !isPrivateOrLocalHttpHost(url.host)) {
+                Log.e(TAG, "Blocked insecure cleartext HTTP upload to non-local host: ${url.host}")
+                return UploadOutcome.FAILED
+            }
             conn = url.openConnection() as HttpURLConnection
 
             if (conn is HttpsURLConnection) {
-                conn.sslSocketFactory = createTrustAllSslSocketFactory()
-                conn.hostnameVerifier = HostnameVerifier { _, _ -> true }
+                val port = if (url.port != -1) url.port else 443
+                val pinnedFactory = createPinnedSslSocketFactoryIfConfigured("${url.host}:$port")
+                if (pinnedFactory != null) {
+                    conn.sslSocketFactory = pinnedFactory
+                }
             }
 
+            val safeFilename = file.name.replace("\"", "_").replace("\r", "").replace("\n", "")
             conn.requestMethod = "POST"
             conn.doInput = true
             conn.doOutput = true
@@ -667,7 +762,7 @@ class AutoBackupJobService : JobService() {
 
             val headerBytes = (
                 "$twoHyphens$boundary$lineEnd" +
-                "Content-Disposition: form-data; name=\"file\"; filename=\"${file.name}\"$lineEnd" +
+                "Content-Disposition: form-data; name=\"file\"; filename=\"$safeFilename\"$lineEnd" +
                 "Content-Type: $mimeType$lineEnd$lineEnd"
             ).toByteArray(Charsets.UTF_8)
 
@@ -676,11 +771,7 @@ class AutoBackupJobService : JobService() {
                 file.length() +
                 footerBytes.size.toLong()
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                conn.setFixedLengthStreamingMode(totalLength)
-            } else {
-                conn.setChunkedStreamingMode(65536)
-            }
+            conn.setFixedLengthStreamingMode(totalLength)
 
             conn.outputStream.use { os ->
                 os.write(headerBytes)
@@ -688,6 +779,9 @@ class AutoBackupJobService : JobService() {
                     val buffer = ByteArray(65536)
                     var bytesRead: Int
                     while (input.read(buffer).also { bytesRead = it } != -1) {
+                        if (jobAborted.get()) {
+                            return UploadOutcome.FAILED
+                        }
                         os.write(buffer, 0, bytesRead)
                     }
                 }
@@ -695,29 +789,30 @@ class AutoBackupJobService : JobService() {
                 os.flush()
             }
 
-            val responseCode = conn.responseCode
-            return responseCode in 200..299
+            return when (val responseCode = conn.responseCode) {
+                in 200..299 -> UploadOutcome.SUCCESS
+                401, 403 -> UploadOutcome.UNAUTHORIZED
+                413 -> UploadOutcome.QUOTA_EXCEEDED
+                else -> {
+                    Log.w(TAG, "Upload returned HTTP $responseCode for ${file.name}")
+                    UploadOutcome.FAILED
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "uploadFile failed for ${file.name}", e)
-            return false
+            return UploadOutcome.FAILED
         } finally {
             conn?.disconnect()
         }
     }
 
-    private fun createTrustAllSslSocketFactory(): SSLSocketFactory {
-        val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-        })
-        val sslContext = SSLContext.getInstance("TLS")
-        sslContext.init(null, trustAllCerts, SecureRandom())
-        return sslContext.socketFactory
-    }
-
     private fun updateNotification(title: String, message: String) {
         try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                return
+            }
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

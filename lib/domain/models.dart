@@ -62,6 +62,8 @@ class MediaItem {
   final MediaKind kind;
   final Duration? duration;
   final bool isSynced;
+  final int? sizeBytes;
+  final String? mimeType;
   const MediaItem({
     required this.id,
     required this.asset,
@@ -71,6 +73,8 @@ class MediaItem {
     this.kind = MediaKind.photo,
     this.duration,
     this.isSynced = false,
+    this.sizeBytes,
+    this.mimeType,
   });
 
   MediaItem copyWith({
@@ -82,6 +86,8 @@ class MediaItem {
     MediaKind? kind,
     Duration? duration,
     bool? isSynced,
+    int? sizeBytes,
+    String? mimeType,
   }) => MediaItem(
     id: id ?? this.id,
     asset: asset ?? this.asset,
@@ -91,6 +97,8 @@ class MediaItem {
     kind: kind ?? this.kind,
     duration: duration ?? this.duration,
     isSynced: isSynced ?? this.isSynced,
+    sizeBytes: sizeBytes ?? this.sizeBytes,
+    mimeType: mimeType ?? this.mimeType,
   );
 
   String? get formattedDuration {

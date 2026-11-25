@@ -96,10 +96,12 @@ class AutoBackupService {
     BackupFolderConfig(
       id: 'whatsapp',
       name: 'WhatsApp Images',
-      description: 'Images received and sent via WhatsApp',
+      description: 'Photos and videos received and sent via WhatsApp',
       paths: [
         '/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images',
+        '/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Video',
         '/storage/emulated/0/WhatsApp/Media/WhatsApp Images',
+        '/storage/emulated/0/WhatsApp/Media/WhatsApp Video',
       ],
       enabled: true,
     ),
@@ -437,6 +439,7 @@ class AutoBackupService {
   static Future<void> syncConfigToNative({
     String? serverUri,
     String? token,
+    Map<String, String>? trustedCertPins,
   }) async {
     try {
       final folders = await loadFolders();
@@ -457,6 +460,7 @@ class AutoBackupService {
         backupStartTime: startTime,
         wifiOnly: wifiOnly,
         requireCharging: charging,
+        trustedCertPins: trustedCertPins,
       );
     } catch (_) {}
   }
@@ -469,18 +473,44 @@ class AutoBackupService {
     return null;
   }
 
-  static int countPhotosInFolder(BackupFolderConfig config) {
-    final dir = findActiveFolder(config);
-    if (dir == null) return 0;
-    try {
-      return dir
-          .listSync(recursive: false, followLinks: false)
-          .whereType<File>()
-          .where((f) => _isSupportedMedia(f.path))
-          .length;
-    } catch (_) {
-      return 0;
+  static Future<Directory?> findActiveFolderAsync(BackupFolderConfig config) async {
+    for (final path in config.paths) {
+      final dir = Directory(path);
+      if (await dir.exists()) return dir;
     }
+    return null;
+  }
+
+  static int countPhotosInFolder(BackupFolderConfig config) {
+    var count = 0;
+    for (final path in config.paths) {
+      final dir = Directory(path);
+      if (!dir.existsSync()) continue;
+      try {
+        count += dir
+            .listSync(recursive: false, followLinks: false)
+            .whereType<File>()
+            .where((f) => _isSupportedMedia(f.path))
+            .length;
+      } catch (_) {}
+    }
+    return count;
+  }
+
+  static Future<int> countPhotosInFolderAsync(BackupFolderConfig config) async {
+    var count = 0;
+    for (final path in config.paths) {
+      final dir = Directory(path);
+      if (!await dir.exists()) continue;
+      try {
+        await for (final entity in dir.list(recursive: false, followLinks: false)) {
+          if (entity is File && _isSupportedMedia(entity.path)) {
+            count++;
+          }
+        }
+      } catch (_) {}
+    }
+    return count;
   }
 
   static bool _isSupportedMedia(String filePath) {
@@ -653,64 +683,69 @@ class AutoBackupService {
       }
     } catch (_) {}
 
-    // 2. Scan specific folders (for non-Android or folders with direct filesystem access)
+    // 2. Scan specific folders asynchronously (for non-Android or multi-path folders like WhatsApp Images + Video)
     for (final config in folders) {
       if (!config.enabled) continue;
 
-      final dir = findActiveFolder(config);
-      if (dir == null) continue;
+      for (final folderPath in config.paths) {
+        final dir = Directory(folderPath);
+        if (!await dir.exists()) continue;
 
-      try {
-        final entities = dir.listSync(recursive: false, followLinks: false);
-        for (final entity in entities) {
-          if (entity is! File) continue;
-          if (!_isSupportedMedia(entity.path)) continue;
+        try {
+          await for (final entity in dir.list(recursive: false, followLinks: false)) {
+            if (entity is! File) continue;
+            if (!_isSupportedMedia(entity.path)) continue;
 
-          final folderId = classifyMediaFolder(entity.path) ?? config.id;
-          if (!enabledFolderIds.contains(folderId)) continue;
+            final folderId = classifyMediaFolder(entity.path) ?? config.id;
+            if (!enabledFolderIds.contains(folderId)) continue;
 
-          final folderConfig = folderMap[folderId] ?? config;
-          if (!folderConfig.enabled) continue;
+            final folderConfig = folderMap[folderId] ?? config;
+            if (!folderConfig.enabled) continue;
 
-          final filename = entity.uri.pathSegments.lastWhere(
-            (p) => p.isNotEmpty,
-            orElse: () => 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg',
-          );
+            final filename = entity.uri.pathSegments.lastWhere(
+              (p) => p.isNotEmpty,
+              orElse: () => 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg',
+            );
 
-          if (filename.startsWith('.') || filename.toLowerCase().contains('.trashed') || filename.toLowerCase().contains('.pending')) {
-            continue;
+            if (filename.startsWith('.') ||
+                filename.toLowerCase().contains('.trashed') ||
+                filename.toLowerCase().contains('.pending')) {
+              continue;
+            }
+
+            if (existingTitles.contains(filename.toLowerCase())) continue;
+
+            final stat = await entity.stat();
+            final fileSize = stat.size;
+            if (fileSize <= 0) continue;
+            final takenAt = stat.modified;
+            final folderMinTime = minTimestampMs ?? folderConfig.enabledAt ?? defaultMinTime;
+            if (onlyNewPhotos && folderMinTime > 0 && takenAt.millisecondsSinceEpoch < folderMinTime) {
+              continue;
+            }
+
+            final isVideo = filename.toLowerCase().endsWith('.mp4') ||
+                filename.toLowerCase().endsWith('.mov') ||
+                filename.toLowerCase().endsWith('.webm') ||
+                filename.toLowerCase().endsWith('.mkv');
+            final mimeType = lookupMimeType(filename) ?? (isVideo ? 'video/mp4' : 'image/jpeg');
+            final uploadId = 'backup-${DateTime.now().microsecondsSinceEpoch}-$queuedCount';
+
+            uploadRepo.queueUpload(
+              id: uploadId,
+              mediaId: uploadId,
+              totalBytes: fileSize,
+              filePath: entity.path,
+              filename: filename,
+              mimeType: mimeType,
+              takenAt: takenAt,
+            );
+
+            existingTitles.add(filename.toLowerCase());
+            queuedCount++;
           }
-
-          if (existingTitles.contains(filename.toLowerCase())) continue;
-
-          final takenAt = entity.existsSync() ? entity.lastModifiedSync() : DateTime.now();
-          final folderMinTime = minTimestampMs ?? folderConfig.enabledAt ?? defaultMinTime;
-          if (onlyNewPhotos && folderMinTime > 0 && takenAt.millisecondsSinceEpoch < folderMinTime) {
-            continue;
-          }
-
-          final fileSize = entity.lengthSync();
-          if (fileSize <= 0) continue;
-          final isVideo = filename.toLowerCase().endsWith('.mp4') ||
-              filename.toLowerCase().endsWith('.mov') ||
-              filename.toLowerCase().endsWith('.webm');
-          final mimeType = lookupMimeType(filename) ?? (isVideo ? 'video/mp4' : 'image/jpeg');
-          final uploadId = 'backup-${DateTime.now().microsecondsSinceEpoch}-$queuedCount';
-
-          uploadRepo.queueUpload(
-            id: uploadId,
-            mediaId: uploadId,
-            totalBytes: fileSize,
-            filePath: entity.path,
-            filename: filename,
-            mimeType: mimeType,
-            takenAt: takenAt,
-          );
-
-          existingTitles.add(filename.toLowerCase());
-          queuedCount++;
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     }
 
     return queuedCount;
@@ -748,54 +783,74 @@ class AutoBackupService {
     required HomeRepository repository,
   }) async {
     final candidateFiles = <File>[];
+    final seenPaths = <String>{};
     int totalBytes = 0;
 
-    // Filter synced media from repository
     final syncedMedia = repository.media.where((m) => m.isSynced).toList();
     if (syncedMedia.isEmpty) {
       return const FreeUpSpaceResult(totalCount: 0, totalBytes: 0, candidateFiles: []);
     }
 
-    final syncedTitles = syncedMedia
-        .map((m) => m.title.toLowerCase().trim())
-        .where((t) => t.isNotEmpty)
-        .toSet();
+    final syncedByTitle = <String, List<int?>>{};
+    for (final m in syncedMedia) {
+      final key = m.title.toLowerCase().trim();
+      if (key.isNotEmpty) {
+        (syncedByTitle[key] ??= <int?>[]).add(m.sizeBytes);
+      }
+    }
 
     final deletedSignatures = await getDeletedSignatures();
 
-    for (final config in folders) {
-      final dir = findActiveFolder(config);
-      if (dir == null) continue;
-
-      List<FileSystemEntity> entities = [];
-      try {
-        entities = dir.listSync(recursive: false, followLinks: false);
-      } catch (_) {
-        continue;
+    void tryAddCandidate(File file, String lowerName, int size) {
+      if (lowerName.isEmpty || size <= 0) return;
+      if (deletedSignatures.contains(lowerName)) return;
+      final sizes = syncedByTitle[lowerName];
+      if (sizes == null) return;
+      // Match exact byte size if server reported it, or filename match if size wasn't recorded.
+      final matches = sizes.any((s) => s == null || s == size);
+      if (!matches) return;
+      if (seenPaths.add(file.path)) {
+        totalBytes += size;
+        candidateFiles.add(file);
       }
+    }
 
-      for (final entity in entities) {
-        if (entity is! File) continue;
-        final filename = entity.uri.pathSegments.isNotEmpty
-            ? entity.uri.pathSegments.last
-            : '';
-        final lowerName = filename.toLowerCase().trim();
-        if (lowerName.isEmpty) continue;
-
-        // Skip deleted or ignored files
-        if (deletedSignatures.contains(lowerName)) continue;
-
-        // Check if confirmed synced in repository
-        if (syncedTitles.contains(lowerName)) {
-          int size = 0;
-          try {
-            size = entity.lengthSync();
-          } catch (_) {}
-          if (size > 0) {
-            totalBytes += size;
-            candidateFiles.add(entity);
+    // Check MediaStore first on Android
+    try {
+      final cameraMedia = await DeviceMediaService.queryCameraMedia();
+      for (final item in cameraMedia) {
+        final p = item['path'] as String?;
+        final name = (item['name'] as String? ?? '').toLowerCase().trim();
+        final size = (item['size'] as num?)?.toInt() ?? 0;
+        if (p != null && p.isNotEmpty && name.isNotEmpty && classifyMediaFolder(p) != null) {
+          final file = File(p);
+          if (await file.exists()) {
+            tryAddCandidate(file, name, size > 0 ? size : (await file.length()));
           }
         }
+      }
+    } catch (_) {}
+
+    // Check configured folder paths asynchronously
+    for (final config in folders) {
+      for (final folderPath in config.paths) {
+        final dir = Directory(folderPath);
+        if (!await dir.exists()) continue;
+
+        try {
+          await for (final entity in dir.list(recursive: false, followLinks: false)) {
+            if (entity is! File) continue;
+            final filename = entity.uri.pathSegments.isNotEmpty
+                ? entity.uri.pathSegments.last
+                : '';
+            final lowerName = filename.toLowerCase().trim();
+            int size = 0;
+            try {
+              size = await entity.length();
+            } catch (_) {}
+            tryAddCandidate(entity, lowerName, size);
+          }
+        } catch (_) {}
       }
     }
 
@@ -806,22 +861,32 @@ class AutoBackupService {
     );
   }
 
-  /// Safely removes backed-up local files from the device storage to free space.
-  static Future<int> freeUpSpace({
+  /// Safely removes backed-up local files from device storage, returning both deleted file count and freed bytes.
+  static Future<({int deletedCount, int freedBytes})> freeUpSpaceDetailed({
     required List<File> files,
   }) async {
     int freed = 0;
+    int count = 0;
     for (final file in files) {
       try {
-        if (file.existsSync()) {
-          final size = file.lengthSync();
+        if (await file.exists()) {
+          final size = await file.length();
           final deleted = await DeviceMediaService.deleteDeviceFile(file.path);
-          if (deleted || !file.existsSync()) {
+          if (deleted || !await file.exists()) {
             freed += size;
+            count++;
           }
         }
       } catch (_) {}
     }
-    return freed;
+    return (deletedCount: count, freedBytes: freed);
+  }
+
+  /// Safely removes backed-up local files from device storage, returning freed bytes.
+  static Future<int> freeUpSpace({
+    required List<File> files,
+  }) async {
+    final res = await freeUpSpaceDetailed(files: files);
+    return res.freedBytes;
   }
 }

@@ -1,20 +1,38 @@
 import 'dart:io';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  final rawTarget = args.isNotEmpty
+      ? args.first
+      : Platform.environment['HOMESPACE_TARGET_URL'];
+  if (rawTarget == null || rawTarget.trim().isEmpty) {
+    stderr.writeln(
+      'Usage: dart run scripts/test_proxy.dart <target-base-url> '
+      '(or set HOMESPACE_TARGET_URL)',
+    );
+    exitCode = 64;
+    return;
+  }
+  final baseTargetUri = Uri.parse(rawTarget.trim());
   final client = HttpClient();
-  client.badCertificateCallback = (c, h, p) => true;
+  if (Platform.environment['HOMESPACE_ALLOW_INSECURE_PROXY'] == '1') {
+    client.badCertificateCallback = (c, h, p) => true;
+  }
   client.connectionTimeout = const Duration(seconds: 15);
 
-  final server = await HttpServer.bind(InternetAddress.anyIPv4, 8888);
-  print('HTTP PROXY LISTENING ON PORT 8888');
+  final port = int.tryParse(Platform.environment['PROXY_PORT'] ?? '') ?? 8888;
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
+  stdout.writeln('HTTP PROXY LISTENING ON PORT $port -> $baseTargetUri');
 
   server.listen((req) async {
     try {
-      final targetUri = Uri.parse(
-        'https://vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net:8443${req.uri.path}${req.uri.hasQuery ? '?${req.uri.query}' : ''}',
+      final targetUri = baseTargetUri.resolveUri(
+        Uri(
+          path: req.uri.path,
+          query: req.uri.hasQuery ? req.uri.query : null,
+        ),
       );
       final targetReq = await client.openUrl(req.method, targetUri);
-      
+
       req.headers.forEach((name, values) {
         if (name.toLowerCase() != 'host') {
           for (final v in values) {
@@ -22,7 +40,7 @@ Future<void> main() async {
           }
         }
       });
-      targetReq.headers.set('host', 'vishal-hp-laptop-15s-fr5xxx.tailda4c64.ts.net');
+      targetReq.headers.set('host', baseTargetUri.authority);
       targetReq.headers.set('accept-encoding', 'identity');
 
       await targetReq.addStream(req);

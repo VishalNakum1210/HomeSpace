@@ -1,5 +1,8 @@
 package com.homespace.homespace
 
+import android.app.Activity
+import android.app.RecoverableSecurityException
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -8,6 +11,7 @@ import android.database.ContentObserver
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.media.ThumbnailUtils
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
@@ -24,6 +28,7 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
@@ -31,10 +36,24 @@ class MainActivity : FlutterActivity() {
     private val PERMISSION_CHANNEL = "com.homespace.homespace/permissions"
     private val OBSERVER_CHANNEL = "com.homespace.homespace/media_observer"
     private val BACKUP_CHANNEL = "com.homespace.homespace/backup"
+
+    companion object {
+        private const val REQUEST_CODE_MEDIA_PERMISSION = 1001
+        private const val REQUEST_CODE_DELETE_MEDIA = 1002
+    }
+
+    private val ioExecutor = Executors.newFixedThreadPool(4)
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var permissionResult: MethodChannel.Result? = null
+    private var pendingDeleteResult: MethodChannel.Result? = null
     private var mediaObserver: ContentObserver? = null
     private var eventSink: EventChannel.EventSink? = null
     private var uploadWakeLock: PowerManager.WakeLock? = null
+
+    private fun sha256Hex(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }.take(32)
+    }
 
     private fun acquireUploadWakeLock() {
         try {
@@ -75,37 +94,46 @@ class MainActivity : FlutterActivity() {
                     return@setMethodCallHandler
                 }
 
-                try {
-                    val isVideo = mimeType.startsWith("video/")
-                    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        if (isVideo) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                        else MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                    } else {
-                        if (isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                        else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-                    }
-
-                    val values = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            put(
-                                MediaStore.MediaColumns.RELATIVE_PATH,
-                                if (isVideo) Environment.DIRECTORY_MOVIES + "/HomeSpace" else Environment.DIRECTORY_PICTURES + "/HomeSpace"
-                            )
-                            put(MediaStore.MediaColumns.IS_PENDING, 1)
+                ioExecutor.execute {
+                    var insertedUri: Uri? = null
+                    try {
+                        val isVideo = mimeType.startsWith("video/")
+                        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            if (isVideo) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                            else MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        } else {
+                            if (isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                            else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
                         }
-                    }
 
-                    val uri = contentResolver.insert(collection, values)
-                    if (uri != null) {
-                        contentResolver.openOutputStream(uri)?.use { os ->
+                        val values = ContentValues().apply {
+                            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                put(
+                                    MediaStore.MediaColumns.RELATIVE_PATH,
+                                    if (isVideo) Environment.DIRECTORY_MOVIES + "/HomeSpace" else Environment.DIRECTORY_PICTURES + "/HomeSpace"
+                                )
+                                put(MediaStore.MediaColumns.IS_PENDING, 1)
+                            }
+                        }
+
+                        val uri = contentResolver.insert(collection, values)
+                        if (uri == null) {
+                            mainHandler.post { result.error("SAVE_FAILED", "Failed to create MediaStore entry", null) }
+                            return@execute
+                        }
+                        insertedUri = uri
+
+                        val os = contentResolver.openOutputStream(uri)
+                            ?: throw IllegalStateException("Unable to open MediaStore output stream")
+                        os.use { out ->
                             if (!filePath.isNullOrEmpty()) {
                                 File(filePath).inputStream().use { input ->
-                                    input.copyTo(os, bufferSize = 64 * 1024)
+                                    input.copyTo(out, bufferSize = 64 * 1024)
                                 }
                             } else if (bytes != null) {
-                                os.write(bytes)
+                                out.write(bytes)
                             }
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -113,23 +141,23 @@ class MainActivity : FlutterActivity() {
                             values.put(MediaStore.MediaColumns.IS_PENDING, 0)
                             contentResolver.update(uri, values, null, null)
                         }
-                        result.success(uri.toString())
-                    } else {
-                        result.error("SAVE_FAILED", "Failed to create MediaStore entry", null)
+                        mainHandler.post { result.success(uri.toString()) }
+                    } catch (e: Exception) {
+                        if (insertedUri != null) {
+                            try { contentResolver.delete(insertedUri!!, null, null) } catch (_: Exception) {}
+                        }
+                        mainHandler.post { result.error("ERROR", e.localizedMessage ?: "Failed to save media", null) }
                     }
-                } catch (e: Exception) {
-                    result.error("ERROR", e.localizedMessage, null)
                 }
             } else if (call.method == "getVideoThumbnail") {
                 val filePath = call.argument<String>("filePath")
                 val fileName = call.argument<String>("fileName")
-                val mainHandler = Handler(Looper.getMainLooper())
 
-                Executors.newCachedThreadPool().execute {
+                ioExecutor.execute {
                     try {
                         // Check if we have an existing persistent thumbnail cached by fileName
                         if (!fileName.isNullOrEmpty()) {
-                            val nameHash = fileName.hashCode().toString()
+                            val nameHash = sha256Hex(fileName.lowercase())
                             val nameThumbFile = File(cacheDir, "vid_thumb_name_$nameHash.jpg")
                             if (nameThumbFile.exists() && nameThumbFile.length() > 0) {
                                 mainHandler.post { result.success(nameThumbFile.absolutePath) }
@@ -151,7 +179,7 @@ class MainActivity : FlutterActivity() {
                                 )?.use { cursor ->
                                     if (cursor.moveToFirst()) {
                                         val dataCol = cursor.getColumnIndex(MediaStore.Video.Media.DATA)
-                                        if (dataCol != -1) {
+                                        if (dataCol != -1 && !cursor.isNull(dataCol)) {
                                             val p = cursor.getString(dataCol)
                                             if (!p.isNullOrEmpty() && File(p).exists()) {
                                                 resolvedFile = File(p)
@@ -163,7 +191,6 @@ class MainActivity : FlutterActivity() {
                         }
 
                         if (resolvedFile == null || !resolvedFile.exists()) {
-                            // Also check common camera directories if fileName provided
                             if (!fileName.isNullOrEmpty()) {
                                 val candidateDirs = listOf(
                                     "/storage/emulated/0/DCIM/Camera",
@@ -188,7 +215,7 @@ class MainActivity : FlutterActivity() {
                         }
 
                         val file = resolvedFile!!
-                        val cacheKey = "${file.name}_${file.lastModified()}".hashCode().toString()
+                        val cacheKey = sha256Hex("${file.absolutePath}_${file.lastModified()}_${file.length()}")
                         val thumbFile = File(cacheDir, "vid_thumb_$cacheKey.jpg")
                         if (thumbFile.exists() && thumbFile.length() > 0) {
                             mainHandler.post { result.success(thumbFile.absolutePath) }
@@ -219,7 +246,7 @@ class MainActivity : FlutterActivity() {
                                 bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
                             }
                             try {
-                                val nameHash = file.name.hashCode().toString()
+                                val nameHash = sha256Hex(file.name.lowercase())
                                 val nameThumbFile = File(cacheDir, "vid_thumb_name_$nameHash.jpg")
                                 FileOutputStream(nameThumbFile).use { out ->
                                     bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
@@ -229,7 +256,7 @@ class MainActivity : FlutterActivity() {
                         } else {
                             mainHandler.post { result.success(null) }
                         }
-                    } catch (e: Throwable) {
+                    } catch (_: Throwable) {
                         mainHandler.post { result.success(null) }
                     }
                 }
@@ -241,7 +268,7 @@ class MainActivity : FlutterActivity() {
                     return@setMethodCallHandler
                 }
 
-                Executors.newCachedThreadPool().execute {
+                ioExecutor.execute {
                     try {
                         val uri = if (isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
                         val proj = arrayOf(MediaStore.MediaColumns.DATA)
@@ -256,7 +283,7 @@ class MainActivity : FlutterActivity() {
                         )?.use { cursor ->
                             if (cursor.moveToFirst()) {
                                 val col = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
-                                if (col != -1) {
+                                if (col != -1 && !cursor.isNull(col)) {
                                     val p = cursor.getString(col)
                                     if (!p.isNullOrEmpty() && File(p).exists()) {
                                         foundPath = p
@@ -287,27 +314,23 @@ class MainActivity : FlutterActivity() {
                             }
                         }
 
-                        Handler(Looper.getMainLooper()).post {
+                        mainHandler.post {
                             result.success(foundPath)
                         }
                     } catch (_: Throwable) {
-                        Handler(Looper.getMainLooper()).post {
+                        mainHandler.post {
                             result.success(null)
                         }
                     }
                 }
             } else if (call.method == "deleteDeviceFile") {
                 val filePath = call.argument<String>("filePath")
-                if (!filePath.isNullOrEmpty()) {
-                    val file = File(filePath)
-                    try {
-                        val deleted = if (file.exists()) file.delete() else true
-                        result.success(deleted)
-                    } catch (_: Exception) {
-                        result.success(false)
-                    }
-                } else {
+                if (filePath.isNullOrEmpty()) {
                     result.success(false)
+                    return@setMethodCallHandler
+                }
+                ioExecutor.execute {
+                    deleteDeviceMediaFile(filePath, result)
                 }
             } else if (call.method == "shareMedia") {
                 val filePath = call.argument<String>("filePath")
@@ -337,6 +360,49 @@ class MainActivity : FlutterActivity() {
                 } else {
                     result.error("INVALID_ARGS", "filePath is required", null)
                 }
+            } else if (call.method == "shareMultipleMedia") {
+                val filePaths = call.argument<List<String>>("filePaths") ?: emptyList()
+                val mimeType = call.argument<String>("mimeType") ?: "*/*"
+                if (filePaths.isEmpty()) {
+                    result.error("INVALID_ARGS", "filePaths is required", null)
+                    return@setMethodCallHandler
+                }
+                try {
+                    val uris = ArrayList<Uri>()
+                    for (fp in filePaths) {
+                        val file = File(fp)
+                        if (file.exists()) {
+                            uris.add(
+                                FileProvider.getUriForFile(
+                                    this,
+                                    "${applicationContext.packageName}.fileprovider",
+                                    file
+                                )
+                            )
+                        }
+                    }
+                    if (uris.isEmpty()) {
+                        result.error("NOT_FOUND", "None of the files exist on device", null)
+                        return@setMethodCallHandler
+                    }
+                    val intent = if (uris.size == 1) {
+                        Intent(Intent.ACTION_SEND).apply {
+                            type = mimeType
+                            putExtra(Intent.EXTRA_STREAM, uris[0])
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                    } else {
+                        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                            type = mimeType
+                            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                    }
+                    startActivity(Intent.createChooser(intent, "Share ${uris.size} memories via"))
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("SHARE_ERROR", e.localizedMessage, null)
+                }
             } else if (call.method == "acquireWakeLock") {
                 acquireUploadWakeLock()
                 result.success(true)
@@ -357,9 +423,17 @@ class MainActivity : FlutterActivity() {
                 "requestStoragePermission" -> {
                     if (checkStoragePermission()) {
                         result.success(true)
+                    } else if (permissionResult != null) {
+                        result.error("IN_PROGRESS", "A permission request is already active.", null)
                     } else {
                         permissionResult = result
-                        val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val perms = if (Build.VERSION.SDK_INT >= 34) {
+                            arrayOf(
+                                android.Manifest.permission.READ_MEDIA_IMAGES,
+                                android.Manifest.permission.READ_MEDIA_VIDEO,
+                                android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+                            )
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             arrayOf(
                                 android.Manifest.permission.READ_MEDIA_IMAGES,
                                 android.Manifest.permission.READ_MEDIA_VIDEO
@@ -367,15 +441,17 @@ class MainActivity : FlutterActivity() {
                         } else {
                             arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
                         }
-                        ActivityCompat.requestPermissions(this, perms, 1001)
+                        ActivityCompat.requestPermissions(this, perms, REQUEST_CODE_MEDIA_PERMISSION)
                     }
                 }
                 "queryCameraMedia" -> {
-                    try {
-                        val mediaList = queryDeviceMedia()
-                        result.success(mediaList)
-                    } catch (e: Exception) {
-                        result.error("QUERY_FAILED", e.localizedMessage, null)
+                    ioExecutor.execute {
+                        try {
+                            val mediaList = queryDeviceMedia()
+                            mainHandler.post { result.success(mediaList) }
+                        } catch (e: Exception) {
+                            mainHandler.post { result.error("QUERY_FAILED", e.localizedMessage, null) }
+                        }
                     }
                 }
                 else -> result.notImplemented()
@@ -408,14 +484,23 @@ class MainActivity : FlutterActivity() {
                     val folderStartTimes = call.argument<Map<String, Number>>("folderStartTimes")
                     val wifiOnly = call.argument<Boolean>("wifiOnly")
                     val requireCharging = call.argument<Boolean>("requireCharging")
+                    val pinnedCertPins = call.argument<Map<String, String>>("trustedCertPins")
 
                     val prefs = getSharedPreferences(AutoBackupJobService.PREFS_NAME, Context.MODE_PRIVATE)
                     val editor = prefs.edit()
-                    if (!serverUri.isNullOrEmpty()) {
-                        editor.putString(AutoBackupJobService.KEY_SERVER_URI, serverUri)
+                    if (call.hasArgument("serverUri")) {
+                        if (serverUri.isNullOrEmpty()) {
+                            editor.remove(AutoBackupJobService.KEY_SERVER_URI)
+                        } else {
+                            editor.putString(AutoBackupJobService.KEY_SERVER_URI, serverUri)
+                        }
                     }
-                    if (!token.isNullOrEmpty()) {
-                        editor.putString(AutoBackupJobService.KEY_AUTH_TOKEN, token)
+                    if (call.hasArgument("token")) {
+                        if (token.isNullOrEmpty()) {
+                            editor.remove(AutoBackupJobService.KEY_AUTH_TOKEN)
+                        } else {
+                            editor.putString(AutoBackupJobService.KEY_AUTH_TOKEN, token)
+                        }
                     }
                     if (enabledFolders != null) {
                         editor.putStringSet(AutoBackupJobService.KEY_ENABLED_FOLDERS, enabledFolders.toSet())
@@ -436,9 +521,19 @@ class MainActivity : FlutterActivity() {
                     if (requireCharging != null) {
                         editor.putBoolean(AutoBackupJobService.KEY_REQUIRE_CHARGING, requireCharging)
                     }
+                    if (pinnedCertPins != null) {
+                        editor.putString(
+                            AutoBackupJobService.KEY_TRUSTED_CERT_PINS,
+                            org.json.JSONObject(pinnedCertPins).toString()
+                        )
+                    }
                     editor.apply()
 
-                    AutoBackupJobService.schedule(this)
+                    if (call.hasArgument("token") && token.isNullOrEmpty()) {
+                        AutoBackupJobService.cancelAll(this)
+                    } else {
+                        AutoBackupJobService.schedule(this)
+                    }
                     result.success(true)
                 }
                 "isWifiConnected" -> {
@@ -479,10 +574,121 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        // Ensure background AutoBackupJobService is armed on app start
+        // Arm background AutoBackupJobService on app start only when authenticated
         try {
-            AutoBackupJobService.schedule(this)
+            if (AutoBackupJobService.hasAuthConfig(this)) {
+                AutoBackupJobService.schedule(this)
+            }
         } catch (_: Exception) {}
+    }
+
+    private fun deleteDeviceMediaFile(filePath: String, result: MethodChannel.Result) {
+        val file = File(filePath)
+        if (!file.exists()) {
+            mainHandler.post { result.success(true) }
+            return
+        }
+        try {
+            if (file.delete()) {
+                mainHandler.post { result.success(true) }
+                return
+            }
+        } catch (_: Exception) {}
+
+        // Scoped Storage fallback: find MediaStore URI matching _DATA and request deletion
+        val mediaUri = findMediaStoreUriByPath(filePath)
+        if (mediaUri == null) {
+            mainHandler.post { result.success(false) }
+            return
+        }
+
+        try {
+            val rows = contentResolver.delete(mediaUri, null, null)
+            if (rows > 0 || !file.exists()) {
+                mainHandler.post { result.success(true) }
+                return
+            }
+        } catch (se: SecurityException) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                tryHandleRecoverableSecurityException(se, result)
+            ) {
+                return
+            }
+        } catch (_: Exception) {}
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            mainHandler.post {
+                if (pendingDeleteResult != null) {
+                    result.success(false)
+                    return@post
+                }
+                pendingDeleteResult = result
+                try {
+                    val pi = MediaStore.createDeleteRequest(contentResolver, listOf(mediaUri))
+                    startIntentSenderForResult(pi.intentSender, REQUEST_CODE_DELETE_MEDIA, null, 0, 0, 0)
+                } catch (_: Exception) {
+                    pendingDeleteResult = null
+                    result.success(false)
+                }
+            }
+            return
+        }
+
+        mainHandler.post { result.success(false) }
+    }
+
+    @android.annotation.TargetApi(Build.VERSION_CODES.Q)
+    private fun tryHandleRecoverableSecurityException(
+        se: SecurityException,
+        result: MethodChannel.Result
+    ): Boolean {
+        val rse = se as? RecoverableSecurityException ?: return false
+        mainHandler.post {
+            if (pendingDeleteResult != null) {
+                result.success(false)
+                return@post
+            }
+            pendingDeleteResult = result
+            try {
+                startIntentSenderForResult(
+                    rse.userAction.actionIntent.intentSender,
+                    REQUEST_CODE_DELETE_MEDIA,
+                    null, 0, 0, 0
+                )
+            } catch (_: Exception) {
+                pendingDeleteResult = null
+                result.success(false)
+            }
+        }
+        return true
+    }
+
+    private fun findMediaStoreUriByPath(filePath: String): Uri? {
+        val collections = listOf(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        )
+        val proj = arrayOf(MediaStore.MediaColumns._ID)
+        for (collection in collections) {
+            try {
+                contentResolver.query(
+                    collection,
+                    proj,
+                    "${MediaStore.MediaColumns.DATA} = ?",
+                    arrayOf(filePath),
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idCol = cursor.getColumnIndex(MediaStore.MediaColumns._ID)
+                        if (idCol != -1) {
+                            val id = cursor.getLong(idCol)
+                            return ContentUris.withAppendedId(collection, id)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return null
     }
 
     private fun registerMediaObserver() {
@@ -519,11 +725,16 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         releaseUploadWakeLock()
         unregisterMediaObserver()
+        ioExecutor.shutdown()
         super.onDestroy()
     }
 
     private fun checkStoragePermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        return if (Build.VERSION.SDK_INT >= 34) {
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
         } else {
@@ -533,10 +744,19 @@ class MainActivity : FlutterActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1001) {
+        if (requestCode == REQUEST_CODE_MEDIA_PERMISSION) {
             val granted = grantResults.isNotEmpty() && grantResults.any { it == PackageManager.PERMISSION_GRANTED }
             permissionResult?.success(granted)
             permissionResult = null
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_CODE_DELETE_MEDIA) {
+            pendingDeleteResult?.success(resultCode == Activity.RESULT_OK)
+            pendingDeleteResult = null
         }
     }
 
@@ -561,11 +781,11 @@ class MainActivity : FlutterActivity() {
         val imageUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val imgProj = (projectionList + MediaStore.Images.Media.DATE_TAKEN).toTypedArray()
         contentResolver.query(imageUri, imgProj, null, null, "${MediaStore.MediaColumns.DATE_MODIFIED} DESC")?.use { cursor ->
-            val dataCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
-            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
-            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
-            val modCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+            val dataCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+            val nameCol = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+            val sizeCol = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+            val mimeCol = cursor.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE)
+            val modCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
             val takenCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
             val pendingCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) cursor.getColumnIndex(MediaStore.MediaColumns.IS_PENDING) else -1
             val trashedCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.MediaColumns.IS_TRASHED) else -1
@@ -573,17 +793,19 @@ class MainActivity : FlutterActivity() {
             while (cursor.moveToNext() && result.size < 200) {
                 if (pendingCol != -1 && cursor.getInt(pendingCol) == 1) continue
                 if (trashedCol != -1 && cursor.getInt(trashedCol) == 1) continue
+                if (dataCol == -1 || sizeCol == -1) continue
 
-                val path = cursor.getString(dataCol) ?: continue
-                val name = cursor.getString(nameCol) ?: File(path).name
+                val path = if (!cursor.isNull(dataCol)) cursor.getString(dataCol) else null
+                if (path.isNullOrEmpty()) continue
+                val name = if (nameCol != -1 && !cursor.isNull(nameCol)) cursor.getString(nameCol) else File(path).name
                 if (name.startsWith(".") || name.contains(".trashed") || name.contains(".pending") || File(path).name.startsWith(".")) {
                     continue
                 }
 
                 val size = cursor.getLong(sizeCol)
-                val mime = cursor.getString(mimeCol) ?: "image/jpeg"
-                val dateTaken = if (takenCol != -1) cursor.getLong(takenCol) else 0L
-                val dateModified = cursor.getLong(modCol) * 1000L
+                val mime = if (mimeCol != -1 && !cursor.isNull(mimeCol)) cursor.getString(mimeCol) else "image/jpeg"
+                val dateTaken = if (takenCol != -1 && !cursor.isNull(takenCol)) cursor.getLong(takenCol) else 0L
+                val dateModified = if (modCol != -1 && !cursor.isNull(modCol)) cursor.getLong(modCol) * 1000L else 0L
                 val effectiveTime = if (dateTaken > 0) dateTaken else if (dateModified > 0) dateModified else File(path).lastModified()
 
                 if (File(path).exists() && size > 0) {
@@ -603,11 +825,11 @@ class MainActivity : FlutterActivity() {
         val videoUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         val vidProj = (projectionList + MediaStore.Video.Media.DATE_TAKEN).toTypedArray()
         contentResolver.query(videoUri, vidProj, null, null, "${MediaStore.MediaColumns.DATE_MODIFIED} DESC")?.use { cursor ->
-            val dataCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
-            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
-            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
-            val modCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+            val dataCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+            val nameCol = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+            val sizeCol = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+            val mimeCol = cursor.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE)
+            val modCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
             val takenCol = cursor.getColumnIndex(MediaStore.Video.Media.DATE_TAKEN)
             val pendingCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) cursor.getColumnIndex(MediaStore.MediaColumns.IS_PENDING) else -1
             val trashedCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) cursor.getColumnIndex(MediaStore.MediaColumns.IS_TRASHED) else -1
@@ -615,17 +837,19 @@ class MainActivity : FlutterActivity() {
             while (cursor.moveToNext() && result.size < 300) {
                 if (pendingCol != -1 && cursor.getInt(pendingCol) == 1) continue
                 if (trashedCol != -1 && cursor.getInt(trashedCol) == 1) continue
+                if (dataCol == -1 || sizeCol == -1) continue
 
-                val path = cursor.getString(dataCol) ?: continue
-                val name = cursor.getString(nameCol) ?: File(path).name
+                val path = if (!cursor.isNull(dataCol)) cursor.getString(dataCol) else null
+                if (path.isNullOrEmpty()) continue
+                val name = if (nameCol != -1 && !cursor.isNull(nameCol)) cursor.getString(nameCol) else File(path).name
                 if (name.startsWith(".") || name.contains(".trashed") || name.contains(".pending") || File(path).name.startsWith(".")) {
                     continue
                 }
 
                 val size = cursor.getLong(sizeCol)
-                val mime = cursor.getString(mimeCol) ?: "video/mp4"
-                val dateTaken = if (takenCol != -1) cursor.getLong(takenCol) else 0L
-                val dateModified = cursor.getLong(modCol) * 1000L
+                val mime = if (mimeCol != -1 && !cursor.isNull(mimeCol)) cursor.getString(mimeCol) else "video/mp4"
+                val dateTaken = if (takenCol != -1 && !cursor.isNull(takenCol)) cursor.getLong(takenCol) else 0L
+                val dateModified = if (modCol != -1 && !cursor.isNull(modCol)) cursor.getLong(modCol) * 1000L else 0L
                 val effectiveTime = if (dateTaken > 0) dateTaken else if (dateModified > 0) dateModified else File(path).lastModified()
 
                 if (File(path).exists() && size > 0) {

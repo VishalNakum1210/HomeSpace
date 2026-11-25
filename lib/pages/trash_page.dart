@@ -34,7 +34,9 @@ class _TrashPageState extends State<TrashPage> {
 
   Widget _page(BuildContext context) {
     final repository = HomeScope.of(context);
-    final entries = [...repository.trash]
+    final entries = repository.trash
+        .where((entry) => repository.mediaById(entry.mediaId) != null)
+        .toList()
       ..sort((a, b) => b.deletedAt.compareTo(a.deletedAt));
     final ids = selected
         .where((id) => entries.any((entry) => entry.mediaId == id))

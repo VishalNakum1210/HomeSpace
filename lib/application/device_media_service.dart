@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../widgets/app_lock_overlay.dart';
+
 class DeviceMediaService {
   static const _mediaChannel = MethodChannel('com.homespace.homespace/media_saver');
   static const _permissionChannel = MethodChannel('com.homespace.homespace/permissions');
@@ -93,11 +95,13 @@ class DeviceMediaService {
     if (kIsWeb) return false;
     if (Platform.isAndroid || debugOverrideIsAndroid) {
       try {
-        final result = await _mediaChannel.invokeMethod<bool>('shareMedia', {
-          'filePath': filePath,
-          'mimeType': mimeType ?? 'image/*',
+        return await AppLockOverlay.runWithoutLock(() async {
+          final result = await _mediaChannel.invokeMethod<bool>('shareMedia', {
+            'filePath': filePath,
+            'mimeType': mimeType ?? 'image/*',
+          });
+          return result == true;
         });
-        return result == true;
       } catch (e) {
         debugPrint('DeviceMediaService: shareMedia error $e');
       }
@@ -105,8 +109,33 @@ class DeviceMediaService {
     return false;
   }
 
-  /// Checks if photo/video reading permission is granted.
+  /// Shares multiple local photos or videos via the Android system Share sheet.
+  static Future<bool> shareMultipleMedia({
+    required List<String> filePaths,
+    String mimeType = '*/*',
+  }) async {
+    if (kIsWeb || filePaths.isEmpty) return false;
+    if (filePaths.length == 1) {
+      return shareMedia(filePath: filePaths.first, mimeType: mimeType);
+    }
+    if (Platform.isAndroid || debugOverrideIsAndroid) {
+      try {
+        return await AppLockOverlay.runWithoutLock(() async {
+          final result = await _mediaChannel.invokeMethod<bool>('shareMultipleMedia', {
+            'filePaths': filePaths,
+            'mimeType': mimeType,
+          });
+          return result == true;
+        });
+      } catch (e) {
+        debugPrint('DeviceMediaService: shareMultipleMedia error $e');
+      }
+    }
+    return false;
+  }
+
   static final Map<String, String> _thumbnailMemoryCache = {};
+  static const int _maxThumbCacheEntries = 300;
 
   /// Clears in-memory thumbnail cache (e.g. when media is deleted from device).
   static void clearLocalMediaCache() {
@@ -130,6 +159,9 @@ class DeviceMediaService {
           'fileName': fileName,
         });
         if (result != null && result.isNotEmpty) {
+          if (_thumbnailMemoryCache.length >= _maxThumbCacheEntries) {
+            _thumbnailMemoryCache.remove(_thumbnailMemoryCache.keys.first);
+          }
           _thumbnailMemoryCache[cacheKey] = result;
           return result;
         }
@@ -191,8 +223,10 @@ class DeviceMediaService {
   static Future<bool> requestStoragePermission() async {
     if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return true;
     try {
-      final granted = await _permissionChannel.invokeMethod<bool>('requestStoragePermission');
-      return granted ?? false;
+      return await AppLockOverlay.runWithoutLock(() async {
+        final granted = await _permissionChannel.invokeMethod<bool>('requestStoragePermission');
+        return granted ?? false;
+      });
     } catch (_) {
       return false;
     }
@@ -220,6 +254,7 @@ class DeviceMediaService {
     Map<String, int>? folderStartTimes,
     bool? wifiOnly,
     bool? requireCharging,
+    Map<String, String>? trustedCertPins,
   }) async {
     if (kIsWeb || (!Platform.isAndroid && !debugOverrideIsAndroid)) return false;
     try {
@@ -238,6 +273,8 @@ class DeviceMediaService {
         if (wifiOnly != null) 'wifiOnly': wifiOnly,
         // ignore: use_null_aware_elements
         if (requireCharging != null) 'requireCharging': requireCharging,
+        // ignore: use_null_aware_elements
+        if (trustedCertPins != null) 'trustedCertPins': trustedCertPins,
       });
       return result ?? false;
     } catch (e) {

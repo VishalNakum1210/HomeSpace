@@ -124,8 +124,10 @@ class DownloadService extends ChangeNotifier {
           var received = 0;
 
           final tempDir = await getTemporaryDirectory();
+          final safeName =
+              fileName.replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1F]'), '_');
           final dlFile = File(
-            '${tempDir.path}/dl_${item.id}_${DateTime.now().millisecondsSinceEpoch}_$fileName',
+            '${tempDir.path}/dl_${item.id}_${DateTime.now().millisecondsSinceEpoch}_$safeName',
           );
           tempFile = dlFile;
           final sink = dlFile.openWrite();
@@ -174,7 +176,9 @@ class DownloadService extends ChangeNotifier {
 
         final data = await rootBundle.load(asset);
         final tempDir = await getTemporaryDirectory();
-        final dlFile = File('${tempDir.path}/dl_${item.id}_$fileName');
+        final safeName =
+            fileName.replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1F]'), '_');
+        final dlFile = File('${tempDir.path}/dl_${item.id}_$safeName');
         tempFile = dlFile;
         await dlFile.writeAsBytes(data.buffer.asUint8List());
         savedTempPath = dlFile.path;

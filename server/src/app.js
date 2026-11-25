@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
-import { authenticate } from './auth.js';
+import { authenticate, pruneExpiredSessions } from './auth.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { mediaRoutes } from './routes/media.js';
@@ -16,6 +16,20 @@ export async function buildApp({ db, dataDir, config }) {
     requestTimeout: 0,
   });
 
+  // Periodically prune expired sessions so tokens table does not grow unbounded
+  try {
+    pruneExpiredSessions(db);
+  } catch (_) {}
+  const sessionPruneTimer = setInterval(() => {
+    try {
+      pruneExpiredSessions(db);
+    } catch (_) {}
+  }, 60 * 60 * 1000);
+  sessionPruneTimer.unref?.();
+  fastify.addHook('onClose', async () => {
+    clearInterval(sessionPruneTimer);
+  });
+
   // Multipart upload support (up to 500 MB per file)
   await fastify.register(multipart, {
     limits: {
@@ -23,9 +37,9 @@ export async function buildApp({ db, dataDir, config }) {
     },
   });
 
-  // Rate limiting to protect authentication endpoints from brute force
+  // Rate limiting to protect authentication and admin endpoints from brute force
   await fastify.register(rateLimit, {
-    max: 100,
+    max: 60,
     timeWindow: '1 minute',
     allowList: (req) => {
       const url = req.url || '';
@@ -36,11 +50,17 @@ export async function buildApp({ db, dataDir, config }) {
   // Decorate fastify with auth middleware
   fastify.decorate('authenticate', authenticate(db));
 
-  // Consistent error formatting
+  // Consistent error formatting (sanitize 5xx internal errors)
   fastify.setErrorHandler((error, req, reply) => {
-    const statusCode = error.statusCode || 500;
-    const code = error.code || 'INTERNAL_ERROR';
-    const message = error.message || 'An unexpected error occurred';
+    const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+    const isServerError = statusCode >= 500;
+    if (isServerError) {
+      console.error('[HomeSpace Server] Internal error:', error);
+    }
+    const code = isServerError ? 'INTERNAL_ERROR' : (error.code || 'BAD_REQUEST');
+    const message = isServerError
+      ? 'An unexpected internal error occurred.'
+      : (error.message || 'Request failed.');
 
     reply.code(statusCode).send({
       error: {
@@ -55,8 +75,10 @@ export async function buildApp({ db, dataDir, config }) {
   await fastify.register(authRoutes, {
     prefix: '/api',
     db,
+    dataDir,
     defaultQuotaBytes: config.defaultQuotaBytes,
     tokenExpiryDays: config.tokenExpiryDays,
+    registrationOpen: config?.registrationOpen ?? true,
   });
   await fastify.register(mediaRoutes, {
     prefix: '/api',

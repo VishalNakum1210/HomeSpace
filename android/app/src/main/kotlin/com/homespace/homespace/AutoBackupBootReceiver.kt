@@ -16,9 +16,10 @@ class AutoBackupBootReceiver : BroadcastReceiver() {
 
         when (intent?.action) {
             Intent.ACTION_BOOT_COMPLETED,
-            Intent.ACTION_MY_PACKAGE_REPLACED,
-            Intent.ACTION_POWER_CONNECTED -> {
-                AutoBackupJobService.schedule(context)
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                if (AutoBackupJobService.hasAuthConfig(context)) {
+                    AutoBackupJobService.schedule(context)
+                }
             }
         }
     }

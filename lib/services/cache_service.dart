@@ -6,34 +6,71 @@ class CacheService {
   /// Test hook to isolate cache operations during unit tests.
   static Directory? customCacheDir;
 
-  /// Calculate the total size in bytes of files in temporary and application cache directories.
-  static Future<int> getCacheSizeBytes() async {
+  static const String cacheSubdirName = 'homespace_cache';
+
+  static Future<List<Directory>> _cacheDirectories({bool managedSubdirOnly = true}) async {
     if (customCacheDir != null) {
-      return _getDirectorySize(customCacheDir!);
+      return [customCacheDir!];
+    }
+    final dirs = <Directory>[];
+    final seenPaths = <String>{};
+
+    Future<void> addDir(Directory d) async {
+      final target = managedSubdirOnly ? Directory('${d.path}/$cacheSubdirName') : d;
+      String key = target.path;
+      try {
+        if (await target.exists()) {
+          key = await target.resolveSymbolicLinks();
+        }
+      } catch (_) {}
+      if (seenPaths.add(key)) {
+        dirs.add(target);
+      }
     }
 
+    try {
+      await addDir(await getTemporaryDirectory());
+    } catch (_) {}
+    try {
+      await addDir(await getApplicationCacheDirectory());
+    } catch (_) {}
+    return dirs;
+  }
+
+  /// Returns and creates the isolated HomeSpace disk cache directory.
+  static Future<Directory> getManagedCacheDirectory() async {
+    if (customCacheDir != null) {
+      if (!await customCacheDir!.exists()) {
+        await customCacheDir!.create(recursive: true);
+      }
+      return customCacheDir!;
+    }
+    final base = await getTemporaryDirectory();
+    final dir = Directory('${base.path}/$cacheSubdirName');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  /// Calculate total size in bytes of HomeSpace disk cache without blocking UI isolate.
+  static Future<int> getCacheSizeBytes() async {
+    final dirs = await _cacheDirectories();
     var totalBytes = 0;
-    try {
-      final tempDir = await getTemporaryDirectory();
-      totalBytes += _getDirectorySize(tempDir);
-    } catch (_) {}
-
-    try {
-      final cacheDir = await getApplicationCacheDirectory();
-      totalBytes += _getDirectorySize(cacheDir);
-    } catch (_) {}
-
+    for (final dir in dirs) {
+      totalBytes += await _getDirectorySizeAsync(dir);
+    }
     return totalBytes;
   }
 
-  static int _getDirectorySize(Directory dir) {
+  static Future<int> _getDirectorySizeAsync(Directory dir) async {
     var bytes = 0;
-    if (!dir.existsSync()) return 0;
     try {
-      for (final entity in dir.listSync(recursive: true, followLinks: false)) {
+      if (!await dir.exists()) return 0;
+      await for (final entity in dir.list(recursive: true, followLinks: false)) {
         if (entity is File) {
           try {
-            bytes += entity.lengthSync();
+            bytes += await entity.length();
           } catch (_) {}
         }
       }
@@ -41,52 +78,27 @@ class CacheService {
     return bytes;
   }
 
-  /// Purges temporary images, previews, and thumbnails while preserving SQLite databases and user session.
+  /// Purges in-memory image caches and HomeSpace managed disk cache.
   static Future<int> clearCache() async {
     final reclaimed = await getCacheSizeBytes();
 
-    // 1. Clear in-memory Flutter image caches
     try {
       PaintingBinding.instance.imageCache.clear();
       PaintingBinding.instance.imageCache.clearLiveImages();
     } catch (_) {}
 
-    if (customCacheDir != null) {
+    final dirs = await _cacheDirectories();
+    for (final dir in dirs) {
       try {
-        if (customCacheDir!.existsSync()) {
-          for (final entity in customCacheDir!.listSync(followLinks: false)) {
+        if (await dir.exists()) {
+          await for (final entity in dir.list(followLinks: false)) {
             try {
-              entity.deleteSync(recursive: true);
+              await entity.delete(recursive: true);
             } catch (_) {}
           }
         }
       } catch (_) {}
-      return reclaimed;
     }
-
-    // 2. Clear disk temporary directory
-    try {
-      final tempDir = await getTemporaryDirectory();
-      if (tempDir.existsSync()) {
-        for (final entity in tempDir.listSync(followLinks: false)) {
-          try {
-            entity.deleteSync(recursive: true);
-          } catch (_) {}
-        }
-      }
-    } catch (_) {}
-
-    // 3. Clear disk cache directory
-    try {
-      final cacheDir = await getApplicationCacheDirectory();
-      if (cacheDir.existsSync()) {
-        for (final entity in cacheDir.listSync(followLinks: false)) {
-          try {
-            entity.deleteSync(recursive: true);
-          } catch (_) {}
-        }
-      }
-    } catch (_) {}
 
     return reclaimed;
   }

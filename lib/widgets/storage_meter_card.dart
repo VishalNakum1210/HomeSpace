@@ -17,11 +17,45 @@ class _StorageMeterCardState extends State<StorageMeterCard> {
   StorageBreakdown? _stats;
   int _cacheBytes = 0;
   bool _clearingCache = false;
+  int _lastMediaCount = -1;
+  int _lastTrashCount = -1;
 
   @override
   void initState() {
     super.initState();
+    _lastMediaCount = widget.repository.media.length;
+    _lastTrashCount = widget.repository.trash.length;
+    widget.repository.addListener(_onRepositoryChanged);
     _loadStats();
+  }
+
+  @override
+  void didUpdateWidget(StorageMeterCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.repository != widget.repository) {
+      oldWidget.repository.removeListener(_onRepositoryChanged);
+      _lastMediaCount = widget.repository.media.length;
+      _lastTrashCount = widget.repository.trash.length;
+      widget.repository.addListener(_onRepositoryChanged);
+      _loadStats();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.repository.removeListener(_onRepositoryChanged);
+    super.dispose();
+  }
+
+  void _onRepositoryChanged() {
+    final mediaCount = widget.repository.media.length;
+    final trashCount = widget.repository.trash.length;
+    if (widget.repository.pendingWrites == 0 &&
+        (mediaCount != _lastMediaCount || trashCount != _lastTrashCount)) {
+      _lastMediaCount = mediaCount;
+      _lastTrashCount = trashCount;
+      _loadStats();
+    }
   }
 
   Future<void> _loadStats() async {
@@ -111,55 +145,57 @@ class _StorageMeterCardState extends State<StorageMeterCard> {
           ),
           const SizedBox(height: 10),
           // Google Photos style segmented visual progress bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: SizedBox(
-              height: 12,
-              child: Row(
-                children: [
-                  if (photosRatio > 0)
+          Semantics(
+            label:
+                'Storage breakdown: Photos ${StorageBreakdown.formatBytes(stats.photosBytes)}, Videos ${StorageBreakdown.formatBytes(stats.videosBytes)}, Free ${StorageBreakdown.formatBytes(stats.freeBytes)}',
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                height: 12,
+                child: Row(
+                  children: [
+                    if (photosRatio > 0)
+                      Flexible(
+                        flex: (photosRatio * 1000).toInt().clamp(1, 1000),
+                        child: Container(color: photosColor),
+                      ),
+                    if (videosRatio > 0)
+                      Flexible(
+                        flex: (videosRatio * 1000).toInt().clamp(1, 1000),
+                        child: Container(color: videosColor),
+                      ),
                     Flexible(
-                      flex: (photosRatio * 1000).toInt().clamp(1, 1000),
-                      child: Container(color: photosColor),
+                      flex: (freeRatio * 1000).toInt().clamp(1, 1000),
+                      child: Container(color: freeColor),
                     ),
-                  if (videosRatio > 0)
-                    Flexible(
-                      flex: (videosRatio * 1000).toInt().clamp(1, 1000),
-                      child: Container(color: videosColor),
-                    ),
-                  Flexible(
-                    flex: (freeRatio * 1000).toInt().clamp(1, 1000),
-                    child: Container(color: freeColor),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
           const SizedBox(height: 12),
           // Legend
-          ExcludeSemantics(
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                _LegendItem(
-                  color: photosColor,
-                  label: 'Photos',
-                  value: StorageBreakdown.formatBytes(stats.photosBytes),
-                ),
-                _LegendItem(
-                  color: videosColor,
-                  label: 'Videos',
-                  value: StorageBreakdown.formatBytes(stats.videosBytes),
-                ),
-                _LegendItem(
-                  color: dark ? Colors.grey.shade400 : Colors.grey.shade600,
-                  label: 'Free',
-                  value: StorageBreakdown.formatBytes(stats.freeBytes),
-                ),
-              ],
-            ),
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              _LegendItem(
+                color: photosColor,
+                label: 'Photos',
+                value: StorageBreakdown.formatBytes(stats.photosBytes),
+              ),
+              _LegendItem(
+                color: videosColor,
+                label: 'Videos',
+                value: StorageBreakdown.formatBytes(stats.videosBytes),
+              ),
+              _LegendItem(
+                color: dark ? Colors.grey.shade400 : const Color(0xFF5F6368),
+                label: 'Free',
+                value: StorageBreakdown.formatBytes(stats.freeBytes),
+              ),
+            ],
           ),
           const Divider(height: 24),
           // Cache management row
@@ -172,9 +208,9 @@ class _StorageMeterCardState extends State<StorageMeterCard> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.cached_rounded, color: dark ? Colors.grey.shade300 : const Color(0xFF424242), size: 20),
+                  Icon(Icons.cached_rounded, color: dark ? Colors.grey.shade300 : const Color(0xFF334155), size: 20),
                   const SizedBox(width: 8),
-                  ExcludeSemantics(
+                  Flexible(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -186,8 +222,10 @@ class _StorageMeterCardState extends State<StorageMeterCard> {
                           _cacheBytes > 0
                               ? '${CacheService.formatBytes(_cacheBytes)} of temporary previews'
                               : 'Cache is clean (0 B)',
-                          style: text.bodySmall?.copyWith(
-                            color: dark ? Colors.grey.shade300 : const Color(0xFF424242),
+                          style: text.bodyMedium?.copyWith(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: dark ? const Color(0xFFE2E8F0) : const Color(0xFF334155),
                           ),
                         ),
                       ],
@@ -246,16 +284,18 @@ class _LegendItem extends StatelessWidget {
           children: [
             Text(
               label,
-              style: text.bodySmall?.copyWith(
-                fontSize: 12,
-                color: dark ? Colors.grey.shade200 : const Color(0xFF212121),
+              style: text.bodyMedium?.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: dark ? Colors.white : const Color(0xFF171B32),
               ),
             ),
             Text(
               value,
-              style: text.labelSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: dark ? Colors.white : const Color(0xFF212121),
+              style: text.labelMedium?.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: dark ? Colors.white : const Color(0xFF171B32),
               ),
             ),
           ],

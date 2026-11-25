@@ -6,6 +6,7 @@ import '../application/home_scope.dart';
 import '../data/demo_remote_repositories.dart';
 import '../design/space_theme.dart';
 import '../design/space_widgets.dart';
+import '../domain/models.dart';
 import '../domain/repositories.dart';
 import 'library_widgets.dart';
 import 'uploads_page.dart';
@@ -19,6 +20,8 @@ class BackupSettingsPage extends StatefulWidget {
 
 class _BackupSettingsPageState extends State<BackupSettingsPage> {
   List<BackupFolderConfig> folders = List.of(AutoBackupService.defaultFolders);
+  Map<String, int> folderCounts = const {};
+  Map<String, bool> folderDetected = const {};
   bool loading = false;
   bool scanning = false;
   String? statusMessage;
@@ -49,6 +52,25 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
       loading = false;
     });
     _recalculateFreeUpSpace();
+    _refreshFolderStats(loaded);
+  }
+
+  Future<void> _refreshFolderStats(List<BackupFolderConfig> loaded) async {
+    final counts = <String, int>{};
+    final detected = <String, bool>{};
+    for (final cfg in loaded) {
+      if (!mounted) return;
+      final active = await AutoBackupService.findActiveFolderAsync(cfg);
+      detected[cfg.id] = active != null;
+      counts[cfg.id] = active != null
+          ? await AutoBackupService.countPhotosInFolderAsync(cfg)
+          : 0;
+    }
+    if (!mounted) return;
+    setState(() {
+      folderCounts = counts;
+      folderDetected = detected;
+    });
   }
 
   Future<void> _recalculateFreeUpSpace() async {
@@ -98,7 +120,7 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
     if (!confirmed || !mounted) return;
 
     setState(() => freeingUp = true);
-    final count = await AutoBackupService.freeUpSpace(
+    final outcome = await AutoBackupService.freeUpSpaceDetailed(
       files: result.candidateFiles,
     );
     if (!mounted) return;
@@ -109,7 +131,11 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
     messenger.showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        content: Text('Freed up space! Removed $count local file${count == 1 ? "" : "s"}.'),
+        content: Text(
+          outcome.deletedCount > 0
+              ? 'Freed up ${StorageBreakdown.formatBytes(outcome.freedBytes)} (${outcome.deletedCount} file${outcome.deletedCount == 1 ? "" : "s"}). '
+              : 'No local files could be removed. Check storage permission.',
+        ),
       ),
     );
     _recalculateFreeUpSpace();
@@ -178,15 +204,17 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 4),
         content: Text(statusMessage!),
-        action: count > 0
-            ? SnackBarAction(
-                label: 'View Queue',
-                onPressed: () {
-                  messenger.clearSnackBars();
-                  openSpacePage<void>(context, const UploadsPage());
-                },
-              )
-            : null,
+            action: count > 0
+                ? SnackBarAction(
+                    label: 'View Queue',
+                    onPressed: () {
+                      messenger.clearSnackBars();
+                      if (mounted) {
+                        openSpacePage<void>(context, const UploadsPage());
+                      }
+                    },
+                  )
+                : null,
       ),
     );
     _recalculateFreeUpSpace();
@@ -355,7 +383,7 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
                             'DEVICE FOLDERS',
                             style: text.labelSmall?.copyWith(
                               letterSpacing: 1.2,
-                              color: Colors.grey.shade600,
+                              color: style.muted,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -363,9 +391,8 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
                           for (var i = 0; i < folders.length; i++) ...[
                             () {
                               final config = folders[i];
-                              final count = AutoBackupService.countPhotosInFolder(config);
-                              final activeDir = AutoBackupService.findActiveFolder(config);
-                              final detected = activeDir != null;
+                              final count = folderCounts[config.id] ?? 0;
+                              final detected = folderDetected[config.id] ?? false;
 
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 10),
@@ -408,7 +435,7 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
                                                   ? Icons.check_circle_rounded
                                                   : Icons.info_outline_rounded,
                                               size: 13,
-                                              color: detected ? Colors.green : Colors.grey,
+                                              color: detected ? const Color(0xFF2E7D32) : style.muted,
                                             ),
                                             const SizedBox(width: 4),
                                             Text(
@@ -416,7 +443,7 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
                                                   ? '$count items found on device'
                                                   : 'Folder not found',
                                               style: text.labelSmall?.copyWith(
-                                                color: detected ? Colors.green.shade700 : Colors.grey,
+                                                color: detected ? const Color(0xFF2E7D32) : style.muted,
                                               ),
                                             ),
                                           ],
@@ -435,7 +462,7 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
                             'SAFEGUARDS & CONDITIONS',
                             style: text.labelSmall?.copyWith(
                               letterSpacing: 1.2,
-                              color: Colors.grey.shade600,
+                              color: style.muted,
                               fontWeight: FontWeight.bold,
                             ),
                           ),

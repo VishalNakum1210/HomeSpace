@@ -98,10 +98,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 22),
-                        const MemoryStatusBanner(
-                          message: 'Frontend preview only. Addresses are not contacted, and no files or passwords are sent.',
-                        ),
-                        const SizedBox(height: 22),
+                        if (status.isDemo) ...[
+                          const MemoryStatusBanner(
+                            message:
+                                'Frontend preview only. Addresses are not contacted, and no files or passwords are sent.',
+                          ),
+                          const SizedBox(height: 22),
+                        ],
                         TextFormField(
                           key: const ValueKey('server-address'),
                           controller: address,
@@ -153,7 +156,20 @@ class _ConnectionPageState extends State<ConnectionPage> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
-                                      connectionLabel(status.phase),
+                                      status.isDemo
+                                          ? connectionLabel(status.phase)
+                                          : switch (status.phase) {
+                                              ConnectionPhase.disconnected =>
+                                                'Not connected',
+                                              ConnectionPhase.connecting =>
+                                                'Connecting to server',
+                                              ConnectionPhase.connected =>
+                                                'Connected to server',
+                                              ConnectionPhase.failed =>
+                                                'Connection failed',
+                                              ConnectionPhase.offline =>
+                                                'Server offline',
+                                            },
                                       key: const ValueKey('connection-status'),
                                       style: text.titleMedium,
                                     ),
@@ -186,7 +202,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
                                     const UploadsPage(),
                                   ),
                                   icon: const Icon(Icons.cloud_upload_outlined),
-                                  label: const Text('View sample queue'),
+                                  label: Text(
+                                    status.isDemo
+                                        ? 'View sample queue'
+                                        : 'View upload queue',
+                                  ),
                                 ),
                               ],
                             ],
@@ -208,13 +228,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         SpaceButton(
                           key: const ValueKey('connect-server'),
                           label: busy
-                              ? 'Cancel preview'
+                              ? (status.isDemo ? 'Cancel preview' : 'Cancel connection')
                               : connected
-                              ? 'Disconnect demo'
+                              ? (status.isDemo ? 'Disconnect demo' : 'Disconnect')
                               : status.phase == ConnectionPhase.failed ||
                                     status.phase == ConnectionPhase.offline
-                              ? 'Try preview again'
-                              : 'Try connection preview',
+                              ? (status.isDemo ? 'Try preview again' : 'Retry connection')
+                              : (status.isDemo ? 'Try connection preview' : 'Connect to server'),
                           icon: busy || connected
                               ? Icons.close_rounded
                               : Icons.link_rounded,
@@ -224,7 +244,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'The preview connection lasts for this app session. Your saved library is always available.',
+                          status.isDemo
+                              ? 'The preview connection lasts for this app session. Your saved library is always available.'
+                              : 'Changes apply immediately for uploads, playback, and background auto-backup.',
                           textAlign: TextAlign.center,
                           style: text.bodyMedium,
                         ),
