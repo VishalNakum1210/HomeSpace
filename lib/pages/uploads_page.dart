@@ -320,6 +320,11 @@ void _queueAction(BuildContext context, VoidCallback action) {
   }
 }
 
+bool _isFinalizingOnServer(UploadItem item) =>
+    item.phase == UploadPhase.uploading &&
+    item.totalBytes > 0 &&
+    item.bytesSent >= item.totalBytes;
+
 class _UploadCard extends StatelessWidget {
   final UploadItem item;
   final MediaItem? media;
@@ -334,6 +339,7 @@ class _UploadCard extends StatelessWidget {
     final title = item.title ?? media?.title ?? 'Unavailable memory';
     final text = Theme.of(context).textTheme;
     final active = activeUpload(item);
+    final finalizing = _isFinalizingOnServer(item);
     return SpaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -361,23 +367,15 @@ class _UploadCard extends StatelessWidget {
                     Text(title, style: text.titleMedium),
                     const SizedBox(height: 4),
                     Text(
-                      (item.phase == UploadPhase.uploading &&
-                              item.totalBytes > 0 &&
-                              item.bytesSent >= (item.totalBytes * 0.97).round())
+                      finalizing
                           ? 'Processing on server...'
                           : uploadLabel(item.phase),
                       key: ValueKey('upload-state-${item.id}'),
                       style: text.bodyMedium?.copyWith(
-                        color: (item.phase == UploadPhase.uploading &&
-                                item.totalBytes > 0 &&
-                                item.bytesSent >= (item.totalBytes * 0.97).round())
+                        color: finalizing
                             ? Theme.of(context).colorScheme.primary
                             : null,
-                        fontWeight: (item.phase == UploadPhase.uploading &&
-                                item.totalBytes > 0 &&
-                                item.bytesSent >= (item.totalBytes * 0.97).round())
-                            ? FontWeight.w600
-                            : null,
+                        fontWeight: finalizing ? FontWeight.w600 : null,
                       ),
                     ),
                   ],
@@ -400,9 +398,7 @@ class _UploadCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  (item.phase == UploadPhase.uploading &&
-                          item.totalBytes > 0 &&
-                          item.bytesSent >= (item.totalBytes * 0.97).round())
+                  finalizing
                       ? 'Saving to HomeSpace...'
                       : (item.totalBytes > 0
                           ? '${formatBytes(item.bytesSent)} of ${formatBytes(item.totalBytes)}'

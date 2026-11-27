@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -250,6 +251,121 @@ void main() {
 
       repo.clearCompleted();
       expect(repo.items, isEmpty);
+    });
+  });
+
+  group('Chunked upload client', () {
+    test('uploadMediaFile chunks large files and reports real progress', () async {
+      final tempDir = await Directory.systemTemp.createTemp('homespace_chunk_test_');
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final testFile = File('${tempDir.path}/video.mp4');
+      final payload = List<int>.generate(25, (i) => i);
+      await testFile.writeAsBytes(payload);
+
+      final receivedOffsets = <int>[];
+      final receivedBytes = <int>[];
+      var initCalled = false;
+      var completeCalled = false;
+
+      final mockClient = MockClient((request) async {
+        if (request.method == 'POST' && request.url.path == '/api/media/upload/init') {
+          initCalled = true;
+          return http.Response(
+            jsonEncode({
+              'uploadId': 'up_test_123',
+              'bytesReceived': 0,
+              'totalBytes': payload.length,
+              'chunkSize': 10,
+            }),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (request.method == 'PUT' &&
+            request.url.path == '/api/media/upload/up_test_123/chunk') {
+          final offset = int.parse(request.url.queryParameters['offset']!);
+          receivedOffsets.add(offset);
+          receivedBytes.addAll(request.bodyBytes);
+          return http.Response(
+            jsonEncode({
+              'uploadId': 'up_test_123',
+              'bytesReceived': offset + request.bodyBytes.length,
+              'totalBytes': payload.length,
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (request.method == 'POST' &&
+            request.url.path == '/api/media/upload/up_test_123/complete') {
+          completeCalled = true;
+          return http.Response(
+            jsonEncode({
+              'media': {
+                'id': 'm_video_1',
+                'filename': 'video.mp4',
+                'kind': 'video',
+                'size': payload.length,
+                'mimeType': 'video/mp4',
+                'takenAt': '2026-11-27T10:00:00.000Z',
+              },
+            }),
+            201,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('Not found', 404);
+      });
+
+      final client = HomeSpaceApiClient(client: mockClient);
+      final progressEvents = <int>[];
+      final result = await client.uploadMediaFile(
+        baseUri: Uri.parse('http://192.168.0.108:8888'),
+        token: 'tok',
+        filePath: testFile.path,
+        filename: 'video.mp4',
+        mimeType: 'video/mp4',
+        chunkThresholdBytes: 10,
+        onProgress: (sent, total) {
+          progressEvents.add(sent);
+        },
+      );
+
+      expect(initCalled, isTrue);
+      expect(completeCalled, isTrue);
+      expect(receivedOffsets, [0, 10, 20]);
+      expect(receivedBytes, payload);
+      expect(progressEvents.last, payload.length);
+      expect(result.id, 'm_video_1');
+      expect(result.kind, MediaKind.video);
+    });
+
+    test('cancelChunkedUpload sends DELETE to upload session', () async {
+      var deletedPath = '';
+      final mockClient = MockClient((request) async {
+        if (request.method == 'DELETE') {
+          deletedPath = request.url.path;
+          return http.Response(
+            jsonEncode({'canceled': true}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response('Not found', 404);
+      });
+
+      final client = HomeSpaceApiClient(client: mockClient);
+      await client.cancelChunkedUpload(
+        baseUri: Uri.parse('http://192.168.0.108:8888'),
+        token: 'tok',
+        uploadId: 'up_cancel_99',
+      );
+      expect(deletedPath, '/api/media/upload/up_cancel_99');
     });
   });
 }

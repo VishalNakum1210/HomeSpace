@@ -150,6 +150,14 @@ Uri? resolveMediaUri({
   return null;
 }
 
+class UploadInterruptedException implements Exception {
+  final String reason;
+  const UploadInterruptedException([this.reason = 'Upload paused or canceled']);
+
+  @override
+  String toString() => reason;
+}
+
 class _MultipartRequestWithProgress extends http.MultipartRequest {
   final void Function(int bytesSent, int totalBytes)? onProgress;
 
@@ -165,21 +173,21 @@ class _MultipartRequestWithProgress extends http.MultipartRequest {
     final total = contentLength;
     var sent = 0;
 
-    final controller = StreamController<List<int>>(sync: true);
-    byteStream.listen(
-      (chunk) {
-        sent += chunk.length;
-        if (onProgress != null && total > 0) {
-          onProgress!(sent, total);
-        }
-        controller.add(chunk);
-      },
-      onDone: () => controller.close(),
-      onError: (e, st) => controller.addError(e, st),
-      cancelOnError: true,
+    // StreamTransformer preserves downstream pause/resume/cancel backpressure
+    // so large files are read at socket speed without buffering into RAM.
+    final transformed = byteStream.transform(
+      StreamTransformer<List<int>, List<int>>.fromHandlers(
+        handleData: (chunk, sink) {
+          sent += chunk.length;
+          if (onProgress != null && total > 0) {
+            onProgress!(sent, total);
+          }
+          sink.add(chunk);
+        },
+      ),
     );
 
-    return http.ByteStream(controller.stream);
+    return http.ByteStream(transformed);
   }
 }
 
@@ -475,7 +483,35 @@ class HomeSpaceApiClient {
     return page.items;
   }
 
-  // 5. Upload media file
+  static const int chunkedUploadThresholdBytes = 20 * 1024 * 1024;
+  static const int defaultChunkSizeBytes = 10 * 1024 * 1024;
+
+  MediaItem _parseUploadedMediaItem({
+    required Map<String, dynamic> data,
+    required String filePath,
+    required String fallbackFilename,
+    required String resolvedMime,
+    required int fileSize,
+    DateTime? fallbackTakenAt,
+  }) {
+    final media = data['media'] as Map<String, dynamic>;
+    final id = media['id'] as String;
+    final isVideo = media['kind'] == 'video';
+    return MediaItem(
+      id: id,
+      asset: filePath,
+      title: media['filename'] as String? ?? fallbackFilename,
+      category: 'Camera',
+      takenAt: DateTime.tryParse(media['takenAt'] as String? ?? '') ??
+          (fallbackTakenAt ?? DateTime.now()),
+      kind: isVideo ? MediaKind.video : MediaKind.photo,
+      isSynced: true,
+      sizeBytes: (media['size'] as num?)?.toInt() ?? fileSize,
+      mimeType: media['mimeType'] as String? ?? resolvedMime,
+    );
+  }
+
+  // 5. Upload media file (uses 1-step multipart for <= threshold, resumable chunks for larger files)
   Future<MediaItem> uploadMediaFile({
     required Uri baseUri,
     required String token,
@@ -484,6 +520,10 @@ class HomeSpaceApiClient {
     String? mimeType,
     DateTime? takenAt,
     void Function(int bytesSent, int totalBytes)? onProgress,
+    String? existingUploadId,
+    void Function(String uploadId)? onUploadSessionCreated,
+    bool Function()? shouldStop,
+    int chunkThresholdBytes = chunkedUploadThresholdBytes,
   }) => _guard(() async {
     final file = File(filePath);
     if (!await file.exists()) {
@@ -494,9 +534,31 @@ class HomeSpaceApiClient {
       );
     }
 
+    final fileSize = await file.length();
+    final resolvedMime = mimeType ??
+        (filename.toLowerCase().endsWith('.mp4') || filename.toLowerCase().endsWith('.mov')
+            ? 'video/mp4'
+            : 'image/jpeg');
     final takenIso = (takenAt ?? DateTime.now()).toUtc().toIso8601String();
-    final url = _resolve(baseUri, 'api/media/upload', {'takenAt': takenIso});
 
+    if (fileSize > chunkThresholdBytes) {
+      return _uploadMediaFileChunked(
+        baseUri: baseUri,
+        token: token,
+        file: file,
+        fileSize: fileSize,
+        filename: filename,
+        resolvedMime: resolvedMime,
+        takenIso: takenIso,
+        fallbackTakenAt: takenAt,
+        onProgress: onProgress,
+        existingUploadId: existingUploadId,
+        onUploadSessionCreated: onUploadSessionCreated,
+        shouldStop: shouldStop,
+      );
+    }
+
+    final url = _resolve(baseUri, 'api/media/upload', {'takenAt': takenIso});
     final request = _MultipartRequestWithProgress(
       'POST',
       url,
@@ -504,11 +566,6 @@ class HomeSpaceApiClient {
     );
     request.headers['Authorization'] = 'Bearer $token';
     request.headers['x-taken-at'] = takenIso;
-
-    final resolvedMime = mimeType ??
-        (filename.toLowerCase().endsWith('.mp4') || filename.toLowerCase().endsWith('.mov')
-            ? 'video/mp4'
-            : 'image/jpeg');
 
     final multipartFile = await http.MultipartFile.fromPath(
       'file',
@@ -518,30 +575,182 @@ class HomeSpaceApiClient {
     );
     request.files.add(multipartFile);
 
-    final streamed = await _client.send(request).timeout(const Duration(minutes: 10));
-    final response = await http.Response.fromStream(streamed);
+    final streamed = await _client.send(request).timeout(const Duration(minutes: 5));
+    final response = await http.Response.fromStream(streamed).timeout(const Duration(minutes: 2));
 
     if (response.statusCode != 201 && response.statusCode != 200) {
       _handleError(response);
     }
 
-    final data = jsonDecode(response.body);
-    final media = data['media'] as Map<String, dynamic>;
-    final id = media['id'] as String;
-    final isVideo = media['kind'] == 'video';
-    final fileSize = await file.length();
-
-    return MediaItem(
-      id: id,
-      asset: filePath,
-      title: media['filename'] as String? ?? filename,
-      category: 'Camera',
-      takenAt: DateTime.tryParse(media['takenAt'] as String? ?? '') ?? (takenAt ?? DateTime.now()),
-      kind: isVideo ? MediaKind.video : MediaKind.photo,
-      isSynced: true,
-      sizeBytes: (media['size'] as num?)?.toInt() ?? fileSize,
-      mimeType: media['mimeType'] as String? ?? resolvedMime,
+    return _parseUploadedMediaItem(
+      data: jsonDecode(response.body) as Map<String, dynamic>,
+      filePath: filePath,
+      fallbackFilename: filename,
+      resolvedMime: resolvedMime,
+      fileSize: fileSize,
+      fallbackTakenAt: takenAt,
     );
+  });
+
+  Future<MediaItem> _uploadMediaFileChunked({
+    required Uri baseUri,
+    required String token,
+    required File file,
+    required int fileSize,
+    required String filename,
+    required String resolvedMime,
+    required String takenIso,
+    DateTime? fallbackTakenAt,
+    void Function(int bytesSent, int totalBytes)? onProgress,
+    String? existingUploadId,
+    void Function(String uploadId)? onUploadSessionCreated,
+    bool Function()? shouldStop,
+  }) async {
+    String? uploadId = existingUploadId;
+    var offset = 0;
+    var chunkSize = defaultChunkSizeBytes;
+
+    // If resuming, query server's current byte offset first
+    if (uploadId != null && uploadId.isNotEmpty) {
+      final statusUrl = _resolve(baseUri, 'api/media/upload/$uploadId');
+      final statusRes = await _client
+          .get(statusUrl, headers: _headers(token))
+          .timeout(const Duration(seconds: 20));
+      if (statusRes.statusCode == 200) {
+        final data = jsonDecode(statusRes.body) as Map<String, dynamic>;
+        offset = (data['bytesReceived'] as num?)?.toInt() ?? 0;
+        chunkSize = (data['chunkSize'] as num?)?.toInt() ?? defaultChunkSizeBytes;
+      } else {
+        uploadId = null;
+      }
+    }
+
+    if (uploadId == null) {
+      final initUrl = _resolve(baseUri, 'api/media/upload/init');
+      final initRes = await _client
+          .post(
+            initUrl,
+            headers: _headers(token),
+            body: jsonEncode({
+              'filename': filename,
+              'mimeType': resolvedMime,
+              'totalBytes': fileSize,
+              'takenAt': takenIso,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+      if (initRes.statusCode != 201 && initRes.statusCode != 200) {
+        _handleError(initRes);
+      }
+      final initData = jsonDecode(initRes.body) as Map<String, dynamic>;
+      uploadId = initData['uploadId'] as String;
+      offset = (initData['bytesReceived'] as num?)?.toInt() ?? 0;
+      chunkSize = (initData['chunkSize'] as num?)?.toInt() ?? defaultChunkSizeBytes;
+      onUploadSessionCreated?.call(uploadId);
+    }
+
+    if (offset > 0) {
+      onProgress?.call(offset, fileSize);
+    }
+
+    while (offset < fileSize) {
+      if (shouldStop?.call() == true) {
+        throw const UploadInterruptedException();
+      }
+
+      final end = (offset + chunkSize > fileSize) ? fileSize : offset + chunkSize;
+      final chunkLen = end - offset;
+      final chunkUrl = _resolve(
+        baseUri,
+        'api/media/upload/$uploadId/chunk',
+        {'offset': offset},
+      );
+
+      final req = http.StreamedRequest('PUT', chunkUrl);
+      req.headers['Authorization'] = 'Bearer $token';
+      req.headers['Content-Type'] = 'application/octet-stream';
+      req.headers['x-upload-offset'] = offset.toString();
+      req.contentLength = chunkLen;
+
+      var chunkSent = 0;
+      final sendFuture = _client.send(req).timeout(const Duration(minutes: 2));
+      final writeFuture = file
+          .openRead(offset, end)
+          .transform(
+            StreamTransformer<List<int>, List<int>>.fromHandlers(
+              handleData: (chunk, sink) {
+                if (shouldStop?.call() == true) {
+                  sink.addError(const UploadInterruptedException());
+                  return;
+                }
+                chunkSent += chunk.length;
+                onProgress?.call(offset + chunkSent, fileSize);
+                sink.add(chunk);
+              },
+            ),
+          )
+          .pipe(req.sink);
+
+      final results = await Future.wait<dynamic>([writeFuture, sendFuture]);
+      final streamed = results[1] as http.StreamedResponse;
+      final chunkRes = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 60));
+
+      if (chunkRes.statusCode == 409) {
+        final errBody = jsonDecode(chunkRes.body) as Map<String, dynamic>;
+        final errObj = errBody['error'] as Map<String, dynamic>?;
+        final serverReceived = (errObj?['bytesReceived'] as num?)?.toInt();
+        if (serverReceived != null && serverReceived >= 0 && serverReceived <= fileSize) {
+          offset = serverReceived;
+          onProgress?.call(offset, fileSize);
+          continue;
+        }
+      }
+
+      if (chunkRes.statusCode != 200) {
+        _handleError(chunkRes);
+      }
+
+      final resData = jsonDecode(chunkRes.body) as Map<String, dynamic>;
+      offset = (resData['bytesReceived'] as num?)?.toInt() ?? end;
+      onProgress?.call(offset, fileSize);
+    }
+
+    if (shouldStop?.call() == true) {
+      throw const UploadInterruptedException();
+    }
+
+    final completeUrl = _resolve(baseUri, 'api/media/upload/$uploadId/complete');
+    final completeRes = await _client
+        .post(completeUrl, headers: _headers(token), body: '{}')
+        .timeout(const Duration(minutes: 2));
+
+    if (completeRes.statusCode != 201 && completeRes.statusCode != 200) {
+      _handleError(completeRes);
+    }
+
+    return _parseUploadedMediaItem(
+      data: jsonDecode(completeRes.body) as Map<String, dynamic>,
+      filePath: file.path,
+      fallbackFilename: filename,
+      resolvedMime: resolvedMime,
+      fileSize: fileSize,
+      fallbackTakenAt: fallbackTakenAt,
+    );
+  }
+
+  /// Cancels an active or paused chunked upload session so the server immediately frees temp storage.
+  Future<void> cancelChunkedUpload({
+    required Uri baseUri,
+    required String token,
+    required String uploadId,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/media/upload/$uploadId');
+    final response = await _client
+        .delete(url, headers: _headers(token))
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200 && response.statusCode != 404) {
+      _handleError(response);
+    }
   });
 
   // 5b. Upload media thumbnail
@@ -1044,6 +1253,30 @@ class HomeSpaceApiClient {
     );
   });
 
+  FamilyAccount _parseFamilyAccount(
+    Map<String, dynamic> map, {
+    int fallbackQuotaBytes = 15 * 1024 * 1024 * 1024,
+  }) {
+    final rawTone = map['avatarTone'] as String? ?? 'orange';
+    final tone = AvatarTone.values.firstWhere(
+      (t) => t.name == rawTone,
+      orElse: () => AvatarTone.orange,
+    );
+    return FamilyAccount(
+      id: map['id'] as String,
+      email: map['email'] as String? ?? '',
+      name: map['name'] as String? ?? '',
+      avatarTone: tone,
+      isAdmin: map['isAdmin'] == true,
+      storageQuotaBytes:
+          (map['storageQuotaBytes'] as num?)?.toInt() ?? fallbackQuotaBytes,
+      storageUsedBytes: (map['storageUsedBytes'] as num?)?.toInt() ?? 0,
+      createdAt: map['createdAt'] != null
+          ? DateTime.tryParse(map['createdAt'] as String)
+          : null,
+    );
+  }
+
   // 17. Fetch family admin users
   Future<List<FamilyAccount>> fetchAdminUsers({
     required Uri baseUri,
@@ -1059,24 +1292,9 @@ class HomeSpaceApiClient {
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     final users = (data['users'] as List<dynamic>? ?? []);
-    return users.map((u) {
-      final map = u as Map<String, dynamic>;
-      final rawTone = map['avatarTone'] as String? ?? 'orange';
-      final tone = AvatarTone.values.firstWhere(
-        (t) => t.name == rawTone,
-        orElse: () => AvatarTone.orange,
-      );
-      return FamilyAccount(
-        id: map['id'] as String,
-        email: map['email'] as String? ?? '',
-        name: map['name'] as String? ?? '',
-        avatarTone: tone,
-        isAdmin: map['isAdmin'] == true,
-        storageQuotaBytes: (map['storageQuotaBytes'] as num?)?.toInt() ?? 15 * 1024 * 1024 * 1024,
-        storageUsedBytes: (map['storageUsedBytes'] as num?)?.toInt() ?? 0,
-        createdAt: map['createdAt'] != null ? DateTime.tryParse(map['createdAt'] as String) : null,
-      );
-    }).toList();
+    return users
+        .map((u) => _parseFamilyAccount(u as Map<String, dynamic>))
+        .toList();
   });
 
   // 18. Create family user (admin)
@@ -1108,24 +1326,31 @@ class HomeSpaceApiClient {
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     final map = data['user'] as Map<String, dynamic>;
-    final rawTone = map['avatarTone'] as String? ?? 'orange';
-    final tone = AvatarTone.values.firstWhere(
-      (t) => t.name == rawTone,
-      orElse: () => AvatarTone.orange,
-    );
-    return FamilyAccount(
-      id: map['id'] as String,
-      email: map['email'] as String? ?? '',
-      name: map['name'] as String? ?? '',
-      avatarTone: tone,
-      isAdmin: map['isAdmin'] == true,
-      storageQuotaBytes: (map['storageQuotaBytes'] as num?)?.toInt() ?? storageQuotaBytes,
-      storageUsedBytes: (map['storageUsedBytes'] as num?)?.toInt() ?? 0,
-      createdAt: map['createdAt'] != null ? DateTime.tryParse(map['createdAt'] as String) : null,
-    );
+    return _parseFamilyAccount(map, fallbackQuotaBytes: storageQuotaBytes);
   });
 
-  // 19. Delete family user (admin)
+  // 19. Update family user storage quota (admin)
+  Future<FamilyAccount> updateAdminUserQuota({
+    required Uri baseUri,
+    required String token,
+    required String userId,
+    required int storageQuotaBytes,
+  }) => _guard(() async {
+    final url = _resolve(baseUri, 'api/admin/users/$userId');
+    final response = await _client.patch(
+      url,
+      headers: _headers(token),
+      body: jsonEncode({'storageQuotaBytes': storageQuotaBytes}),
+    ).timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) _handleError(response);
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final map = data['user'] as Map<String, dynamic>;
+    return _parseFamilyAccount(map, fallbackQuotaBytes: storageQuotaBytes);
+  });
+
+  // 20. Delete family user (admin)
   Future<void> deleteAdminUser({
     required Uri baseUri,
     required String token,

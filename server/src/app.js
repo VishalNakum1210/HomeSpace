@@ -30,10 +30,10 @@ export async function buildApp({ db, dataDir, config }) {
     clearInterval(sessionPruneTimer);
   });
 
-  // Multipart upload support (up to 500 MB per file)
+  // Multipart upload support (per-route limits enforce user quota and free disk space)
   await fastify.register(multipart, {
     limits: {
-      fileSize: 500 * 1024 * 1024,
+      fileSize: Number.MAX_SAFE_INTEGER,
     },
   });
 

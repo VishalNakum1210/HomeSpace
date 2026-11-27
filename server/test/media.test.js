@@ -6,6 +6,7 @@ import os from 'node:os';
 import { initDatabase } from '../src/db.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { cleanupExpiredTempUploads } from '../src/routes/media.js';
 
 test('Media Pipeline: upload, thumbnail, timeline, streaming, favorites, and trash', async (t) => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'homespace-media-test-'));
@@ -399,5 +400,162 @@ test('Media Pipeline: upload, thumbnail, timeline, streaming, favorites, and tra
 
     const userRow = db.prepare('SELECT storage_used_bytes FROM users WHERE id = ?').get(userId);
     assert.equal(Number(userRow.storage_used_bytes), 0);
+  });
+
+  await t.test('Chunked upload: init rejects over-quota upfront, supports resume, complete, cancel, and TTL cleanup', async () => {
+    // 1. Pre-check rejects file exceeding available quota (100,000 bytes) before uploading chunks
+    const tooLargeInit = await app.inject({
+      method: 'POST',
+      url: '/api/media/upload/init',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        filename: 'too_big.mp4',
+        mimeType: 'video/mp4',
+        totalBytes: 200000,
+      },
+    });
+    assert.equal(tooLargeInit.statusCode, 413);
+    assert.equal(JSON.parse(tooLargeInit.payload).error.code, 'QUOTA_EXCEEDED');
+
+    // 2. Initialize a valid chunked upload (120 bytes in 2 chunks)
+    const videoContent = Buffer.concat([
+      Buffer.alloc(60, 0x41),
+      Buffer.alloc(60, 0x42),
+    ]);
+    const initRes = await app.inject({
+      method: 'POST',
+      url: '/api/media/upload/init',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        filename: 'family_clip.mp4',
+        mimeType: 'video/mp4',
+        totalBytes: videoContent.length,
+        takenAt: '2026-11-27T10:00:00.000Z',
+      },
+    });
+    assert.equal(initRes.statusCode, 201);
+    const { uploadId } = JSON.parse(initRes.payload);
+    assert.ok(uploadId);
+
+    // 3. Upload first chunk (0..60)
+    const chunk1Res = await app.inject({
+      method: 'PUT',
+      url: `/api/media/upload/${uploadId}/chunk?offset=0`,
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/octet-stream',
+      },
+      payload: videoContent.subarray(0, 60),
+    });
+    assert.equal(chunk1Res.statusCode, 200);
+    assert.equal(JSON.parse(chunk1Res.payload).bytesReceived, 60);
+
+    // 4. Query status for resume offset
+    const statusRes = await app.inject({
+      method: 'GET',
+      url: `/api/media/upload/${uploadId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(statusRes.statusCode, 200);
+    assert.equal(JSON.parse(statusRes.payload).bytesReceived, 60);
+
+    // 5. Wrong offset returns 409 OFFSET_MISMATCH with current bytesReceived
+    const badOffsetRes = await app.inject({
+      method: 'PUT',
+      url: `/api/media/upload/${uploadId}/chunk?offset=0`,
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/octet-stream',
+      },
+      payload: videoContent.subarray(0, 60),
+    });
+    assert.equal(badOffsetRes.statusCode, 409);
+    assert.equal(JSON.parse(badOffsetRes.payload).error.bytesReceived, 60);
+
+    // 6. Upload second chunk (60..120) and complete
+    const chunk2Res = await app.inject({
+      method: 'PUT',
+      url: `/api/media/upload/${uploadId}/chunk?offset=60`,
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/octet-stream',
+      },
+      payload: videoContent.subarray(60, 120),
+    });
+    assert.equal(chunk2Res.statusCode, 200);
+    assert.equal(JSON.parse(chunk2Res.payload).bytesReceived, 120);
+
+    const completeRes = await app.inject({
+      method: 'POST',
+      url: `/api/media/upload/${uploadId}/complete`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: {},
+    });
+    assert.equal(completeRes.statusCode, 201);
+    const completedMedia = JSON.parse(completeRes.payload).media;
+    assert.equal(completedMedia.filename, 'family_clip.mp4');
+    assert.equal(completedMedia.kind, 'video');
+    assert.equal(completedMedia.size, 120);
+
+    // Temp directory cleaned up, file streamable with full content
+    assert.equal(fs.existsSync(path.join(tmpDir, 'tmp_uploads', uploadId)), false);
+    const streamRes = await app.inject({
+      method: 'GET',
+      url: `/api/media/${completedMedia.id}/file`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(streamRes.statusCode, 200);
+    assert.deepEqual(streamRes.rawPayload, videoContent);
+
+    // Clean up completed media to reset quota to 0
+    await app.inject({
+      method: 'DELETE',
+      url: `/api/media/${completedMedia.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    // 7. Cancel deletes temp chunks immediately
+    const cancelInit = await app.inject({
+      method: 'POST',
+      url: '/api/media/upload/init',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { filename: 'canceled.mp4', mimeType: 'video/mp4', totalBytes: 100 },
+    });
+    const cancelId = JSON.parse(cancelInit.payload).uploadId;
+    await app.inject({
+      method: 'PUT',
+      url: `/api/media/upload/${cancelId}/chunk?offset=0`,
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/octet-stream',
+      },
+      payload: Buffer.alloc(50, 0x43),
+    });
+    assert.equal(fs.existsSync(path.join(tmpDir, 'tmp_uploads', cancelId)), true);
+
+    const cancelRes = await app.inject({
+      method: 'DELETE',
+      url: `/api/media/upload/${cancelId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(cancelRes.statusCode, 200);
+    assert.equal(fs.existsSync(path.join(tmpDir, 'tmp_uploads', cancelId)), false);
+
+    // 8. Abandoned upload session cleanup removes expired temp directories
+    const expiredInit = await app.inject({
+      method: 'POST',
+      url: '/api/media/upload/init',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { filename: 'abandoned.mp4', mimeType: 'video/mp4', totalBytes: 100 },
+    });
+    const expiredId = JSON.parse(expiredInit.payload).uploadId;
+    const expiredMetaPath = path.join(tmpDir, 'tmp_uploads', expiredId, 'meta.json');
+    const expiredMeta = JSON.parse(fs.readFileSync(expiredMetaPath, 'utf8'));
+    expiredMeta.updatedAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    fs.writeFileSync(expiredMetaPath, JSON.stringify(expiredMeta));
+
+    const cleanedCount = cleanupExpiredTempUploads(path.join(tmpDir, 'tmp_uploads'));
+    assert.equal(cleanedCount, 1);
+    assert.equal(fs.existsSync(path.join(tmpDir, 'tmp_uploads', expiredId)), false);
   });
 });

@@ -111,6 +111,7 @@ class _PendingUploadTask {
   final String? mimeType;
   final String? targetAlbumId;
   final DateTime? takenAt;
+  String? serverUploadId;
 
   _PendingUploadTask({
     required this.item,
@@ -235,12 +236,27 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
           filename: task.filename,
           mimeType: task.mimeType,
           takenAt: task.takenAt,
+          existingUploadId: task.serverUploadId,
+          onUploadSessionCreated: (uploadId) {
+            task.serverUploadId = uploadId;
+          },
+          shouldStop: () {
+            final currentIdx = _items.indexWhere((e) => e.id == item.id);
+            if (currentIdx == -1) return true;
+            final phase = _items[currentIdx].phase;
+            return phase == UploadPhase.paused || phase == UploadPhase.canceled;
+          },
           onProgress: (sent, total) {
             final now = DateTime.now().millisecondsSinceEpoch;
             if (now - lastReport > 80 || sent >= total) {
               lastReport = now;
               final currentIdx = _items.indexWhere((e) => e.id == item.id);
               if (currentIdx != -1) {
+                final currentPhase = _items[currentIdx].phase;
+                if (currentPhase == UploadPhase.paused ||
+                    currentPhase == UploadPhase.canceled) {
+                  return;
+                }
                 _items[currentIdx] = _items[currentIdx].copyWith(
                   phase: UploadPhase.uploading,
                   bytesSent: sent,
@@ -318,14 +334,44 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
       if (!isDeleted) {
         onMediaUploaded?.call(mediaToSave, task.targetAlbumId);
       }
+    } on UploadInterruptedException {
+      // Paused or canceled mid-chunk: preserve paused progress or clean canceled state.
+      final currentIdx = _items.indexWhere((e) => e.id == item.id);
+      if (currentIdx != -1 && _items[currentIdx].phase == UploadPhase.canceled) {
+        _cleanupServerUploadSession(task.serverUploadId);
+        task.serverUploadId = null;
+        _taskRegistry.remove(item.id);
+      }
     } catch (e, st) {
       debugPrint('HttpUploadRepository: upload failed for ${task.filename}: $e\n$st');
       final currentIdx = _items.indexWhere((e) => e.id == item.id);
       if (currentIdx != -1) {
-        _items[currentIdx] = item.copyWith(phase: UploadPhase.failed);
-        notifyListeners();
+        final currentPhase = _items[currentIdx].phase;
+        if (currentPhase != UploadPhase.paused && currentPhase != UploadPhase.canceled) {
+          _items[currentIdx] = _items[currentIdx].copyWith(
+            bytesSent: _items[currentIdx].bytesSent,
+            phase: UploadPhase.failed,
+          );
+          notifyListeners();
+        }
       }
     }
+  }
+
+  void _cleanupServerUploadSession(String? serverUploadId) {
+    if (serverUploadId == null || serverUploadId.isEmpty) return;
+    final serverUri = getServerAddress?.call();
+    final token = getAuthToken?.call();
+    if (serverUri == null || token == null) return;
+    unawaited(
+      _apiClient
+          .cancelChunkedUpload(
+            baseUri: serverUri,
+            token: token,
+            uploadId: serverUploadId,
+          )
+          .catchError((_) {}),
+    );
   }
 
   @override
@@ -376,7 +422,11 @@ class HttpUploadRepository extends ChangeNotifier implements UploadRepository {
     if (idx != -1) {
       _items[idx] = _items[idx].copyWith(phase: UploadPhase.canceled);
       _pendingQueue.removeWhere((task) => task.item.id == id);
-      _taskRegistry.remove(id);
+      final task = _taskRegistry.remove(id);
+      if (task != null) {
+        _cleanupServerUploadSession(task.serverUploadId);
+        task.serverUploadId = null;
+      }
       notifyListeners();
     }
   }
